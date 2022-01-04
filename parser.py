@@ -19,7 +19,7 @@ def parse_args():
                         help='number of epochs')
     parser.add_argument('--embed_size',
                         type=int,
-                        default=256,
+                        default=768,
                         help='embedding size')
     parser.add_argument('--batch_size',
                         type=int,

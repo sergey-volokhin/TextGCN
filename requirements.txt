@@ -3,3 +3,6 @@ torch==1.10.0
 pandas
 numpy
 tqdm
+transformers
+matplotlib
+networkx

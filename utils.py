@@ -1,5 +1,8 @@
 import logging
 
+import dgl
+import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -31,15 +34,16 @@ def report_best_scores(model):
 
 
 def init_bert(args):
+    bert_model = 'bert-base-uncased'
     torch.cuda.empty_cache()
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model, strip_accents=True)
+    tokenizer = BertTokenizer.from_pretrained(bert_model, strip_accents=True)
     if torch.cuda.is_available() and args.gpu:
         batch_size = args.batch_size
-        model = torch.nn.DataParallel(BertModel.from_pretrained(args.bert_model), device_ids=eval(f'[{args.gpu}]'))
+        model = torch.nn.DataParallel(BertModel.from_pretrained(bert_model), device_ids=eval(f'[{args.gpu}]'))
         model.to('cuda:' + args.gpu.split(',')[0])
     else:
         batch_size = 16
-        model = BertModel.from_pretrained(args.bert_model)
+        model = BertModel.from_pretrained(bert_model)
     return tokenizer, model, batch_size
 
 
@@ -58,3 +62,10 @@ def embed_text(sentences, tokenizer, model, batch_size):
         outputs = torch.cat([model(**batch).pooler_output for batch in tqdm(embed_batches,
                             desc='embedding', dynamic_ncols=True)])
     return outputs
+
+
+def draw_bipartite(graph):
+    nx_g = dgl.to_homogeneous(graph).to_networkx().to_undirected()
+    pos = nx.drawing.layout.bipartite_layout(nx_g, range(len(nx_g.nodes())//2))
+    nx.draw(nx_g, pos, with_labels=True, node_color=[[.7, .7, .7]])
+    plt.show()

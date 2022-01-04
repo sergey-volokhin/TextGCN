@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from dgl.nn.pytorch.softmax import edge_softmax
 from tqdm import tqdm
 
 from metric import calculate_metrics, l2_loss_mean
@@ -16,17 +15,17 @@ from metric import calculate_metrics, l2_loss_mean
 
 class MarcusGATConv(nn.Module):
 
-    def __init__(self, in_feats, out_feats, mess_dropout, num_heads=1, activation=nn.ReLU()):
+    def __init__(self, in_feats, out_feats, mess_dropout, activation=nn.ReLU()):
         super(MarcusGATConv, self).__init__()
-        self._in_src_feats, self._in_dst_feats = in_feats, in_feats
-        self._out_feats = out_feats
-        ''' src = users
-            dst = items '''
+        '''
+            src = users
+            dst = items
+        '''
         self.fc_src = nn.Linear(in_feats, out_feats, bias=True)
         self.fc_dst = nn.Linear(in_feats, out_feats, bias=True)
 
+        self._in_feats = in_feats
         self._out_feats = out_feats
-        self._num_heads = num_heads
         self.activation = activation
         self.mess_drop = nn.Dropout(mess_dropout)
 
@@ -39,33 +38,29 @@ class MarcusGATConv(nn.Module):
 
     def forward(self, graph, feat, get_attention=False):
         with graph.local_scope():
-            if isinstance(feat, tuple):
-                h_src = feat[0]
-                h_dst = feat[1]
-            else:
-                h_src = h_dst = feat
+
+            h_src = feat[graph.ndata['id']['user']]
+            h_dst = feat[graph.ndata['id']['item']]
 
             ''' compute attention aka get alpha (on edges) '''
-            graph.srcdata.update({'e_u': h_src})  # (num_src_edge, num_heads, out_dim)
-            graph.dstdata.update({'e_i': h_dst})
-            graph.apply_edges(fn.u_mul_v('e_u', 'e_i', 'e'))
-            e = graph.edata.pop('e')
-            graph.edata['alpha'] = edge_softmax(graph, e)  # TODO: divide by sqrt(d_k)
+            graph.ndata['e_u/i'] = {'user': h_src, 'item': h_dst}
+            graph['bought'].apply_edges(fn.u_dot_v('e_u/i', 'e_u/i', 'alpha'))
+            graph['bought'].edata['alpha'] /= self._in_feats ** (1 / 2)
+            alpha = graph.edata.pop('alpha')
+            graph['bought_by'].edata['alpha'] = graph['bought'].edata['alpha'] = torch.softmax(alpha[('user', 'bought', 'item')], dim=0)
 
             ''' get user and item vectors updated '''
             # get layer based on the type of vertex
-            feat_src = self.fc_src(h_src).view(-1, self._num_heads, self._out_feats)  # W_1 * e_u + b_1
-            feat_dst = self.fc_dst(h_dst).view(-1, self._num_heads, self._out_feats)  # W_2 * e_j + b_2
+            feat_src = self.fc_src(h_src).view(-1, self._out_feats)  # W_1 * e_u + b_1
+            feat_dst = self.fc_dst(h_dst).view(-1, self._out_feats)  # W_2 * e_j + b_2
             feat_src = self.activation(feat_src)  # g(W_1 * e_u + b_1)
             feat_dst = self.activation(feat_dst)  # g(W_2 * e_j + b_2)
-            graph.srcdata.update({'g(We+b)': feat_src})
-            graph.dstdata.update({'g(We+b)': feat_dst})
+            graph.ndata['g(We+b)'] = {'user': feat_src, 'item': feat_dst}
 
-            graph.update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum over item-neighbors
-            # graph.update_all(fn.e_mul_v('alpha', 'g(We+b)', 'm'), fn.sum('m', 'e_new'))  # sum over item-neighbors?
-            # graph.update_all(fn.e_mul_u('alpha', 'g(We+b)', 'm'), fn.sum('m', 'e_new'))  # sum over user-neighbors?
+            graph['bought'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum over item-neighbors
+            graph['bought_by'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum over user-neighbors
 
-            rst = self.mess_drop(graph.dstdata['e_new'])
+            rst = self.mess_drop(torch.cat([graph.ndata['e_new']['user'], graph.ndata['e_new']['item']]))
             if get_attention:
                 return rst, graph.edata['alpha']
             return rst
@@ -81,18 +76,12 @@ class Model(nn.Module):
         self._copy_args(args)
         self._copy_dataset_args(dataset)
         self._build_layers(args)
-        self._build_graph()
-        # self._build_embeddings(args)
         self.load_model(args)
         self.metrics_logger = defaultdict(lambda: np.zeros((0, len(args.k))))
 
         self.to(self.device)
         self._build_optimizer(args)
-        self.logger.info(self)
-
-    def _build_optimizer(self, args):
-        self.optimizer = optim.Adam(self.parameters(), lr=args.lr)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=True, patience=5, min_lr=1e-7)
+        # self.logger.info(self)
 
     def _copy_args(self, args):
         self.device = args.device
@@ -102,8 +91,7 @@ class Model(nn.Module):
         self.evaluate_every = args.evaluate_every
         self.reg_lambda_kg = args.regs
         self.reg_lambda_gnn = args.regs
-        self.cf_batch_size = args.cf_batch_size
-        self.kg_batch_size = args.kg_batch_size
+        self.batch_size = args.batch_size
         self.sampler_mode = args.sampler_mode
         self.uid = args.uid
 
@@ -111,33 +99,31 @@ class Model(nn.Module):
         self.dataset = dataset
         self.logger = dataset.logger
         self.n_entities = dataset.n_entities
-        self.n_relations = dataset.n_kg_relation
-        self.item_id_range = torch.LongTensor(dataset.item_id_range).to(self.device)
+        self.entity_embeddings = dataset.entity_embeddings
+        self.item_id_range = torch.LongTensor(range(min(dataset.item_mapping['remap_id']), max(dataset.item_mapping['remap_id']))).to(self.device)
         self.train_user_dict = dataset.train_user_dict
         self.test_user_dict = dataset.test_user_dict
-        self.train_g = dataset.train_g
-        self.num_kg_batches = dataset.n_train_kg_triplet // self.kg_batch_size + 1
+        self.graph = dataset.graph
         if self.sampler_mode == 'unique':
-            self.num_cf_batches = dataset.n_train
+            self.num_batches = dataset.n_train
         else:
-            self.num_cf_batches = dataset.cf_graph.number_of_edges()  # num_samples comes from dgl.edgeSampler
-        self.num_cf_batches //= self.cf_batch_size + 1
+            self.num_batches = dataset.graph.number_of_edges()  # num_samples comes from dgl.edgeSampler
+        self.num_batches //= self.batch_size + 1
 
     def _build_layers(self, args):
         ''' aggregation layers '''
         self.layers = nn.ModuleList()
         for k in range(len(args.layer_size) - 1):
-            self.layers.append(MarcusGATConv(args.layer_size[k], args.layer_size[k + 1], args.mess_dropout[k]))
+            self.layers.append(MarcusGATConv(args.layer_size[k], args.layer_size[k + 1], args.mess_dropout))
 
-    def _build_graph(self):
-        self.train_g.ndata['id'] = torch.LongTensor(self.train_g.ndata['id']).to(self.device)
-        self.train_g.edata['type'] = torch.LongTensor(self.train_g.edata['type']).to(self.device)
-        # self.train_g.edata['w'] = torch.LongTensor(self.train_g.edata['w']).to(self.device)
+    def _build_optimizer(self, args):
+        self.optimizer = optim.Adam(self.parameters(), lr=args.lr)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=True, patience=5, min_lr=1e-7)
 
     def gnn(self):
         ''' recalculate embeddings '''
-        g = self.train_g.local_var()
-        h = self.entity_embed(g.ndata['id'])
+        g = self.graph.local_var()
+        h = self.entity_embeddings.weight[:]
         node_embed_cache = [h]
         for layer in self.layers:
             h = layer(g, h)
@@ -145,27 +131,21 @@ class Model(nn.Module):
             node_embed_cache.append(out)
         return torch.cat(node_embed_cache, 1)
 
-    def get_loss(self, src_ids, pos_dst_ids, neg_dst_ids):
-        embedding = self.gnn()
-        src_vec = embedding[src_ids]
-        pos_dst_vec = embedding[pos_dst_ids]
-        neg_dst_vec = embedding[neg_dst_ids]
-        pos_score = torch.bmm(src_vec.unsqueeze(1), pos_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
-        neg_score = torch.bmm(src_vec.unsqueeze(1), neg_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
-        cf_loss = torch.mean(F.logsigmoid(pos_score - neg_score)) * (-1.0)
-        reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
-        return cf_loss + self.reg_lambda_gnn * reg_loss
-
-    # def _build_embeddings(self, args):
-    #     self.entity_embed = nn.Embedding(self.n_entities, args.entity_embed_dim)  # e_h, e_t
-    #     self.relation_embed = nn.Embedding(self.n_relations, args.relation_embed_dim)  # e_r
-    #     self.W_Rs = nn.Parameter(torch.Tensor(self.n_relations, args.entity_embed_dim, args.relation_embed_dim))  # w_r
-    #     nn.init.xavier_uniform_(self.W_Rs, gain=nn.init.calculate_gain('leaky_relu', 0.2))
+    # def get_loss(self, src_ids, pos_dst_ids, neg_dst_ids):
+    #     embedding = self.gnn()
+    #     src_vec = embedding[src_ids]
+    #     pos_dst_vec = embedding[pos_dst_ids]
+    #     neg_dst_vec = embedding[neg_dst_ids]
+    #     pos_score = torch.bmm(src_vec.unsqueeze(1), pos_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
+    #     neg_score = torch.bmm(src_vec.unsqueeze(1), neg_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
+    #     loss = torch.mean(F.logsigmoid(pos_score - neg_score)) * (-1.0)
+    #     reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
+    #     return loss + self.reg_lambda_gnn * reg_loss
 
     # def _att_score(self, edges):
     #     ''' att_score = (w_r h_t)^T tanh(w_r h_r + e_r) '''
-    #     t_r = torch.matmul(self.entity_embed(edges.src['id']), self.w_r)
-    #     h_r = torch.matmul(self.entity_embed(edges.dst['id']), self.w_r)
+    #     t_r = torch.matmul(self.entity_embeddings(edges.src['id']), self.w_r)
+    #     h_r = torch.matmul(self.entity_embeddings(edges.dst['id']), self.w_r)
     #     att_w = torch.bmm(t_r.unsqueeze(1), torch.tanh(h_r + self.relation_embed(edges.data['type'])).unsqueeze(2))
     #     return {'att_w': att_w.squeeze(-1)}
 
@@ -181,7 +161,7 @@ class Model(nn.Module):
     # def evaluate(self):
     #     self.eval()
     #     with torch.no_grad():
-    #         self.train_g.edata['w'] = self.compute_attention(self.train_g)
+    #         self.graph.edata['w'] = self.compute_attention(self.graph)
     #         ret = calculate_metrics(self.gnn(),  # embeddings
     #                                 self.train_user_dict,
     #                                 self.test_user_dict,
