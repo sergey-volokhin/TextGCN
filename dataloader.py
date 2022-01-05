@@ -12,9 +12,12 @@ from utils import embed_text, init_bert
 
 
 class DataLoader(object):
-    def __init__(self, args, seed=1234):
-        random.seed(seed)
-        torch.manual_seed(seed)
+    def __init__(self, args, seed=False):
+
+        if seed:
+            random.seed(seed)
+            torch.manual_seed(seed)
+
         self.args = args
         self.path = args.datapath
         self.device = args.device
@@ -22,25 +25,26 @@ class DataLoader(object):
         self._load_files()
         self._get_numbers()
         self._print_info()
-        self._construct_emb()
+        self._construct_embeddings()
         self._construct_graph()
 
     def _load_files(self):
         self.logger.info('loading data')
-        self.train_df = pd.read_table(f'{self.path}/train.tsv', dtype=np.int32).sort_values(by=['user_id'])
-        self.test_df = pd.read_table(f'{self.path}/test.tsv', dtype=np.int32).sort_values(by=['user_id'])
-        self.kg_df_text = pd.read_table(f'{self.path}/kg_readable.tsv')
-        self.user_mapping = pd.read_csv(f'{self.path}/../user_list.txt', sep=' ')
-        self.item_mapping = pd.read_csv(f'{self.path}/../item_list.txt', sep=' ')
-        self.train_user_dict = self.train_df.groupby('user_id')['item_id'].apply(np.array).to_dict()
-        self.test_user_dict = self.test_df.groupby('user_id')['item_id'].apply(np.array).to_dict()
+        self.train_df = pd.read_table(f'{self.path}/train.tsv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
+        self.test_df = pd.read_table(f'{self.path}/test.tsv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
+        self.kg_df_text = pd.read_table(f'{self.path}/kg_readable.tsv')[['asin', 'relation', 'attribute']]
+        self.user_mapping = pd.read_csv(f'{self.path}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
+        self.item_mapping = pd.read_csv(f'{self.path}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
+        self.item_mapping['remap_id'] += max(self.user_mapping['remap_id']) + 1
+        self.train_user_dict = self.train_df.groupby('user_id')['asin'].apply(np.array).to_dict()
+        self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(np.array).to_dict()
 
     def _get_numbers(self):
         self.entities = set(self.kg_df_text['asin'].unique()) | \
             set(self.train_df['user_id'].unique()) | \
-            set(self.train_df['item_id'].unique())
+            set(self.train_df['asin'].unique())
         self.n_users = len(set(self.train_df['user_id'].unique()) | set(self.test_df['user_id'].unique()))
-        self.n_items = len(set(self.train_df['item_id'].unique()) | set(self.test_df['item_id'].unique()))
+        self.n_items = len(set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique()))
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
         self.n_entities = len(self.entities)
@@ -52,8 +56,8 @@ class DataLoader(object):
         self.logger.info(f'n_train:      {self.n_train:-7}')
         self.logger.info(f'n_test:       {self.n_test:-7}')
 
-    def _construct_emb(self):
-        ''' random init for users, overwrite for items '''
+    def _construct_embeddings(self):
+        ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_entities, self.args.embed_size)
 
         ''' construct text representations for items and embed them with BERT '''
@@ -61,19 +65,21 @@ class DataLoader(object):
         for asin, group in self.kg_df_text.groupby('asin'):
             vals = group[['relation', 'attribute']].values
             self.item_text_dict[asin] = ' [SEP] '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
-        self.item_mapping['remap_id'] += max(self.user_mapping['remap_id']) + 1
         self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
         with torch.no_grad():
             self.entity_embeddings.weight[self.item_mapping['remap_id']] = embed_text(self.item_mapping['text'].to_list(), *init_bert(self.args))
 
     def _construct_graph(self):
         ''' create bipartite graph with initial vectors '''
-        self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df.values[:, 0], self.train_df.values[:, 1]),
-                                      ('item', 'bought_by', 'user'): (self.train_df.values[:, 1], self.train_df.values[:, 0])})
-        self.graph.ndata['e'] = {'item': self.entity_embeddings(torch.LongTensor(self.item_mapping['remap_id'])),
-                                 'user': self.entity_embeddings(torch.LongTensor(self.user_mapping['remap_id']))}
-        self.graph.ndata['id'] = {'user': torch.arange(min(self.user_mapping['remap_id']), max(self.user_mapping['remap_id']) + 1, dtype=torch.long).to(self.device),
-                                  'item': torch.arange(min(self.item_mapping['remap_id']), max(self.item_mapping['remap_id']) + 1, dtype=torch.long).to(self.device)}
+        self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
+                                      ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)})
+        user_ids = torch.LongTensor(self.user_mapping['remap_id'])
+        item_ids = torch.LongTensor(self.item_mapping['remap_id'])
+        self.graph.ndata['e'] = {'user': self.entity_embeddings(user_ids),
+                                 'item': self.entity_embeddings(item_ids)}
+        self.graph.ndata['id'] = {'user': user_ids.to(self.device),
+                                  'item': item_ids.to(self.device)}
+
 
     # def create_edge_sampler(self, graph, **kwargs):
     #     edge_sampler = getattr(dgl.contrib.sampling, 'EdgeSampler')
@@ -110,7 +116,7 @@ class DataLoader(object):
     #                 neg_items.append(neg_i_id)
     #             yield users, pos_items, neg_items, None
     #     else:
-    #         for pos_g, neg_g in self.create_edge_sampler(self.cf_graph,
+    #         for pos_g, neg_g in self.create_edge_sampler(self.graph,
     #                                                      batch_size=batch_size,
     #                                                      num_workers=num_workers,
     #                                                      negative_mode='head'):

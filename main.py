@@ -59,10 +59,8 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     args.logger = logger = get_logger(args)
-
     logger.info(f'Model {args.uid}')
     logger.info(args)
-    args.data_path = os.path.realpath(os.path.join(os.path.abspath(__file__), '../datasets'))
 
     dataset = DataLoader(args, seed=args.seed)
     model = Model(args, dataset)

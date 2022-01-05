@@ -15,7 +15,7 @@ from metric import calculate_metrics, l2_loss_mean
 
 class MarcusGATConv(nn.Module):
 
-    def __init__(self, in_feats, out_feats, mess_dropout, activation=nn.ReLU()):
+    def __init__(self, in_feats, out_feats, mess_dropout, activation=nn.ReLU(), nonlinearity='relu'):
         super(MarcusGATConv, self).__init__()
         '''
             src = users
@@ -30,14 +30,15 @@ class MarcusGATConv(nn.Module):
         self.mess_drop = nn.Dropout(mess_dropout)
 
         # initialize weights
-        gain = nn.init.calculate_gain('relu')
+        ''' non-linearity types: sigmoid, tanh, relu, leaky_relu, selu'''
+        gain = nn.init.calculate_gain(nonlinearity)
         nn.init.xavier_normal_(self.fc_src.weight, gain=gain)
         nn.init.constant_(self.fc_src.bias, 0)
         nn.init.xavier_normal_(self.fc_dst.weight, gain=gain)
         nn.init.constant_(self.fc_dst.bias, 0)
 
     def forward(self, graph, feat, get_attention=False):
-        with graph.local_scope():
+        with graph.local_scope():  # entering local mode to not accidentally change anything when propagating through layer
 
             h_src = feat[graph.ndata['id']['user']]
             h_dst = feat[graph.ndata['id']['item']]
@@ -122,7 +123,7 @@ class Model(nn.Module):
 
     def gnn(self):
         ''' recalculate embeddings '''
-        g = self.graph.local_var()
+        g = self.graph.local_var()  # entering local mode to not accidentally change anything while calculating embeddings
         h = self.entity_embeddings.weight[:]
         node_embed_cache = [h]
         for layer in self.layers:

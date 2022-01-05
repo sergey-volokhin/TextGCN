@@ -34,16 +34,15 @@ def report_best_scores(model):
 
 
 def init_bert(args):
-    bert_model = 'bert-base-uncased'
     torch.cuda.empty_cache()
-    tokenizer = BertTokenizer.from_pretrained(bert_model, strip_accents=True)
+    tokenizer = BertTokenizer.from_pretrained(args.bert_model, strip_accents=True)
     if torch.cuda.is_available() and args.gpu:
         batch_size = args.batch_size
-        model = torch.nn.DataParallel(BertModel.from_pretrained(bert_model), device_ids=eval(f'[{args.gpu}]'))
+        model = torch.nn.DataParallel(BertModel.from_pretrained(args.bert_model), device_ids=[int(x) for x in args.gpu.split(', ')])
         model.to('cuda:' + args.gpu.split(',')[0])
     else:
         batch_size = 16
-        model = BertModel.from_pretrained(bert_model)
+        model = BertModel.from_pretrained(args.bert_model)
     return tokenizer, model, batch_size
 
 

@@ -45,6 +45,10 @@ def parse_args():
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')
+    parser.add_argument('--bert-model',
+                        type=str,
+                        default='bert-base-uncased',
+                        help='version of BERT to use')
     parser.add_argument('--sampler_mode',
                         choices=['unique', 'uniform'],
                         default='unique',
