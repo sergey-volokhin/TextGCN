@@ -8,7 +8,7 @@ def parse_args():
     # Data parameters
     parser.add_argument('--datapath',
                         type=str,
-                        default='data/books/',
+                        default='data/',
                         help='folder with the train/test data')
     parser.add_argument('--use_pretrained',
                         action='store_true',
