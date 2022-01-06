@@ -12,6 +12,7 @@ from utils import embed_text, init_bert
 
 
 class DataLoader(object):
+
     def __init__(self, args, seed=False):
 
         if seed:
@@ -84,13 +85,10 @@ class DataLoader(object):
                                   'item': item_ids.to(self.device)}
 
     def sampler(self):
-        if self.batch_size < 0 or self.batch_size > self.n_train:
-            self.batch_size = self.n_train
-            n_batch = 1
-        else:
-            n_batch = self.n_train // self.batch_size + 1
+        n_batches = self.n_train // self.batch_size + 1
+        self.batch_size = min(self.batch_size, self.n_train)
 
-        for _ in range(n_batch):
+        for _ in range(n_batches):
             if self.batch_size <= self.n_users:
                 users = random.sample(self.users, self.batch_size)
             else:
