@@ -40,14 +40,14 @@ class DataLoader(object):
         self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(np.array).to_dict()
 
     def _get_numbers(self):
-        self.entities = set(self.kg_df_text['asin'].unique()) | \
-            set(self.train_df['user_id'].unique()) | \
-            set(self.train_df['asin'].unique())
-        self.n_users = len(set(self.train_df['user_id'].unique()) | set(self.test_df['user_id'].unique()))
-        self.n_items = len(set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique()))
+        self.items = set(self.kg_df_text['asin'].unique()) | set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique())
+        self.users = set(self.train_df['user_id'].unique()) | set(self.test_df['user_id'].unique())
+        self.entities = self.items | self.users
+        self.n_users = len(self.users)
+        self.n_items = len(self.items)
+        self.n_entities = len(self.entities)
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
-        self.n_entities = len(self.entities)
 
     def _print_info(self):
         self.logger.info(f'n_users:      {self.n_users:-7}')
@@ -79,7 +79,6 @@ class DataLoader(object):
                                  'item': self.entity_embeddings(item_ids)}
         self.graph.ndata['id'] = {'user': user_ids.to(self.device),
                                   'item': item_ids.to(self.device)}
-
 
     # def create_edge_sampler(self, graph, **kwargs):
     #     edge_sampler = getattr(dgl.contrib.sampling, 'EdgeSampler')

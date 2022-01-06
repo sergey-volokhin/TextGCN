@@ -97,14 +97,13 @@ class Model(nn.Module):
         self.uid = args.uid
 
     def _copy_dataset_args(self, dataset):
-        self.dataset = dataset
         self.logger = dataset.logger
+        self.dataset = dataset
+        self.graph = dataset.graph
         self.n_entities = dataset.n_entities
         self.entity_embeddings = dataset.entity_embeddings
-        self.item_id_range = torch.LongTensor(range(min(dataset.item_mapping['remap_id']), max(dataset.item_mapping['remap_id']))).to(self.device)
         self.train_user_dict = dataset.train_user_dict
         self.test_user_dict = dataset.test_user_dict
-        self.graph = dataset.graph
         if self.sampler_mode == 'unique':
             self.num_batches = dataset.n_train
         else:
@@ -119,7 +118,7 @@ class Model(nn.Module):
 
     def _build_optimizer(self, args):
         self.optimizer = optim.Adam(self.parameters(), lr=args.lr)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=True, patience=5, min_lr=1e-7)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=(not args.quiet), patience=5, min_lr=1e-6)
 
     def gnn(self):
         ''' recalculate embeddings '''
@@ -166,7 +165,7 @@ class Model(nn.Module):
     #         ret = calculate_metrics(self.gnn(),  # embeddings
     #                                 self.train_user_dict,
     #                                 self.test_user_dict,
-    #                                 self.item_id_range,
+    #                                 self.graph.ndata['id']['item'],
     #                                 self.k)
     #     self.logger.info('            ' + ''.join([f'@{i:<6}' for i in self.k]))
     #     for i in ret:
@@ -207,7 +206,7 @@ class Model(nn.Module):
         embedding = self.gnn()
         with torch.no_grad():
             for u_id, pos_item_l in tqdm(self.test_user_dict.items(), dynamic_ncols=True, leave=False, desc='predicting'):
-                score = torch.matmul(embedding[u_id], embedding[self.item_id_range].transpose(0, 1))
+                score = torch.matmul(embedding[u_id], embedding[self.graph.ndata['id']['item']].transpose(0, 1))
                 score[self.train_user_dict[u_id]] = 0.0
                 _, rank_indices = torch.topk(score, k=max(self.k), largest=True)
                 rank_indices = rank_indices.cpu().numpy()
