@@ -49,10 +49,6 @@ def parse_args():
                         type=str,
                         default='bert-base-uncased',
                         help='version of BERT to use')
-    parser.add_argument('--sampler_mode',
-                        choices=['unique', 'uniform'],
-                        default='unique',
-                        help='how to sample the batches. unique = old; uniform = new')
     parser.add_argument('--gpu',
                         type=str,
                         default='0',
@@ -77,11 +73,10 @@ def parse_args():
                                       type=int,
                                       default=[64, 32, 16],
                                       help='Output sizes of every layer')
-    original_hyperparams.add_argument('--regs',
-                                      nargs=2,
+    original_hyperparams.add_argument('--reg_lambda',
                                       type=float,
-                                      default=[1e-5, 1e-5],
-                                      help='Regularization for user and item embeddings.')
+                                      default=1e-5,
+                                      help='Regularization parameter')
     original_hyperparams.add_argument('--lr',
                                       type=float,
                                       default=0.0001,
@@ -90,8 +85,16 @@ def parse_args():
                                       type=float,
                                       default=0.1,
                                       help='Keep probability w.r.t. message dropout (i.e., 1-dropout_ratio) for each deep layer. 1: no dropout.')
-
+    original_hyperparams.add_argument('--separator', '-sep',
+                                      type=str,
+                                      default='[SEP]',
+                                      dest='sep',
+                                      help='Separator for table comprehension')
     args = parser.parse_args()
+    return process_args(args)
+
+
+def process_args(args):
 
     if args.quiet:
         args.logging_level = 'error'
@@ -102,10 +105,9 @@ def parse_args():
         args.uid = os.path.basename(args.save_path)
     else:
         args.uid = uuid.uuid4()
-        args.save_path = f'kgat_output/{args.uid}'
+        args.save_path = f'results/{args.uid}'
     args.save_path = os.path.join(args.save_path, '')
     args.datapath = os.path.join(args.datapath, '')
     os.makedirs(args.save_path, exist_ok=True)
     args.layer_size = [args.embed_size] + args.layer_size
-
     return args

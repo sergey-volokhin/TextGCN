@@ -28,6 +28,9 @@ class DataLoader(object):
         self._construct_embeddings()
         self._construct_graph()
 
+        self.batch_size = args.batch_size
+        self.num_batches = self.n_train // self.batch_size + 1
+
     def _load_files(self):
         self.logger.info('loading data')
         self.train_df = pd.read_table(f'{self.path}/train.tsv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
@@ -64,7 +67,7 @@ class DataLoader(object):
         self.item_text_dict = {}
         for asin, group in self.kg_df_text.groupby('asin'):
             vals = group[['relation', 'attribute']].values
-            self.item_text_dict[asin] = ' [SEP] '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
+            self.item_text_dict[asin] = f' {self.args.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
         self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
         with torch.no_grad():
             self.entity_embeddings.weight[self.item_mapping['remap_id']] = embed_text(self.item_mapping['text'].to_list(), *init_bert(self.args))
@@ -80,51 +83,24 @@ class DataLoader(object):
         self.graph.ndata['id'] = {'user': user_ids.to(self.device),
                                   'item': item_ids.to(self.device)}
 
-    # def create_edge_sampler(self, graph, **kwargs):
-    #     edge_sampler = getattr(dgl.contrib.sampling, 'EdgeSampler')
-    #     return edge_sampler(graph,
-    #                         neg_sample_size=1,
-    #                         shuffle=True,
-    #                         return_false_neg=True,
-    #                         exclude_positive=False,
-    #                         **kwargs)
+    def sampler(self):
+        if self.batch_size < 0 or self.batch_size > self.n_train:
+            self.batch_size = self.n_train
+            n_batch = 1
+        else:
+            n_batch = self.n_train // self.batch_size + 1
 
-    # def sampler(self, batch_size, pos_mode, num_workers=8):
-    #     if batch_size < 0 or batch_size > self.n_train:
-    #         batch_size = self.n_train
-    #         n_batch = 1
-    #     else:
-    #         n_batch = self.n_train // batch_size + 1
-
-    #     if pos_mode == 'unique':
-    #         exist_users = list(self.train_user_dict)
-    #         i = 0
-    #         while i < n_batch:
-    #             i += 1
-    #             if batch_size <= self.n_users:
-    #                 users = random.sample(exist_users, batch_size)
-    #             else:
-    #                 users = random.choices(exist_users, k=batch_size)
-    #             pos_items, neg_items = [], []
-    #             for u in users:
-    #                 pos_items.append(random.choice(self.train_user_dict[u]))
-    #                 while True:
-    #                     neg_i_id = random.randrange(self.n_items)
-    #                     if neg_i_id not in self.train_user_dict[u]:
-    #                         break
-    #                 neg_items.append(neg_i_id)
-    #             yield users, pos_items, neg_items, None
-    #     else:
-    #         for pos_g, neg_g in self.create_edge_sampler(self.graph,
-    #                                                      batch_size=batch_size,
-    #                                                      num_workers=num_workers,
-    #                                                      negative_mode='head'):
-    #             false_neg = neg_g.edata['false_neg']
-    #             pos_g.copy_from_parent()
-    #             neg_g.copy_from_parent()
-    #             i_idx, u_idx = pos_g.all_edges(order='eid')
-    #             neg_i_idx, _ = neg_g.all_edges(order='eid')
-    #             users = torch.LongTensor(pos_g.ndata['id'][u_idx]).to(self.device)
-    #             pos_items = torch.LongTensor(pos_g.ndata['id'][i_idx]).to(self.device)
-    #             neg_items = torch.LongTensor(neg_g.ndata['id'][neg_i_idx]).to(self.device)
-    #             yield users, pos_items, neg_items, false_neg
+        for _ in range(n_batch):
+            if self.batch_size <= self.n_users:
+                users = random.sample(self.users, self.batch_size)
+            else:
+                users = random.choices(self.users, k=self.batch_size)
+            pos_items, neg_items = [], []
+            for u in users:
+                pos_items.append(random.choice(self.train_user_dict[u]))
+                while True:
+                    neg_i_id = random.randrange(self.n_items)
+                    if neg_i_id not in self.train_user_dict[u]:
+                        break
+                neg_items.append(neg_i_id)
+            yield users, pos_items, neg_items

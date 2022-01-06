@@ -71,7 +71,6 @@ class Model(nn.Module):
 
     def __init__(self, args, dataset):
         super(Model, self).__init__()
-        self.args = args
         self.logger = args.logger
 
         self._copy_args(args)
@@ -90,10 +89,7 @@ class Model(nn.Module):
         self.epochs = args.epochs
         self.k = args.k
         self.evaluate_every = args.evaluate_every
-        self.reg_lambda_kg = args.regs
-        self.reg_lambda_gnn = args.regs
-        self.batch_size = args.batch_size
-        self.sampler_mode = args.sampler_mode
+        self.reg_lambda = args.reg_lambda
         self.uid = args.uid
 
     def _copy_dataset_args(self, dataset):
@@ -104,11 +100,6 @@ class Model(nn.Module):
         self.entity_embeddings = dataset.entity_embeddings
         self.train_user_dict = dataset.train_user_dict
         self.test_user_dict = dataset.test_user_dict
-        if self.sampler_mode == 'unique':
-            self.num_batches = dataset.n_train
-        else:
-            self.num_batches = dataset.graph.number_of_edges()  # num_samples comes from dgl.edgeSampler
-        self.num_batches //= self.batch_size + 1
 
     def _build_layers(self, args):
         ''' aggregation layers '''
@@ -131,48 +122,31 @@ class Model(nn.Module):
             node_embed_cache.append(out)
         return torch.cat(node_embed_cache, 1)
 
-    # def get_loss(self, src_ids, pos_dst_ids, neg_dst_ids):
-    #     embedding = self.gnn()
-    #     src_vec = embedding[src_ids]
-    #     pos_dst_vec = embedding[pos_dst_ids]
-    #     neg_dst_vec = embedding[neg_dst_ids]
-    #     pos_score = torch.bmm(src_vec.unsqueeze(1), pos_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
-    #     neg_score = torch.bmm(src_vec.unsqueeze(1), neg_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
-    #     loss = torch.mean(F.logsigmoid(pos_score - neg_score)) * (-1.0)
-    #     reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
-    #     return loss + self.reg_lambda_gnn * reg_loss
+    def get_loss(self, src_ids, pos_dst_ids, neg_dst_ids):
+        embedding = self.gnn()
+        src_vec = embedding[src_ids]
+        pos_dst_vec = embedding[pos_dst_ids]
+        neg_dst_vec = embedding[neg_dst_ids]
+        pos_score = torch.bmm(src_vec.unsqueeze(1), pos_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
+        neg_score = torch.bmm(src_vec.unsqueeze(1), neg_dst_vec.unsqueeze(2)).squeeze()  # (batch_size, )
+        loss = torch.mean(F.logsigmoid(pos_score - neg_score)) * (-1.0)
+        reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
+        return loss + self.reg_lambda * reg_loss
 
-    # def _att_score(self, edges):
-    #     ''' att_score = (w_r h_t)^T tanh(w_r h_r + e_r) '''
-    #     t_r = torch.matmul(self.entity_embeddings(edges.src['id']), self.w_r)
-    #     h_r = torch.matmul(self.entity_embeddings(edges.dst['id']), self.w_r)
-    #     att_w = torch.bmm(t_r.unsqueeze(1), torch.tanh(h_r + self.relation_embed(edges.data['type'])).unsqueeze(2))
-    #     return {'att_w': att_w.squeeze(-1)}
-
-    # # def compute_attention(self, g):
-    #     ''' compute attention weight and store it on edges '''
-    #     g = g.local_var()
-    #     for i in range(self.n_relations):
-    #         e_idxs = g.filter_edges(lambda edges: edges.data['type'] == i)
-    #         self.w_r = self.W_Rs[i]
-    #         g.apply_edges(self._att_score, e_idxs)
-    #     return edge_softmax(g, g.edata.pop('att_w'))
-
-    # def evaluate(self):
-    #     self.eval()
-    #     with torch.no_grad():
-    #         self.graph.edata['w'] = self.compute_attention(self.graph)
-    #         ret = calculate_metrics(self.gnn(),  # embeddings
-    #                                 self.train_user_dict,
-    #                                 self.test_user_dict,
-    #                                 self.graph.ndata['id']['item'],
-    #                                 self.k)
-    #     self.logger.info('            ' + ''.join([f'@{i:<6}' for i in self.k]))
-    #     for i in ret:
-    #         self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
-    #         self.logger.info(f"{i} {' '*(9-len(i))} " + ' '.join([f'{j:.4f}' for j in ret[i]]))
-    #     self.save_progression()
-    #     return ret
+    def evaluate(self):
+        self.eval()
+        with torch.no_grad():
+            ret = calculate_metrics(self.gnn(),  # embeddings
+                                    self.train_user_dict,
+                                    self.test_user_dict,
+                                    self.graph.ndata['id']['item'],
+                                    self.k)
+        self.logger.info('            ' + ''.join([f'@{i:<6}' for i in self.k]))
+        for i in ret:
+            self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
+            self.logger.info(f"{i} {' '*(9-len(i))} " + ' '.join([f'{j:.4f}' for j in ret[i]]))
+        self.save_progression()
+        return ret
 
     def save_progression(self):
         ''' save all scores in a file '''
