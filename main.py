@@ -1,6 +1,4 @@
 import os
-import uuid
-import warnings
 
 import numpy as np
 import torch

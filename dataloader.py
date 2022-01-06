@@ -1,5 +1,3 @@
-import collections
-import os
 import random
 
 import dgl
