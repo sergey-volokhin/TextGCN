@@ -22,7 +22,7 @@ def step(model):
         loss_total += loss.item()
     if np.isnan(loss_total):
         model.logger.error('loss is nan.')
-        exit()
+        raise ValueError('loss is nan while training')
     model.scheduler.step(loss_total)
     return loss_total
 
