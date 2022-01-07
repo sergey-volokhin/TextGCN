@@ -10,10 +10,11 @@ from transformers import BertModel, BertTokenizer
 
 
 def get_logger(args):
-    logging.basicConfig(level=(logging.ERROR if args.quiet else logging.INFO),
+    level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
+    logging.basicConfig(level=(logging.ERROR if args.quiet else level),
                         format='%(asctime)-10s - %(levelname)s: %(message)s',
                         datefmt='%d/%m/%y %H:%M',
-                        handlers=[logging.FileHandler(args.save_path + 'log.log'), logging.StreamHandler()])
+                        handlers=[logging.FileHandler(f'{args.save_path}/log.log'), logging.StreamHandler()])
     return logging.getLogger()
 
 

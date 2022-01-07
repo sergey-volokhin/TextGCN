@@ -1,5 +1,6 @@
 import argparse
 import os
+
 import uuid
 
 
@@ -10,9 +11,6 @@ def parse_args():
                         type=str,
                         default='data/',
                         help='folder with the train/test data')
-    parser.add_argument('--use_pretrained',
-                        action='store_true',
-                        help='whether to use pre-trained textual attributes or learn them from scratch')
     parser.add_argument('--epochs', '-e',
                         type=int,
                         default=1000,
@@ -38,7 +36,7 @@ def parse_args():
     parser.add_argument('--save_model',
                         action='store_true',
                         help='whether to save the model')
-    parser.add_argument('--load_model',
+    parser.add_argument('--load_path',
                         type=str,
                         default=False,
                         help='path to the model we want to load and continue training or evaluate')
@@ -51,7 +49,7 @@ def parse_args():
                         help='version of BERT to use')
     parser.add_argument('--gpu',
                         type=str,
-                        default='0',
+                        default='',
                         help='comma delimited list of GPUs that torch can see')
     parser.add_argument('--quiet', '-q',
                         action='store_true',
@@ -91,23 +89,14 @@ def parse_args():
                                       dest='sep',
                                       help='Separator for table comprehension')
     args = parser.parse_args()
-    return process_args(args)
 
-
-def process_args(args):
-
-    if args.quiet:
-        args.logging_level = 'error'
-    args.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
-
-    if args.load_model:
-        args.save_path = os.path.dirname(args.load_model)
+    if args.load_path:
+        args.save_path = os.path.dirname(args.load_path)
         args.uid = os.path.basename(args.save_path)
     else:
         args.uid = uuid.uuid4()
         args.save_path = f'results/{args.uid}'
-    args.save_path = os.path.join(args.save_path, '')
-    args.datapath = os.path.join(args.datapath, '')
-    os.makedirs(args.save_path, exist_ok=True)
+        os.makedirs(args.save_path, exist_ok=True)
+
     args.layer_size = [args.embed_size] + args.layer_size
     return args

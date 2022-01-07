@@ -6,29 +6,29 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from utils import embed_text, init_bert
+from utils import embed_text, get_logger, init_bert
 
 
 class DataLoader(object):
 
     def __init__(self, args, seed=False):
 
+        self.logger = get_logger(args)
+        self.device = torch.device('cuda') if args.gpu else torch.device('cpu')
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
 
         self.args = args
         self.path = args.datapath
-        self.device = args.device
-        self.logger = args.logger
         self._load_files()
         self._get_numbers()
         self._print_info()
         self._construct_embeddings()
         self._construct_graph()
 
-        self.batch_size = args.batch_size
-        self.num_batches = self.n_train // self.batch_size + 1
+        self.batch_size = min(args.batch_size, self.n_train)
+        self.num_batches = (self.n_train - 1) // self.batch_size + 1
 
     def _load_files(self):
         self.logger.info('loading data')
@@ -84,10 +84,7 @@ class DataLoader(object):
                                   'item': item_ids.to(self.device)}
 
     def sampler(self):
-        n_batches = self.n_train // self.batch_size + 1
-        self.batch_size = min(self.batch_size, self.n_train)
-
-        for _ in range(n_batches):
+        for _ in range(self.num_batches):
             if self.batch_size <= self.n_users:
                 users = random.sample(self.users, self.batch_size)
             else:

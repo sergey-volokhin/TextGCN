@@ -8,9 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from metric import calculate_metrics, l2_loss_mean
+from utils import early_stop, report_best_scores
 
 
 class MarcusGATConv(nn.Module):
@@ -71,45 +72,59 @@ class Model(nn.Module):
 
     def __init__(self, args, dataset):
         super(Model, self).__init__()
-        self.logger = args.logger
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._build_layers(args)
-        self.load_model(args)
+        self._build_layers()
+        self.load_model()
         self.metrics_logger = defaultdict(lambda: np.zeros((0, len(args.k))))
+        self.current_epoch = 0
 
         self.to(self.device)
-        self._build_optimizer(args)
+        self._build_optimizer()
+        self.logger.info(args)
+        # self._save_code()
         # self.logger.info(self)
 
+    def _save_code(self):
+        ''' saving the code version that is running to the folder with the model for debugging '''
+        folder = os.path.dirname(os.path.abspath(__file__))
+        for file in ['dataloader.py', 'main.py', 'model.py', 'utils.py']:
+            os.system(f'cp {folder}/{file} {self.save_path}')
+
     def _copy_args(self, args):
-        self.device = args.device
-        self.save_path = args.save_path
-        self.epochs = args.epochs
         self.k = args.k
-        self.evaluate_every = args.evaluate_every
-        self.reg_lambda = args.reg_lambda
+        self.lr = args.lr
         self.uid = args.uid
+        self.quiet = args.quiet
+        self.epochs = args.epochs
+        self.save_path = args.save_path
+        self.load_path = args.load_path
+        self.save_model = args.save_model
+        self.reg_lambda = args.reg_lambda
+        self.layer_size = args.layer_size
+        self.mess_dropout = args.mess_dropout
+        self.evaluate_every = args.evaluate_every
 
     def _copy_dataset_args(self, dataset):
-        self.logger = dataset.logger
         self.dataset = dataset
         self.graph = dataset.graph
+        self.logger = dataset.logger
+        self.device = dataset.device
         self.n_entities = dataset.n_entities
-        self.entity_embeddings = dataset.entity_embeddings
-        self.train_user_dict = dataset.train_user_dict
         self.test_user_dict = dataset.test_user_dict
+        self.train_user_dict = dataset.train_user_dict
+        self.entity_embeddings = dataset.entity_embeddings
 
-    def _build_layers(self, args):
+    def _build_layers(self):
         ''' aggregation layers '''
         self.layers = nn.ModuleList()
-        for k in range(len(args.layer_size) - 1):
-            self.layers.append(MarcusGATConv(args.layer_size[k], args.layer_size[k + 1], args.mess_dropout))
+        for k in range(len(self.layer_size) - 1):
+            self.layers.append(MarcusGATConv(self.layer_size[k], self.layer_size[k + 1], self.mess_dropout))
 
-    def _build_optimizer(self, args):
-        self.optimizer = optim.Adam(self.parameters(), lr=args.lr)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=(not args.quiet), patience=5, min_lr=1e-6)
+    def _build_optimizer(self):
+        self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, verbose=(not self.quiet), patience=5, min_lr=1e-6)
 
     def gnn(self):
         ''' recalculate embeddings '''
@@ -141,7 +156,7 @@ class Model(nn.Module):
                                     self.test_user_dict,
                                     self.graph.ndata['id']['item'],
                                     self.k)
-        self.logger.info('            ' + ''.join([f'@{i:<6}' for i in self.k]))
+        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
         for i in ret:
             self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
             self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in ret[i]]))
@@ -155,27 +170,31 @@ class Model(nn.Module):
         for i in range(len(self.metrics_logger['recall'])):
             epochs_string.append(f'%-{width}s' % f'{(i + 1) * self.evaluate_every} epochs')
             at_string.append(f'%-{width}s' % ' '.join([f'@{i:<5}' for i in self.k]))
-        progression = ['Model ' + str(self.uid), 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
+        progression = [f'Model {self.uid}', 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([f'%-{width}s' % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
         open(self.progression_path, 'w').write('\n'.join(progression))
 
-    def checkpoint(self, epoch):
-        ''' save current model and update best '''
-        os.system(f'rm -f {self.save_path}model_checkpoint*')
-        torch.save(self.state_dict(), self.save_path + f'model_checkpoint{epoch}')
-        if max(self.metrics_logger['recall'][:, 0]) == self.metrics_logger['recall'][-1][0]:
-            self.logger.info(f'Updating best model at epoch {epoch}')
-            torch.save(self.state_dict(), self.save_path + 'model_best')
-
-    def load_model(self, args):
-        if args.load_model:
-            self.load_state_dict(torch.load(args.load_model))
-            self.logger.info('Loaded model ' + args.load_model)
+    def load_model(self):
+        ''' load torch weights from file '''
+        if self.load_path:
+            self.load_state_dict(torch.load(self.load_path))
+            self.logger.info(f'Loaded model {self.uid}')
+        else:
+            self.logger.info(f'Created model {self.uid}')
         index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
-        self.progression_path = os.path.join(self.save_path, f'progression_{index + 1}.txt')
+        self.progression_path = f'{self.save_path}/progression_{index + 1}.txt'
+
+    def checkpoint(self):
+        ''' save current model and update the best one '''
+        os.system(f'rm -f {self.save_path}/model_checkpoint*')
+        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}')
+        if max(self.metrics_logger['recall'][:, 0]) == self.metrics_logger['recall'][-1][0]:
+            self.logger.info(f'Updating best model at epoch {self.current_epoch}')
+            torch.save(self.state_dict(), f'{self.save_path}/model_best')
 
     def predict(self):
+        ''' saves a tsv file with max(self.k) predictions per user along with true test items '''
         result = []
         embedding = self.gnn()
         with torch.no_grad():
@@ -186,5 +205,44 @@ class Model(nn.Module):
                 rank_indices = rank_indices.cpu().numpy()
                 result.append([rank_indices.tolist(), pos_item_l.tolist()])
         prediction = pd.DataFrame(result, columns=['predicted', 'true_test'])
-        prediction.to_csv(os.path.join(self.save_path, 'predictions.tsv'), sep='\t', index=False)
-        self.logger.info('Predictions are saved in ' + os.path.join(self.save_path, 'predictions.tsv'))
+        prediction.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
+        self.logger.info(f'Predictions are saved in {self.save_path}/predictions.tsv')
+
+    def workout(self):
+        ''' because torch models already have internal .train method '''
+        for epoch in trange(1, self.epochs + 1, desc='epochs', dynamic_ncols=True):
+            self.train()
+            loss = self.step()
+            if epoch % self.evaluate_every != 0:
+                continue
+            torch.cuda.empty_cache()
+            self.logger.info(f'Epoch {epoch}: loss = {loss}')
+            self.evaluate()
+            if self.save_model:
+                self.checkpoint()
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        if self.save_model:
+            self.logger.info(f'Best model is saved in `{self.save_path}/model_best`')
+            self.checkpoint()
+        report_best_scores(self)
+
+    def step(self):
+        self.current_epoch += 1
+        loss_total = 0
+        for arguments in tqdm(self.dataset.sampler(),
+                              desc='current batch',
+                              dynamic_ncols=True,
+                              leave=False,
+                              total=self.dataset.num_batches):
+            self.optimizer.zero_grad()
+            loss = self.get_loss(*arguments)
+            loss.backward()
+            self.optimizer.step()
+            loss_total += loss.item()
+        if np.isnan(loss_total):
+            self.logger.error('loss is nan.')
+            raise ValueError('loss is nan while training')
+        self.scheduler.step(loss_total)
+        return loss_total
