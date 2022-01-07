@@ -144,21 +144,21 @@ class Model(nn.Module):
         self.logger.info('            ' + ''.join([f'@{i:<6}' for i in self.k]))
         for i in ret:
             self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
-            self.logger.info(f"{i} {' '*(9-len(i))} " + ' '.join([f'{j:.4f}' for j in ret[i]]))
+            self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in ret[i]]))
         self.save_progression()
         return ret
 
     def save_progression(self):
         ''' save all scores in a file '''
-        epochs_string = '           '
-        for i in range(self.evaluate_every, self.epochs + 1, self.evaluate_every):
-            epochs_string += f'%-{7 * len(self.k) + 1}s' % f'{i} epochs'
-        at_string = '           ' + ((''.join([f'@{i:<6}' for i in self.k]) + ' ') * len(self.metrics_logger['recall']))
-        progression = ['Model ' + str(self.uid), 'Full progression:', epochs_string, at_string]
+        epochs_string, at_string = [' ' * 9], [' ' * 9]
+        width = max(10, len(self.k) * 7 - 1)
+        for i in range(len(self.metrics_logger['recall'])):
+            epochs_string.append(f'%-{width}s' % f'{(i + 1) * self.evaluate_every} epochs')
+            at_string.append(f'%-{width}s' % ' '.join([f'@{i:<5}' for i in self.k]))
+        progression = ['Model ' + str(self.uid), 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
         for k, v in self.metrics_logger.items():
-            progression.append(f'{k:10} ' + '  '.join([' '.join([f'{g:.4f}' for g in j]) for j in v]))
-        progression = '\n'.join(progression)
-        open(self.progression_path, 'w').write(progression)
+            progression.append(f'{k:11}' + '  '.join([f'%-{width}s' % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
+        open(self.progression_path, 'w').write('\n'.join(progression))
 
     def checkpoint(self, epoch):
         ''' save current model and update best '''
@@ -187,3 +187,4 @@ class Model(nn.Module):
                 result.append([rank_indices.tolist(), pos_item_l.tolist()])
         prediction = pd.DataFrame(result, columns=['predicted', 'true_test'])
         prediction.to_csv(os.path.join(self.save_path, 'predictions.tsv'), sep='\t', index=False)
+        self.logger.info('Predictions are saved in ' + os.path.join(self.save_path, 'predictions.tsv'))

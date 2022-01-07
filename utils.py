@@ -26,10 +26,10 @@ def report_best_scores(model):
     model.metrics_logger = {k: np.array(v) for k, v in model.metrics_logger.items()}
     best_rec_0 = max(model.metrics_logger['recall'][:, 0])
     idx = list(model.metrics_logger['recall'][:, 0]).index(best_rec_0)
-    model.logger.info(f'Best Metrics (at epoch {idx * model.evaluate_every}):')
+    model.logger.info(f'Best Metrics (at epoch {(idx + 1) * model.evaluate_every}):')
+    model.logger.info(' ' * 11 + ' '.join([f'@{i:<5}' for i in model.k]))
     for k, v in model.metrics_logger.items():
-        model.logger.info(f'{k} {" "*(9-len(k))} {v[idx][0]:.4f} {v[idx][-1]:.4f}')
-    model.logger.info(f'Best model is saved in `{model.save_path}model_best`')
+        model.logger.info(f'{k:11}' + ' '.join([f'{j:.4f}' for j in v[idx]]))
     model.logger.info(f'Full progression of metrics is saved in `{model.progression_path}`')
 
 

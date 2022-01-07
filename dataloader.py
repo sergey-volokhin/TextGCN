@@ -50,6 +50,7 @@ class DataLoader(object):
         self.n_entities = len(self.entities)
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
+        self.users = list(self.users)
 
     def _print_info(self):
         self.logger.info(f'n_users:      {self.n_users:-7}')

@@ -7,7 +7,7 @@ from tqdm import tqdm, trange
 from dataloader import DataLoader
 from model import Model
 from parser import parse_args
-from utils import get_logger, early_stop, report_best_scores, draw_bipartite
+from utils import get_logger, early_stop, report_best_scores
 
 
 def step(model):
@@ -41,6 +41,7 @@ def train(model):
             logger.warning(f'Early stopping triggerred at epoch {epoch}')
             break
     if args.save_model:
+        model.logger.info(f'Best model is saved in `{model.save_path}model_best`')
         model.checkpoint(epoch)
     report_best_scores(model)
 
@@ -58,12 +59,10 @@ if __name__ == '__main__':
     dataset = DataLoader(args, seed=args.seed)
     model = Model(args, dataset)
 
-    # draw_bipartite(dataset.graph)
-
     # # saving the code version that is running to the folder with the model
     # for file in ['dataset.py', 'main.py', 'kgat.py', 'utils.py']:
     #     os.system(f'cp {file} {args.save_path}')
 
     train(model)
-    # if args.predict:
-    #     model.predict()
+    if args.predict:
+        model.predict()
