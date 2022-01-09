@@ -13,5 +13,8 @@ if __name__ == '__main__':
     dataset = DataLoader(args, seed=args.seed)
     model = Model(args, dataset)
     model.workout()
+
     if args.predict:
-        model.predict()
+        predictions = model.predict()
+        predictions.to_csv(f'{args.save_path}/predictions.tsv', sep='\t', index=False)
+        args.logger.info(f'Predictions are saved in `{args.save_path}/predictions.tsv`')

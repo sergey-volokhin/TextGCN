@@ -10,8 +10,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm, trange
 
-from metric import calculate_metrics, l2_loss_mean
-from utils import early_stop, report_best_scores
+from metric import hit, l2_loss_mean, ndcg, precision, recall
+from utils import early_stop, save_code
 
 
 class MarcusGATConv(nn.Module):
@@ -48,8 +48,8 @@ class MarcusGATConv(nn.Module):
             graph.ndata['e_u/i'] = {'user': h_src, 'item': h_dst}
             graph['bought'].apply_edges(fn.u_dot_v('e_u/i', 'e_u/i', 'alpha'))
             graph['bought'].edata['alpha'] /= self._in_feats ** (1 / 2)
-            alpha = graph.edata.pop('alpha')
-            graph['bought_by'].edata['alpha'] = graph['bought'].edata['alpha'] = torch.softmax(alpha[('user', 'bought', 'item')], dim=0)
+            soft_alpha = torch.softmax(graph.edata.pop('alpha')[('user', 'bought', 'item')], dim=0)
+            graph['bought_by'].edata['alpha'] = graph['bought'].edata['alpha'] = soft_alpha
 
             ''' get user and item vectors updated '''
             # get layer based on the type of vertex
@@ -59,8 +59,8 @@ class MarcusGATConv(nn.Module):
             feat_dst = self.activation(feat_dst)  # g(W_2 * e_j + b_2)
             graph.ndata['g(We+b)'] = {'user': feat_src, 'item': feat_dst}
 
-            graph['bought'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum over item-neighbors
-            graph['bought_by'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum over user-neighbors
+            graph['bought'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum att over item-neighbors
+            graph['bought_by'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum att over user-neighbors
 
             rst = self.mess_drop(torch.cat([graph.ndata['e_new']['user'], graph.ndata['e_new']['item']]))
             if get_attention:
@@ -79,18 +79,13 @@ class Model(nn.Module):
         self.load_model()
         self.metrics_logger = defaultdict(lambda: np.zeros((0, len(args.k))))
         self.current_epoch = 0
+        self.sort_metric = 'recall'
 
         self.to(self.device)
         self._build_optimizer()
-        self.logger.info(args)
         # self._save_code()
+        # self.logger.info(args)
         # self.logger.info(self)
-
-    def _save_code(self):
-        ''' saving the code version that is running to the folder with the model for debugging '''
-        folder = os.path.dirname(os.path.abspath(__file__))
-        for file in ['dataloader.py', 'main.py', 'model.py', 'utils.py']:
-            os.system(f'cp {folder}/{file} {self.save_path}')
 
     def _copy_args(self, args):
         self.k = args.k
@@ -111,7 +106,7 @@ class Model(nn.Module):
         self.graph = dataset.graph
         self.logger = dataset.logger
         self.device = dataset.device
-        self.n_entities = dataset.n_entities
+        self.n_users = dataset.n_users
         self.test_user_dict = dataset.test_user_dict
         self.train_user_dict = dataset.train_user_dict
         self.entity_embeddings = dataset.entity_embeddings
@@ -148,69 +143,10 @@ class Model(nn.Module):
         reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
         return loss + self.reg_lambda * reg_loss
 
-    def evaluate(self):
-        self.eval()
-        with torch.no_grad():
-            ret = calculate_metrics(self.gnn(),  # embeddings
-                                    self.train_user_dict,
-                                    self.test_user_dict,
-                                    self.graph.ndata['id']['item'],
-                                    self.k)
-        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
-        for i in ret:
-            self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
-            self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in ret[i]]))
-        self.save_progression()
-        return ret
-
-    def save_progression(self):
-        ''' save all scores in a file '''
-        epochs_string, at_string = [' ' * 9], [' ' * 9]
-        width = max(10, len(self.k) * 7 - 1)
-        for i in range(len(self.metrics_logger['recall'])):
-            epochs_string.append(f'%-{width}s' % f'{(i + 1) * self.evaluate_every} epochs')
-            at_string.append(f'%-{width}s' % ' '.join([f'@{i:<5}' for i in self.k]))
-        progression = [f'Model {self.uid}', 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
-        for k, v in self.metrics_logger.items():
-            progression.append(f'{k:11}' + '  '.join([f'%-{width}s' % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
-        open(self.progression_path, 'w').write('\n'.join(progression))
-
-    def load_model(self):
-        ''' load torch weights from file '''
-        if self.load_path:
-            self.load_state_dict(torch.load(self.load_path))
-            self.logger.info(f'Loaded model {self.uid}')
-        else:
-            self.logger.info(f'Created model {self.uid}')
-        index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
-        self.progression_path = f'{self.save_path}/progression_{index + 1}.txt'
-
-    def checkpoint(self):
-        ''' save current model and update the best one '''
-        os.system(f'rm -f {self.save_path}/model_checkpoint*')
-        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}')
-        if max(self.metrics_logger['recall'][:, 0]) == self.metrics_logger['recall'][-1][0]:
-            self.logger.info(f'Updating best model at epoch {self.current_epoch}')
-            torch.save(self.state_dict(), f'{self.save_path}/model_best')
-
-    def predict(self):
-        ''' saves a tsv file with max(self.k) predictions per user along with true test items '''
-        result = []
-        embedding = self.gnn()
-        with torch.no_grad():
-            for u_id, pos_item_l in tqdm(self.test_user_dict.items(), dynamic_ncols=True, leave=False, desc='predicting'):
-                score = torch.matmul(embedding[u_id], embedding[self.graph.ndata['id']['item']].transpose(0, 1))
-                score[self.train_user_dict[u_id]] = 0.0
-                _, rank_indices = torch.topk(score, k=max(self.k), largest=True)
-                rank_indices = rank_indices.cpu().numpy()
-                result.append([rank_indices.tolist(), pos_item_l.tolist()])
-        prediction = pd.DataFrame(result, columns=['predicted', 'true_test'])
-        prediction.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
-        self.logger.info(f'Predictions are saved in {self.save_path}/predictions.tsv')
-
     def workout(self):
         ''' because torch models already have internal .train method '''
         for epoch in trange(1, self.epochs + 1, desc='epochs', dynamic_ncols=True):
+            self.current_epoch += 1
             self.train()
             loss = self.step()
             if epoch % self.evaluate_every != 0:
@@ -223,13 +159,12 @@ class Model(nn.Module):
             if early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
+
         if self.save_model:
-            self.logger.info(f'Best model is saved in `{self.save_path}/model_best`')
             self.checkpoint()
-        report_best_scores(self)
+        self.report_best_scores()
 
     def step(self):
-        self.current_epoch += 1
         loss_total = 0
         for arguments in tqdm(self.dataset.sampler(),
                               desc='current batch',
@@ -246,3 +181,87 @@ class Model(nn.Module):
             raise ValueError('loss is nan while training')
         self.scheduler.step(loss_total)
         return loss_total
+
+    def evaluate(self):
+        ''' calculate and report metrics against testset '''
+        self.eval()
+        ret = self.calculate_metrics()
+        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
+        for i in ret:
+            self.metrics_logger[i] = np.append(self.metrics_logger[i], [ret[i]], axis=0)
+            self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in ret[i]]))
+        self.save_progression()
+        return ret
+
+    def predict(self):
+        ''' returns a pd.DataFrame with predicted and true test items for each user '''
+        predictions = []
+        embedding = self.gnn()
+        with torch.no_grad():  # don't calculate gradient since we only predict given weights
+            for u_id, pos_item_l in tqdm(self.test_user_dict.items(), dynamic_ncols=True, leave=False, desc='predicting'):
+                score = torch.matmul(embedding[u_id], embedding[self.graph.ndata['id']['item']].transpose(0, 1))
+                score[self.train_user_dict[u_id]] = np.NINF  # resetting scores for train items so we don't "predict" them
+                _, rank_indices = torch.topk(score, k=max(self.k), largest=True)
+                rank_indices = rank_indices.cpu().numpy()
+                predictions.append([rank_indices, pos_item_l])
+        return pd.DataFrame(predictions, columns=['y_pred', 'y_test'])
+
+    ''' UTILS: saving, loading, reporting scores'''
+
+    def calculate_metrics(self):
+        ''' calculate metrics for test_user_dict against predictions '''
+        predictions = self.predict()
+        result = defaultdict(lambda: np.zeros(len(self.k)))
+        for ind, K in enumerate(self.k):
+            predictions['intersecting_items'] = predictions.apply(lambda row: np.intersect1d(row['y_pred'][:K], row['y_test']), axis=1)
+            result['recall'][ind] = predictions.apply(recall, axis=1).mean()
+            result['precision'][ind] = predictions.apply(precision, axis=1).mean()
+            result['hit_ratio'][ind] = predictions.apply(hit, axis=1).mean()
+            result['ndcg'][ind] = predictions.apply(ndcg, k=K, axis=1).mean()
+        return result
+
+    def load_model(self):
+        ''' load torch weights from file '''
+        if self.load_path:
+            self.load_state_dict(torch.load(self.load_path))
+            self.logger.info(f'Loaded model {self.uid}')
+        else:
+            self.logger.info(f'Created model {self.uid}')
+        index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
+        self.progression_path = f'{self.save_path}/progression_{index + 1}.txt'
+
+    def checkpoint(self):
+        ''' save current model and update the best one '''
+        os.system(f'rm -f {self.save_path}/model_checkpoint*')
+        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}')
+        if self.metrics_logger[self.sort_metric][:, 0].max() == self.metrics_logger[self.sort_metric][-1][0]:
+            self.logger.info(f'Updating best model at epoch {self.current_epoch}')
+            torch.save(self.state_dict(), f'{self.save_path}/model_best')
+
+    def save_progression(self):
+        ''' save all scores in a file '''
+        epochs_string, at_string = [' ' * 9], [' ' * 9]
+        width = max(10, len(self.k) * 7 - 1)
+        for i in range(len(self.metrics_logger[self.sort_metric])):
+            epochs_string.append(f'%-{width}s' % f'{(i + 1) * self.evaluate_every} epochs')
+            at_string.append(f'%-{width}s' % ' '.join([f'@{i:<5}' for i in self.k]))
+        progression = [f'Model {self.uid}', 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
+        for k, v in self.metrics_logger.items():
+            progression.append(f'{k:11}' + '  '.join([f'%-{width}s' % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
+        open(self.progression_path, 'w').write('\n'.join(progression))
+
+    def report_best_scores(self):
+        ''' report best scores '''
+        self.metrics_logger = {k: np.array(v) for k, v in self.metrics_logger.items()}
+        idx = np.argmax(self.metrics_logger[self.sort_metric][:, 0])
+        self.logger.info(f'Best Metrics (at epoch {(idx + 1) * self.evaluate_every}):')
+        self.logger.info(' ' * 11 + ' '.join([f'@{i:<5}' for i in self.k]))
+        for k, v in self.metrics_logger.items():
+            self.logger.info(f'{k:11}' + ' '.join([f'{j:.4f}' for j in v[idx]]))
+        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
+
+    def _save_code(self):
+        ''' saving the code version that is running to the folder with the model for debugging '''
+        folder = os.path.dirname(os.path.abspath(__file__))
+        for file in ['dataloader.py', 'main.py', 'model.py', 'utils.py']:
+            os.system(f'cp {folder}/{file} {self.save_path}')

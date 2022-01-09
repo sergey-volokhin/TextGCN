@@ -25,7 +25,7 @@ class DataLoader(object):
         self._get_numbers()
         self._print_info()
         self._construct_embeddings()
-        self._construct_graph()
+        self._construct_graphs()
 
         self.batch_size = min(args.batch_size, self.n_train)
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
@@ -37,7 +37,7 @@ class DataLoader(object):
         self.kg_df_text = pd.read_table(f'{self.path}/kg_readable.tsv')[['asin', 'relation', 'attribute']]
         self.user_mapping = pd.read_csv(f'{self.path}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.item_mapping = pd.read_csv(f'{self.path}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
-        self.item_mapping['remap_id'] += max(self.user_mapping['remap_id']) + 1
+        self.user_mapping['remap_id'] += max(self.item_mapping['remap_id']) + 1
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].apply(np.array).to_dict()
         self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(np.array).to_dict()
 
@@ -72,7 +72,7 @@ class DataLoader(object):
         with torch.no_grad():
             self.entity_embeddings.weight[self.item_mapping['remap_id']] = embed_text(self.item_mapping['text'].to_list(), *init_bert(self.args))
 
-    def _construct_graph(self):
+    def _construct_graphs(self):
         ''' create bipartite graph with initial vectors '''
         self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
                                       ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)})

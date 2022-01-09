@@ -98,5 +98,6 @@ def parse_args():
         args.save_path = f'results/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
 
+    args.k = sorted(args.k)
     args.layer_size = [args.embed_size] + args.layer_size
     return args
