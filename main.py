@@ -17,4 +17,4 @@ if __name__ == '__main__':
     if args.predict:
         predictions = model.predict()
         predictions.to_csv(f'{args.save_path}/predictions.tsv', sep='\t', index=False)
-        args.logger.info(f'Predictions are saved in `{args.save_path}/predictions.tsv`')
+        model.logger.info(f'Predictions are saved in `{args.save_path}/predictions.tsv`')

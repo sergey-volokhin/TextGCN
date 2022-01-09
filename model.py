@@ -11,7 +11,7 @@ import torch.optim as optim
 from tqdm import tqdm, trange
 
 from metric import hit, l2_loss_mean, ndcg, precision, recall
-from utils import early_stop, save_code
+from utils import early_stop
 
 
 class MarcusGATConv(nn.Module):
