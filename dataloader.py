@@ -62,6 +62,11 @@ class DataLoader(object):
     def _construct_embeddings(self):
         ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_entities, self.args.embed_size)
+        if self.args.single_vector:
+            self.user_vector = nn.parameter.Parameter(torch.Tensor(self.args.embed_size))
+            nn.init.xavier_uniform_(self.user_vector.unsqueeze(1))
+        else:
+            self.user_vector = None
 
         ''' construct text representations for items and embed them with BERT '''
         self.item_text_dict = {}

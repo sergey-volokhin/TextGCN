@@ -63,6 +63,9 @@ def parse_args():
                         type=int,
                         default=1234,
                         help='the random seed')
+    parser.add_argument('--single_vector',
+                        action='store_true',
+                        help='whether to use one vector for all users or one per each')
 
     ''' these hyperparameters were in the original code, might be worth optimizing them for our data '''
     original_hyperparams = parser.add_argument_group('original hyperparameters')
@@ -88,6 +91,7 @@ def parse_args():
                                       default='[SEP]',
                                       dest='sep',
                                       help='Separator for table comprehension')
+
     args = parser.parse_args()
 
     if args.load_path:

@@ -38,10 +38,14 @@ class MarcusGATConv(nn.Module):
         nn.init.xavier_normal_(self.fc_dst.weight, gain=gain)
         nn.init.constant_(self.fc_dst.bias, 0)
 
-    def forward(self, graph, feat, get_attention=False):
+    def forward(self, graph, feat, user_vector=None, get_attention=False):
         with graph.local_scope():  # entering local mode to not accidentally change anything when propagating through layer
 
-            h_src = feat[graph.ndata['id']['user']]
+            if user_vector is None:
+                h_src = feat[graph.ndata['id']['user']]
+            else:
+                h_src = user_vector.expand(graph.num_nodes('user'), feat.shape[1])
+
             h_dst = feat[graph.ndata['id']['item']]
 
             ''' compute attention aka get alpha (on edges) '''
@@ -110,6 +114,7 @@ class Model(nn.Module):
         self.test_user_dict = dataset.test_user_dict
         self.train_user_dict = dataset.train_user_dict
         self.entity_embeddings = dataset.entity_embeddings
+        self.user_vector = dataset.user_vector
 
     def _build_layers(self):
         ''' aggregation layers '''
@@ -125,8 +130,15 @@ class Model(nn.Module):
         ''' recalculate embeddings '''
         g = self.graph.local_var()  # entering local mode to not accidentally change anything while calculating embeddings
         h = self.entity_embeddings.weight[:]
-        node_embed_cache = [h]
-        for layer in self.layers:
+        node_embed_cache = [h]  # we need to remove the first layer representations of the user nodes
+
+        ''' first layer processed using user_vector '''
+        h = self.layers[0](g, h, self.user_vector)
+        out = F.normalize(h, p=2, dim=1)
+        node_embed_cache.append(out)
+
+        ''' rest of the layers processed using user embeddings '''
+        for layer in self.layers[1:]:
             h = layer(g, h)
             out = F.normalize(h, p=2, dim=1)
             node_embed_cache.append(out)
