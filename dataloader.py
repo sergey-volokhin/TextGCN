@@ -1,8 +1,10 @@
+import os
 import random
 
 import dgl
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 
@@ -14,7 +16,7 @@ class DataLoader(object):
     def __init__(self, args, seed=False):
 
         self.logger = get_logger(args)
-        self.device = torch.device('cuda') if args.gpu else torch.device('cpu')
+        self.device = args.device = torch.device('cuda') if args.gpu else torch.device('cpu')
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
@@ -60,33 +62,46 @@ class DataLoader(object):
         self.logger.info(f'n_test:       {self.n_test:-7}')
 
     def _construct_embeddings(self):
+
+        ''' construct text representations for items and embed them with BERT '''  # doing it first so GPU doesn't explode
+        if not os.path.exists(f'{self.path}/embeddings.txt'):
+            self.item_text_dict = {}
+            for asin, group in tqdm(self.kg_df_text.groupby('asin'), desc='construct text repr', dynamic_ncols=True):
+                vals = group[['relation', 'attribute']].values
+                self.item_text_dict[asin] = f' {self.args.sep} '.join(
+                    [f'{relation}: {attribute}' for (relation, attribute) in vals])
+            self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
+
+            self.logger.info('constructing embeddings')
+            embeddings = embed_text(self.item_mapping['text'].to_list(), self.device, *init_bert(self.args))
+            torch.save(embeddings, f'{self.path}/embeddings.txt')
+            self.logger.info('embeddings constructed and saved')
+        else:
+            self.logger.info('loading embeddings')
+            embeddings = torch.load(f'{self.path}/embeddings.txt', map_location=self.device)
+            self.logger.info('embeddings loaded')
+
         ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
-        self.entity_embeddings = nn.Embedding(self.n_entities, self.args.embed_size)
+        self.entity_embeddings = nn.Embedding(self.n_entities, self.args.embed_size).to(self.device)
         if self.args.single_vector:
             self.user_vector = nn.parameter.Parameter(torch.Tensor(self.args.embed_size))
             nn.init.xavier_uniform_(self.user_vector.unsqueeze(1))
         else:
             self.user_vector = None
 
-        ''' construct text representations for items and embed them with BERT '''
-        self.item_text_dict = {}
-        for asin, group in self.kg_df_text.groupby('asin'):
-            vals = group[['relation', 'attribute']].values
-            self.item_text_dict[asin] = f' {self.args.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
-        self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
         with torch.no_grad():
-            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embed_text(self.item_mapping['text'].to_list(), *init_bert(self.args))
+            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
 
     def _construct_graphs(self):
         ''' create bipartite graph with initial vectors '''
         self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-                                      ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)})
-        user_ids = torch.LongTensor(self.user_mapping['remap_id'])
-        item_ids = torch.LongTensor(self.item_mapping['remap_id'])
+                                      ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)}).to(self.device)
+        user_ids = torch.LongTensor(self.user_mapping['remap_id']).to(self.device)
+        item_ids = torch.LongTensor(self.item_mapping['remap_id']).to(self.device)
         self.graph.ndata['e'] = {'user': self.entity_embeddings(user_ids),
                                  'item': self.entity_embeddings(item_ids)}
-        self.graph.ndata['id'] = {'user': user_ids.to(self.device),
-                                  'item': item_ids.to(self.device)}
+        self.graph.ndata['id'] = {'user': user_ids,
+                                  'item': item_ids}
 
     def sampler(self):
         for _ in range(self.num_batches):

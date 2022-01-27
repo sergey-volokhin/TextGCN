@@ -27,15 +27,14 @@ def init_bert(args):
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, strip_accents=True)
     if torch.cuda.is_available() and args.gpu:
         batch_size = args.batch_size
-        model = torch.nn.DataParallel(BertModel.from_pretrained(args.bert_model), device_ids=[int(x) for x in args.gpu.split(', ')])
-        model.to('cuda:' + args.gpu.split(',')[0])
+        model = torch.nn.DataParallel(BertModel.from_pretrained(args.bert_model)).to(args.device)
     else:
         batch_size = 16
         model = BertModel.from_pretrained(args.bert_model)
     return tokenizer, model, batch_size
 
 
-def embed_text(sentences, tokenizer, model, batch_size):
+def embed_text(sentences, device, tokenizer, model, batch_size):
     num_samples = len(sentences)
     token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                     [sentences[(num_samples // batch_size) * batch_size:]]
@@ -45,9 +44,12 @@ def embed_text(sentences, tokenizer, model, batch_size):
                                        return_tensors="pt",
                                        padding=True,
                                        truncation=True,
-                                       max_length=512))
+                                       max_length=512).to(device))
     with torch.no_grad():
         outputs = torch.cat([model(**batch).pooler_output for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True)])
+    torch.cuda.empty_cache()
+    # del model, tokenizer
+    # torch.clea
     return outputs
 
 
