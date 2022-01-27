@@ -44,20 +44,19 @@ class DataLoader(object):
         self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(np.array).to_dict()
 
     def _get_numbers(self):
-        self.items = set(self.kg_df_text['asin'].unique()) | set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique())
+        self.items = set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique())
         self.users = set(self.train_df['user_id'].unique()) | set(self.test_df['user_id'].unique())
-        self.entities = self.items | self.users
         self.n_users = len(self.users)
         self.n_items = len(self.items)
-        self.n_entities = len(self.entities)
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
         self.users = list(self.users)
+        assert len(self.kg_df_text['asin'].unique()) == self.n_items, 'number of items in KG not equal to number of items in train'
 
     def _print_info(self):
         self.logger.info(f'n_users:      {self.n_users:-7}')
         self.logger.info(f'n_items:      {self.n_items:-7}')
-        self.logger.info(f'n_entities:   {self.n_entities:-7}')
+        self.logger.info(f'n_entities:   {self.n_users + self.n_items:-7}')
         self.logger.info(f'n_train:      {self.n_train:-7}')
         self.logger.info(f'n_test:       {self.n_test:-7}')
 
@@ -82,7 +81,7 @@ class DataLoader(object):
             self.logger.info('embeddings loaded')
 
         ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
-        self.entity_embeddings = nn.Embedding(self.n_entities, self.args.embed_size).to(self.device)
+        self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size).to(self.device)
         if self.args.single_vector:
             self.user_vector = nn.parameter.Parameter(torch.Tensor(self.args.embed_size))
             nn.init.xavier_uniform_(self.user_vector.unsqueeze(1))

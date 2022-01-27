@@ -1,5 +1,5 @@
-org_id remap_id freebase_id
-asin_0 0 m.04y9jxd
-asin_1 1 m.045wq1q
-asin_2 2 m.03_28m
-asin_3 3 m.0h2q1cq
+org_id remap_id
+asin_0 0
+asin_1 1
+asin_2 2
+asin_3 3
