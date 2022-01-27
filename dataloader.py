@@ -34,9 +34,9 @@ class DataLoader(object):
 
     def _load_files(self):
         self.logger.info('loading data')
-        self.train_df = pd.read_table(f'{self.path}/train.tsv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
-        self.test_df = pd.read_table(f'{self.path}/test.tsv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
-        self.kg_df_text = pd.read_table(f'{self.path}/kg_readable.tsv')[['asin', 'relation', 'attribute']]
+        self.train_df = pd.read_csv(f'{self.path}/train.csv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
+        self.test_df = pd.read_csv(f'{self.path}/test.csv', dtype=np.int32, header=0, names=['user_id', 'asin']).sort_values(by=['user_id'])
+        self.kg_df_text = pd.read_csv(f'{self.path}/kg_readable.csv')[['asin', 'relation', 'attribute']]
         self.user_mapping = pd.read_csv(f'{self.path}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.item_mapping = pd.read_csv(f'{self.path}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.user_mapping['remap_id'] += max(self.item_mapping['remap_id']) + 1

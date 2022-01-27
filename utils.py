@@ -48,8 +48,6 @@ def embed_text(sentences, device, tokenizer, model, batch_size):
     with torch.no_grad():
         outputs = torch.cat([model(**batch).pooler_output for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True)])
     torch.cuda.empty_cache()
-    # del model, tokenizer
-    # torch.clea
     return outputs
 
 
