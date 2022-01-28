@@ -17,6 +17,7 @@ class DataLoader(object):
 
         self.logger = get_logger(args)
         self.device = args.device = torch.device('cuda') if args.gpu else torch.device('cpu')
+        self.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
@@ -32,7 +33,6 @@ class DataLoader(object):
 
         self.batch_size = min(args.batch_size, self.n_train)
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
-        self.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
 
     def _load_files(self):
         self.logger.info('loading data')
