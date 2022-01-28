@@ -23,16 +23,13 @@ def early_stop(res):
 
 
 def embed_text(sentences, path, bert_model, batch_size, device):
-    if not os.path.exists(f'{path}/embeddings.txt'):
-        tokenization = tokenize_text(sentences, path, bert_model, batch_size)
-        bert = torch.nn.DataParallel(BertModel.from_pretrained(bert_model)).to(device)
-        with torch.no_grad():
-            embeddings = torch.cat([bert(**batch).pooler_output for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
-        del bert
-        torch.cuda.empty_cache()
-        torch.save(embeddings, f'{path}/embeddings.txt')
-    else:
-        embeddings = torch.load(f'{path}/embeddings.txt', map_location=device)
+    tokenization = tokenize_text(sentences, path, bert_model, batch_size)
+    bert = torch.nn.DataParallel(BertModel.from_pretrained(bert_model)).to(device)
+    with torch.no_grad():
+        embeddings = torch.cat([bert(**batch).pooler_output for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
+    del bert
+    torch.cuda.empty_cache()
+    torch.save(embeddings, f'{path}/embeddings.txt')
     return embeddings
 
 

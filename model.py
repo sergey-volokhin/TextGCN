@@ -161,9 +161,9 @@ class Model(nn.Module):
             self.current_epoch += 1
             self.train()
             loss = self.step()
+            torch.cuda.empty_cache()
             if epoch % self.evaluate_every != 0:
                 continue
-            torch.cuda.empty_cache()
             self.logger.info(f'Epoch {epoch}: loss = {loss}')
             self.evaluate()
             if self.save_model:
