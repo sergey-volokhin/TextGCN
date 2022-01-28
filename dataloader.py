@@ -74,6 +74,8 @@ class DataLoader(object):
         if not os.path.exists(f'{self.path}/embeddings.txt'):
             self._construct_text_representation()
             embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size, self.device)
+        else:
+            embeddings = torch.load(f'{self.path}/embeddings.txt', map_location=self.device)
 
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size).to(self.device)
