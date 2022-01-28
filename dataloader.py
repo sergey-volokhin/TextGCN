@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from utils import get_logger, tokenize_text, embed_text
+from utils import get_logger, embed_text
 
 
 class DataLoader(object):
