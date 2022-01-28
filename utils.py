@@ -35,7 +35,7 @@ def init_bert(args):
     return tokenizer, model, batch_size
 
 
-def embed_text(sentences, device, tokenizer, model, batch_size):
+def embed_text(sentences, path, device, tokenizer, model, batch_size):
     if not os.path.exists('tokenization.txt'):
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
@@ -46,16 +46,20 @@ def embed_text(sentences, device, tokenizer, model, batch_size):
                                            padding=True,
                                            truncation=True,
                                            max_length=512))
-        json.dump([dict(i) for i in embed_batches], open('tokenization.txt', 'w'))
+        json.dump([dict(i) for i in embed_batches], open(f'{path}/tokenization.txt', 'w'))
     else:
-        embed_batches = json.load(open('tokenization.txt', 'r'))
-
+        embed_batches = json.load(open(f'{path}/tokenization.txt', 'r'))
     del tokenizer
+
     embed_batches = [{i: torch.LongTensor(j).to(device) for i, j in z.items()} for z in embed_batches]
     torch.cuda.empty_cache()
+    embs = []
     with torch.no_grad():
-        outputs = torch.cat([model(**batch).pooler_output for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True)])
-    return outputs
+        for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True):
+            embs.append(model(**batch).pooler_output.cpu().detach().numpy())
+        embs = np.concatenate(embs)
+        np.savetxt(f'{path}/embeddings.txt', embs)
+    return torch.Tensor(embs)
 
 
 def draw_bipartite(graph):

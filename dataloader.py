@@ -72,7 +72,7 @@ class DataLoader(object):
             self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
 
             self.logger.info('constructing embeddings')
-            embeddings = embed_text(self.item_mapping['text'].to_list(), self.device, *init_bert(self.args))
+            embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.device, *init_bert(self.args))
             torch.save(embeddings, f'{self.path}/embeddings.txt')
             self.logger.info('embeddings constructed and saved')
         else:
