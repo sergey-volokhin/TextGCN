@@ -22,18 +22,6 @@ def early_stop(res):
     return len(res['recall']) > 1 and all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values())
 
 
-def init_bert(args):
-    torch.cuda.empty_cache()
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model, strip_accents=True)
-    if torch.cuda.is_available() and args.gpu:
-        batch_size = args.batch_size
-        model = torch.nn.DataParallel(BertModel.from_pretrained(args.bert_model)).to(args.device)
-    else:
-        batch_size = 16
-        model = BertModel.from_pretrained(args.bert_model)
-    return tokenizer, model, batch_size
-
-
 def embed_text(sentences, path, bert_model, batch_size, device):
     if not os.path.exists(f'{path}/embeddings.txt'):
         tokenization = tokenize_text(sentences, path, bert_model, batch_size)
