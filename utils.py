@@ -45,10 +45,10 @@ def embed_text(sentences, device, tokenizer, model, batch_size):
                                     #    return_tensors="pt",
                                        padding=True,
                                        truncation=True,
-                                       max_length=512).to(device))
+                                       max_length=512))
     json.dump([dict(i) for i in embed_batches], open('tokenization.txt', 'w'))
     del tokenizer
-    embed_batches = [{i: torch.Tensor(j) for i, j in z.items()} for z in embed_batches]
+    embed_batches = [{i: torch.Tensor(j).to(device) for i, j in z.items()} for z in embed_batches]
     torch.cuda.empty_cache()
     with torch.no_grad():
         outputs = torch.cat([model(**batch).pooler_output for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True)])
