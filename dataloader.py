@@ -27,7 +27,6 @@ class DataLoader(object):
         self._load_files()
         self._get_numbers()
         self._print_info()
-        self._construct_text_representation()
         self._construct_embeddings()
         self._construct_graphs()
 
@@ -70,20 +69,23 @@ class DataLoader(object):
         self.item_mapping['text'] = self.item_mapping['org_id'].map(self.item_text_dict)
 
     def _construct_embeddings(self):
+        if not os.path.exists(f'{self.path}/embeddings.txt'):
+            self._construct_text_representation()
 
         ''' construct text representations for items and embed them with BERT '''
         embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size, self.device)
 
-        ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
+        ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size).to(self.device)
+        with torch.no_grad():
+            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
+
+        ''' set up the initial user vector if using single-vector-initiation '''
         if self.args.single_vector:
             self.user_vector = nn.parameter.Parameter(torch.Tensor(self.args.embed_size))
             nn.init.xavier_uniform_(self.user_vector.unsqueeze(1))
         else:
             self.user_vector = None
-
-        with torch.no_grad():
-            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
 
     def _construct_graphs(self):
         ''' create bipartite graph with initial vectors '''
