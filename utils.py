@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 
@@ -35,31 +34,39 @@ def init_bert(args):
     return tokenizer, model, batch_size
 
 
-def embed_text(sentences, path, device, tokenizer, model, batch_size):
+def embed_text(sentences, path, bert_model, batch_size, device):
+    if not os.path.exists(f'{path}/embeddings.txt'):
+        tokenization = tokenize_text(sentences, path, bert_model, batch_size)
+        bert = torch.nn.DataParallel(BertModel.from_pretrained(bert_model)).to(device)
+        with torch.no_grad():
+            embeddings = torch.cat([bert(**batch).pooler_output for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
+        del bert
+        torch.cuda.empty_cache()
+        torch.save(embeddings, f'{path}/embeddings.txt')
+    else:
+        embeddings = torch.load(f'{path}/embeddings.txt', map_location=device)
+    return embeddings
+
+
+def tokenize_text(sentences, path, bert_model, batch_size):
     if not os.path.exists(f'{path}/tokenization.txt'):
+        tokenizer = BertTokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                         [sentences[(num_samples // batch_size) * batch_size:]]
-        embed_batches = []
+        tokenization = []
         for batch in tqdm(token_batches, desc='tokenization', dynamic_ncols=True):
-            embed_batches.append(tokenizer(batch,
-                                           padding=True,
-                                           truncation=True,
-                                           max_length=512))
-        json.dump([dict(i) for i in embed_batches], open(f'{path}/tokenization.txt', 'w'))
+            tokenization.append(tokenizer(batch,
+                                          return_tensors="pt",
+                                          padding=True,
+                                          truncation=True,
+                                          max_length=512))
+        del tokenizer
+        torch.cuda.empty_cache()
+        torch.save(tokenization, f'{path}/tokenization.txt')
     else:
-        embed_batches = json.load(open(f'{path}/tokenization.txt', 'r'))
-    del tokenizer
-
-    embed_batches = [{i: torch.LongTensor(j).to(device) for i, j in z.items()} for z in embed_batches]
-    torch.cuda.empty_cache()
-    embs = []
-    with torch.no_grad():
-        for batch in tqdm(embed_batches, desc='embedding', dynamic_ncols=True):
-            embs.append(model(**batch).pooler_output.cpu().detach().numpy())
-        embs = np.concatenate(embs)
-        np.savetxt(f'{path}/embeddings.txt', embs)
-    return torch.Tensor(embs)
+        tokenization = torch.load(f'{path}/tokenization.txt')
+    return tokenization
 
 
 def draw_bipartite(graph):

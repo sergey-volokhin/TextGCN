@@ -4,11 +4,11 @@ import random
 import dgl
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
-from utils import embed_text, get_logger, init_bert
+from utils import get_logger, tokenize_text, embed_text
 
 
 class DataLoader(object):
@@ -26,11 +26,13 @@ class DataLoader(object):
         self._load_files()
         self._get_numbers()
         self._print_info()
+        self._construct_text_representation()
         self._construct_embeddings()
         self._construct_graphs()
 
         self.batch_size = min(args.batch_size, self.n_train)
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
+        self.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
 
     def _load_files(self):
         self.logger.info('loading data')
@@ -60,25 +62,17 @@ class DataLoader(object):
         self.logger.info(f'n_train:      {self.n_train:-7}')
         self.logger.info(f'n_test:       {self.n_test:-7}')
 
+    def _construct_text_representation(self):
+        self.item_text_dict = {}
+        for asin, group in tqdm(self.kg_df_text.groupby('asin'), desc='construct text repr', dynamic_ncols=True):
+            vals = group[['relation', 'attribute']].values
+            self.item_text_dict[asin] = f' {self.args.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
+        self.item_mapping['text'] = self.item_mapping['org_id'].map(self.item_text_dict)
+
     def _construct_embeddings(self):
 
-        ''' construct text representations for items and embed them with BERT '''  # doing it first so GPU doesn't explode
-        if not os.path.exists(f'{self.path}/embeddings.txt'):
-            self.item_text_dict = {}
-            for asin, group in tqdm(self.kg_df_text.groupby('asin'), desc='construct text repr', dynamic_ncols=True):
-                vals = group[['relation', 'attribute']].values
-                self.item_text_dict[asin] = f' {self.args.sep} '.join(
-                    [f'{relation}: {attribute}' for (relation, attribute) in vals])
-            self.item_mapping['text'] = self.item_mapping.apply(lambda x: self.item_text_dict[x['org_id']], axis=1)
-
-            self.logger.info('constructing embeddings')
-            embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.device, *init_bert(self.args))
-            torch.save(embeddings, f'{self.path}/embeddings.txt')
-            self.logger.info('embeddings constructed and saved')
-        else:
-            self.logger.info('loading embeddings')
-            embeddings = torch.load(f'{self.path}/embeddings.txt', map_location=self.device)
-            self.logger.info('embeddings loaded')
+        ''' construct text representations for items and embed them with BERT '''
+        embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size)
 
         ''' randomly initialize all entity embeddings, we will overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size).to(self.device)
