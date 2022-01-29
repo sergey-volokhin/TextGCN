@@ -29,12 +29,13 @@ def embed_text(sentences, path, bert_model, batch_size, device):
         embeddings = torch.cat([bert(**batch).last_hidden_state[0][0] for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
     del bert
     torch.cuda.empty_cache()
-    torch.save(embeddings, f'{path}/embeddings_{bert_model}.txt')
+    torch.save(embeddings, f'{path}/embeddings_{bert_model.split("/")[1]}.txt')
     return embeddings
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
-    if not os.path.exists(f'{path}/tokenization_{bert_model}.txt'):
+    path = f'{path}/tokenization_{bert_model.split("/")[1]}.txt'
+    if not os.path.exists(path):
         tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
@@ -48,9 +49,9 @@ def tokenize_text(sentences, path, bert_model, batch_size):
                                           max_length=512))
         del tokenizer
         torch.cuda.empty_cache()
-        torch.save(tokenization, f'{path}/tokenization_{bert_model}.txt')
+        torch.save(tokenization, path)
     else:
-        tokenization = torch.load(f'{path}/tokenization_{bert_model}.txt')
+        tokenization = torch.load(path)
     return tokenization
 
 

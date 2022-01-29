@@ -71,11 +71,11 @@ class DataLoader(object):
     def _construct_embeddings(self):
         ''' construct text representations for items and embed them with BERT '''
 
-        if not os.path.exists(f'{self.path}/embeddings_{self.args.bert_model}.txt'):
+        if not os.path.exists(f'{self.path}/embeddings_{self.args.bert_model.split("/")[1]}.txt'):
             self._construct_text_representation()
             embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size, self.device)
         else:
-            embeddings = torch.load(f'{self.path}/embeddings_{self.args.bert_model}.txt', map_location=self.device)
+            embeddings = torch.load(f'{self.path}/embeddings_{self.args.bert_model.split("/")[1]}.txt', map_location=self.device)
 
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size, device=self.device)
