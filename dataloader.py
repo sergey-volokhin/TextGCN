@@ -78,7 +78,7 @@ class DataLoader(object):
             embeddings = torch.load(f'{self.path}/embeddings.txt', map_location=self.device)
 
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
-        self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size).to(self.device)
+        self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size, device=self.device)
         with torch.no_grad():
             self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
 
@@ -93,8 +93,8 @@ class DataLoader(object):
         ''' create bipartite graph with initial vectors '''
         self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
                                       ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)}).to(self.device)
-        user_ids = torch.LongTensor(self.user_mapping['remap_id']).to(self.device)
-        item_ids = torch.LongTensor(self.item_mapping['remap_id']).to(self.device)
+        user_ids = torch.tensor(self.user_mapping['remap_id'], dtype=torch.long, device=self.device)
+        item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long, device=self.device)
         self.graph.ndata['e'] = {'user': self.entity_embeddings(user_ids),
                                  'item': self.entity_embeddings(item_ids)}
         self.graph.ndata['id'] = {'user': user_ids,
