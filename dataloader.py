@@ -71,7 +71,7 @@ class DataLoader(object):
     def _construct_embeddings(self):
         ''' construct text representations for items and embed them with BERT '''
 
-        if not os.path.exists(f'{self.path}/embeddings_{self.args.bert_model.split("/")[1]}.txt'):
+        if not os.path.exists(f'{self.path}/embeddings_{self.args.bert_model.split("/")[-1]}.txt'):
             self._construct_text_representation()
             embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size, self.device)
         else:
