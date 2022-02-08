@@ -12,11 +12,11 @@ def hit(row):
 
 
 def recall(row):
-    return row['intersecting_items'].shape[0] / row['y_test'].shape[0]
+    return row['intersecting_items'].shape[0] / row['y_true'].shape[0]
 
 
-def precision(row):
-    return row['intersecting_items'].shape[0] / row['y_pred'].shape[0]
+def precision(row, k):
+    return row['intersecting_items'].shape[0] / k
 
 
 def dcg(rel):
@@ -24,12 +24,8 @@ def dcg(rel):
 
 
 def ndcg(row, k):
-
-    # ideal DCG when all relevant (test) items are first
-    idcg = dcg(np.concatenate([np.ones(min(k, row['y_test'].shape[0],)),
-                               np.zeros(max(0, k - row['y_test'].shape[0]))]))
-
-    # real DCG
+    idcg = dcg(np.concatenate([np.ones(min(k, row['y_true'].shape[0],)),
+                               np.zeros(max(0, k - row['y_true'].shape[0]))]))
     rel = np.zeros(k)
     rel[np.where(np.isin(row['y_pred'][:k], row['intersecting_items']))] = 1
     numerator = dcg(rel)

@@ -8,30 +8,33 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from utils import get_logger, embed_text
+from utils import embed_text
 
 
 class DataLoader(object):
 
-    def __init__(self, args, seed=False):
+    def __init__(self, args):
 
-        self.logger = get_logger(args)
-        self.device = args.device = torch.device('cuda') if args.gpu else torch.device('cpu')
-        self.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
-        if seed:
-            random.seed(seed)
-            torch.manual_seed(seed)
-
-        self.args = args
-        self.path = args.datapath
+        self._copy_args(args)
         self._load_files()
         self._get_numbers()
         self._print_info()
         self._construct_embeddings()
         self._construct_graphs()
 
-        self.batch_size = min(args.batch_size, self.n_train)
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
+
+    def _copy_args(self, args):
+        self.gpu = args.gpu
+        self.sep = args.sep
+        self.logger = args.logger
+        self.device = args.device
+        self.path = args.datapath
+        self.bert_model = args.bert_model
+        self.embed_size = args.embed_size
+        self.batch_size = args.batch_size
+        self.single_vector = args.single_vector
+        self.embed_batch_size = args.embed_batch_size
 
     def _load_files(self):
         self.logger.info('loading data')
@@ -65,26 +68,26 @@ class DataLoader(object):
         self.item_text_dict = {}
         for asin, group in tqdm(self.kg_df_text.groupby('asin'), desc='construct text repr', dynamic_ncols=True):
             vals = group[['relation', 'attribute']].values
-            self.item_text_dict[asin] = f' {self.args.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
+            self.item_text_dict[asin] = f' {self.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
         self.item_mapping['text'] = self.item_mapping['org_id'].map(self.item_text_dict)
 
     def _construct_embeddings(self):
         ''' construct text representations for items and embed them with BERT '''
 
-        if not os.path.exists(f'{self.path}/embeddings_{self.args.bert_model.split("/")[-1]}.txt'):
+        if not os.path.exists(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.txt'):
             self._construct_text_representation()
-            embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.args.bert_model, self.embed_batch_size, self.device)
+            embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.bert_model, self.embed_batch_size, self.device)
         else:
-            embeddings = torch.load(f'{self.path}/embeddings_{self.args.bert_model.split("/")[-1]}.txt', map_location=self.device)
+            embeddings = torch.load(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.txt', map_location=self.device)
 
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
-        self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.args.embed_size, device=self.device)
+        self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.embed_size, device=self.device)
         with torch.no_grad():
             self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
 
         ''' set up the initial user vector if using single-vector-initiation '''
-        if self.args.single_vector:
-            self.user_vector = nn.parameter.Parameter(torch.Tensor(self.args.embed_size))
+        if self.single_vector:
+            self.user_vector = nn.parameter.Parameter(torch.Tensor(self.embed_size))
             nn.init.xavier_uniform_(self.user_vector.unsqueeze(1))
         else:
             self.user_vector = None

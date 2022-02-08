@@ -2,6 +2,9 @@ import argparse
 import os
 
 import uuid
+import torch
+
+from utils import get_logger
 
 
 def parse_args():
@@ -45,7 +48,7 @@ def parse_args():
                         help='whether to save the predictions for test set')
     parser.add_argument('--bert-model',
                         type=str,
-                        default='microsoft/deberta-v3-base',
+                        default='bert-base-uncased',
                         help='version of BERT to use')
     parser.add_argument('--gpu',
                         type=str,
@@ -94,6 +97,7 @@ def parse_args():
 
     args = parser.parse_args()
 
+    ''' paths '''
     if args.load_path:
         args.save_path = os.path.dirname(args.load_path)
         args.uid = os.path.basename(args.save_path)
@@ -104,4 +108,10 @@ def parse_args():
 
     args.k = sorted(args.k)
     args.layer_size = [args.embed_size] + args.layer_size
+    args.logger = get_logger(args)
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    args.device = torch.device('cuda') if args.gpu else torch.device('cpu')
+    args.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
+
     return args

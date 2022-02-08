@@ -6,12 +6,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformers import AutoModel, DebertaV2Tokenizer
+from transformers import BertModel, BertTokenizer
+
+
+def set_seed(seed):
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.manual_seed(seed)
 
 
 def get_logger(args):
-    level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
-    logging.basicConfig(level=(logging.ERROR if args.quiet else level),
+    if args.quiet:
+        args.logging_level = 'error'
+    args.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
+    logging.basicConfig(level=(logging.ERROR if args.quiet else args.logging_level),
                         format='%(asctime)-10s - %(levelname)s: %(message)s',
                         datefmt='%d/%m/%y %H:%M',
                         handlers=[logging.FileHandler(f'{args.save_path}/log.log'), logging.StreamHandler()])
@@ -24,19 +33,18 @@ def early_stop(res):
 
 def embed_text(sentences, path, bert_model, batch_size, device):
     tokenization = tokenize_text(sentences, path, bert_model, batch_size)
-    bert = torch.nn.DataParallel(AutoModel.from_pretrained(bert_model)).to(device)
+    bert = torch.nn.DataParallel(BertModel.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
-        embeddings = torch.cat([bert(**batch).last_hidden_state[0][0] for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
+        embeddings = torch.cat([bert(**batch).pooler_output for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
     del bert
     torch.cuda.empty_cache()
-    torch.save(embeddings, f'{path}/embeddings_{bert_model.split("/")[-1]}.txt')
+    torch.save(embeddings, f'{path}/embeddings.txt')
     return embeddings
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
-    path = f'{path}/tokenization_{bert_model.split("/")[-1]}.txt'
-    if not os.path.exists(path):
-        tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
+    if not os.path.exists(f'{path}/tokenization.txt'):
+        tokenizer = BertTokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                         [sentences[(num_samples // batch_size) * batch_size:]]
@@ -49,9 +57,9 @@ def tokenize_text(sentences, path, bert_model, batch_size):
                                           max_length=512))
         del tokenizer
         torch.cuda.empty_cache()
-        torch.save(tokenization, path)
+        torch.save(tokenization, f'{path}/tokenization.txt')
     else:
-        tokenization = torch.load(path)
+        tokenization = torch.load(f'{path}/tokenization.txt')
     return tokenization
 
 

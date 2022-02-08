@@ -6,3 +6,4 @@ tqdm
 transformers
 matplotlib
 networkx
+tensorboardX
