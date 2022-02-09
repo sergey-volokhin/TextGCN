@@ -21,6 +21,7 @@ class DataLoader(object):
         self._print_info()
         self._construct_embeddings()
         self._construct_graphs()
+        exit()
 
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
 
@@ -83,7 +84,7 @@ class DataLoader(object):
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.embed_size, device=self.device)
         with torch.no_grad():
-            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings
+            self.entity_embeddings.weight[self.item_mapping['remap_id']] = embeddings.to(self.device)
 
         ''' set up the initial user vector if using single-vector-initiation '''
         if self.single_vector:

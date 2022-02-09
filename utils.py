@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformers import BertModel, BertTokenizer
+from transformers import DebertaV2Model, DebertaV2Tokenizer
 
 
 def set_seed(seed):
@@ -33,18 +33,19 @@ def early_stop(res):
 
 def embed_text(sentences, path, bert_model, batch_size, device):
     tokenization = tokenize_text(sentences, path, bert_model, batch_size)
-    bert = torch.nn.DataParallel(BertModel.from_pretrained(bert_model)).to(device)
+    bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
-        embeddings = torch.cat([bert(**batch).pooler_output for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
+        embeddings = torch.cat([bert(**batch).last_hidden_state[:, 0].detach().cpu() for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
     del bert
     torch.cuda.empty_cache()
-    torch.save(embeddings, f'{path}/embeddings.txt')
+    torch.save(embeddings, f'{path}/embeddings.torch')
+    os.system(f'rm -f {path}/tokenization.torch')
     return embeddings
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
-    if not os.path.exists(f'{path}/tokenization.txt'):
-        tokenizer = BertTokenizer.from_pretrained(bert_model, strip_accents=True)
+    if not os.path.exists(f'{path}/tokenization.torch'):
+        tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                         [sentences[(num_samples // batch_size) * batch_size:]]
@@ -57,9 +58,9 @@ def tokenize_text(sentences, path, bert_model, batch_size):
                                           max_length=512))
         del tokenizer
         torch.cuda.empty_cache()
-        torch.save(tokenization, f'{path}/tokenization.txt')
+        torch.save(tokenization, f'{path}/tokenization.torch')
     else:
-        tokenization = torch.load(f'{path}/tokenization.txt')
+        tokenization = torch.load(f'{path}/tokenization.torch')
     return tokenization
 
 

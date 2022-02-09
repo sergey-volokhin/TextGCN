@@ -7,3 +7,4 @@ transformers
 matplotlib
 networkx
 tensorboardX
+sentencepiece

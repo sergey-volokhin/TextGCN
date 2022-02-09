@@ -48,7 +48,7 @@ def parse_args():
                         help='whether to save the predictions for test set')
     parser.add_argument('--bert-model',
                         type=str,
-                        default='bert-base-uncased',
+                        default='microsoft/deberta-v3-base',
                         help='version of BERT to use')
     parser.add_argument('--gpu',
                         type=str,
