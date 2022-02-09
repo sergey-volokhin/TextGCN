@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from base_model import BaseModel
 from metrics import l2_loss_mean
+from utils import minibatch
 
 
 class ConvLayer(nn.Module):
@@ -87,6 +88,7 @@ class Model(BaseModel):
         self.reg_lambda = args.reg_lambda
         self.layer_size = args.layer_size
         self.mess_dropout = args.mess_dropout
+        self.batch_size = args.batch_size
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
@@ -94,7 +96,7 @@ class Model(BaseModel):
         self.user_vector = dataset.user_vector
         self.train_user_dict = dataset.train_user_dict
         self.entity_embeddings = dataset.entity_embeddings
-        self.sampler = dataset.sampler()
+        self.sampler = dataset.sampler
 
     def _build_layers(self):
         ''' aggregation layers '''
@@ -132,22 +134,35 @@ class Model(BaseModel):
         return loss + self.reg_lambda * reg_loss
 
     def get_sampler(self):
-        return self.sampler, self.n_batches
+        return self.sampler(), self.n_batches
 
     def predict(self, save=False):
-        ''' returns a pd.DataFrame with predicted and true test items for each user '''
-        predictions = []
-        with torch.no_grad():  # don't calculate gradient since we only predict given weights
-            embedding = self.gnn()
-            for u_id, pos_item_l in tqdm(self.test_user_dict.items(),
-                                         dynamic_ncols=True,
-                                         leave=False,
-                                         desc='predicting'):
-                score = torch.matmul(embedding[u_id], embedding[self.graph.ndata['id']['item']].transpose(0, 1))
-                score[self.train_user_dict[u_id]] = np.NINF  # resetting scores for train items so we don't "predict" them
-                _, rank_indices = torch.topk(score, k=max(self.k), largest=True)
-                predictions.append([rank_indices.cpu().numpy(), pos_item_l])
-        predictions = pd.DataFrame(predictions, columns=['y_pred', 'y_true'])
+        ''' this should be a model-agnostic method '''
+
+        users = list(self.test_user_dict)
+        y_pred, y_true = [], []
+        with torch.no_grad():  # don't calculate gradient since we only predict
+            items_emb, users_emb = torch.split(self.gnn(), [self.n_items, self.n_users])
+            for batch_users in tqdm(minibatch(users, batch_size=self.batch_size),
+                                    total=len(users) // self.batch_size + 1,
+                                    desc='test batches',
+                                    leave=False,
+                                    dynamic_ncols=True):
+
+                batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
+                rating = torch.matmul(batch_user_emb, items_emb.t())
+                exclude_index, exclude_items = [], []
+                pos_items = [self.train_user_dict[u] for u in batch_users]
+                for ind, items in enumerate(pos_items):
+                    exclude_index += [ind] * len(items)
+                    exclude_items.append(items)
+                exclude_items = np.concatenate(exclude_items)
+                rating[exclude_index, exclude_items] = np.NINF
+                _, rank_indices = torch.topk(rating, k=max(self.k))
+                y_pred += list(rank_indices.cpu().numpy().tolist())
+                y_true += [self.test_user_dict[u] for u in batch_users]
+
+        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true})
         if save:
             predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')

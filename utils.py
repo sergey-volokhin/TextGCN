@@ -35,20 +35,25 @@ def embed_text(sentences, path, bert_model, batch_size, device):
     tokenization = tokenize_text(sentences, path, bert_model, batch_size)
     bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
-        embeddings = torch.cat([bert(**batch).last_hidden_state[:, 0].detach().cpu() for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True)])
+        embs = []
+        for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True):
+            embs.append(bert(**batch).last_hidden_state[:, 0].detach().cpu().numpy())
+        embeddings = torch.from_numpy(np.concatenate(embs))
     del bert
     torch.cuda.empty_cache()
-    torch.save(embeddings, f'{path}/embeddings.torch')
-    os.system(f'rm -f {path}/tokenization.torch')
+    torch.save(embeddings, f'{path}/embeddings_{bert_model.split("/")[-1]}.torch')
+    os.system(f'rm -f {path}/tokenization_{bert_model.split("/")[-1]}.torch')
     return embeddings
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
-    if not os.path.exists(f'{path}/tokenization.torch'):
+    if not os.path.exists(f'{path}/tokenization_{bert_model.split("/")[-1]}.torch'):
         tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                         [sentences[(num_samples // batch_size) * batch_size:]]
+        if len(token_batches[-1]) == 0:
+            token_batches = token_batches[:-1]
         tokenization = []
         for batch in tqdm(token_batches, desc='tokenization', dynamic_ncols=True):
             tokenization.append(tokenizer(batch,
@@ -58,9 +63,9 @@ def tokenize_text(sentences, path, bert_model, batch_size):
                                           max_length=512))
         del tokenizer
         torch.cuda.empty_cache()
-        torch.save(tokenization, f'{path}/tokenization.torch')
+        torch.save(tokenization, f'{path}/tokenization_{bert_model.split("/")[-1]}.torch')
     else:
-        tokenization = torch.load(f'{path}/tokenization.torch')
+        tokenization = torch.load(f'{path}/tokenization_{bert_model.split("/")[-1]}.torch')
     return tokenization
 
 
@@ -71,3 +76,14 @@ def draw_bipartite(graph):
     pos = nx.drawing.layout.bipartite_layout(nx_g, range(len(nx_g.nodes()) // 2))
     nx.draw(nx_g, pos, with_labels=True, node_color=[[.7, .7, .7]])
     plt.show()
+
+
+def minibatch(*tensors, **kwargs):
+    batch_size = kwargs['batch_size']
+    if len(tensors) == 1:
+        tensor = tensors[0]
+        for i in range(0, len(tensor), batch_size):
+            yield tensor[i:i + batch_size]
+    else:
+        for i in range(0, len(tensors[0]), batch_size):
+            yield tuple(x[i:i + batch_size] for x in tensors)

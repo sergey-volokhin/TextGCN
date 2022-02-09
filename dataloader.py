@@ -21,9 +21,8 @@ class DataLoader(object):
         self._print_info()
         self._construct_embeddings()
         self._construct_graphs()
-        exit()
-
         self.num_batches = (self.n_train - 1) // self.batch_size + 1
+        self.sampler()
 
     def _copy_args(self, args):
         self.gpu = args.gpu
@@ -45,8 +44,9 @@ class DataLoader(object):
         self.user_mapping = pd.read_csv(f'{self.path}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.item_mapping = pd.read_csv(f'{self.path}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.user_mapping['remap_id'] += max(self.item_mapping['remap_id']) + 1
-        self.train_user_dict = self.train_df.groupby('user_id')['asin'].apply(np.array).to_dict()
-        self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(np.array).to_dict()
+        self.train_user_dict_set = self.train_df.groupby('user_id')['asin'].apply(set).to_dict()  # for faster negative sampling
+        self.train_user_dict = self.train_df.groupby('user_id')['asin'].apply(list).to_dict()
+        self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(list).to_dict()
 
     def _get_numbers(self):
         self.items = set(self.train_df['asin'].unique()) | set(self.test_df['asin'].unique())
@@ -73,13 +73,16 @@ class DataLoader(object):
         self.item_mapping['text'] = self.item_mapping['org_id'].map(self.item_text_dict)
 
     def _construct_embeddings(self):
-        ''' construct text representations for items and embed them with BERT '''
+        '''
+            construct text representations for items and embed them with BERT
+            items precede users
+        '''
 
-        if not os.path.exists(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.txt'):
+        if not os.path.exists(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.torch'):
             self._construct_text_representation()
             embeddings = embed_text(self.item_mapping['text'].to_list(), self.path, self.bert_model, self.embed_batch_size, self.device)
         else:
-            embeddings = torch.load(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.txt', map_location=self.device)
+            embeddings = torch.load(f'{self.path}/embeddings_{self.bert_model.split("/")[-1]}.torch', map_location=self.device)
 
         ''' randomly initialize all entity embeddings, overwrite the item embeddings next '''
         self.entity_embeddings = nn.Embedding(self.n_items + self.n_users, self.embed_size, device=self.device)
@@ -109,13 +112,13 @@ class DataLoader(object):
             if self.batch_size <= self.n_users:
                 users = random.sample(self.users, self.batch_size)
             else:
-                users = random.choices(self.users, k=self.batch_size)
+                users = np.random.choice(self.np_users, size=self.batch_size, replace=True)  # numpy is faster in this case
             pos_items, neg_items = [], []
             for u in users:
                 pos_items.append(random.choice(self.train_user_dict[u]))
                 while True:
                     neg_i_id = random.randrange(self.n_items)
-                    if neg_i_id not in self.train_user_dict[u]:
+                    if neg_i_id not in self.train_user_dict_set[u]:
                         break
                 neg_items.append(neg_i_id)
             yield users, pos_items, neg_items

@@ -26,6 +26,10 @@ def parse_args():
                         type=int,
                         default=1024,
                         help='batch size')
+    parser.add_argument('--embed_batch_size',
+                        type=int,
+                        default=256,
+                        help='batch size for embedding')
 
     parser.add_argument('--evaluate_every',
                         type=int,
@@ -112,6 +116,5 @@ def parse_args():
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cuda') if args.gpu else torch.device('cpu')
-    args.embed_batch_size = args.batch_size if torch.cuda.is_available() and args.gpu else 16
 
     return args
