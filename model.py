@@ -1,14 +1,9 @@
 import dgl.function as fn
-import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 
 from base_model import BaseModel
-from metrics import l2_loss_mean
-from utils import minibatch
 
 
 class ConvLayer(nn.Module):
@@ -36,7 +31,8 @@ class ConvLayer(nn.Module):
         nn.init.constant_(self.fc_dst.bias, 0)
 
     def forward(self, graph, feat, user_vector=None, get_attention=False):
-        with graph.local_scope():  # entering local mode to not accidentally change anything when propagating through layer
+        # entering local mode to not accidentally change anything when propagating through layer
+        with graph.local_scope():
 
             if user_vector is None:
                 h_src = feat[graph.ndata['id']['user']]
@@ -69,13 +65,11 @@ class ConvLayer(nn.Module):
             return rst
 
 
-class Model(BaseModel):
+class ModelText(BaseModel):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
 
-        self._copy_args(args)
-        self._copy_dataset_args(dataset)
         self._build_layers()
         self.load_model()
 
@@ -88,15 +82,14 @@ class Model(BaseModel):
         self.reg_lambda = args.reg_lambda
         self.layer_size = args.layer_size
         self.mess_dropout = args.mess_dropout
-        self.batch_size = args.batch_size
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
-        self.n_batches = dataset.num_batches
         self.user_vector = dataset.user_vector
         self.train_user_dict = dataset.train_user_dict
-        self.entity_embeddings = dataset.entity_embeddings
-        self.sampler = dataset.sampler
+        self.embedding_user = dataset.embedding_user
+        self.embedding_item = dataset.embedding_item
+        self.get_user_pos_items = dataset.get_user_pos_items
 
     def _build_layers(self):
         ''' aggregation layers '''
@@ -104,10 +97,10 @@ class Model(BaseModel):
         for k in range(len(self.layer_size) - 1):
             self.layers.append(ConvLayer(self.layer_size[k], self.layer_size[k + 1], self.mess_dropout))
 
-    def gnn(self):
-        ''' recalculate embeddings '''
-        g = self.graph.local_var()  # entering local mode to not accidentally change anything while calculating embeddings
-        h = self.entity_embeddings.weight[:]
+    def get_representation(self):
+        # entering local mode to not accidentally change anything while calculating embeddings
+        g = self.graph.local_var()
+        h = torch.cat([self.embedding_user.weight, self.embedding_item.weight])
         node_embed_cache = [h]  # we need to remove the first layer representations of the user nodes
 
         ''' first layer processed using user_vector '''
@@ -120,50 +113,5 @@ class Model(BaseModel):
             h = layer(g, h)
             out = F.normalize(h, p=2, dim=1)
             node_embed_cache.append(out)
-        return torch.cat(node_embed_cache, 1)
-
-    def get_loss(self, users, pos, neg):
-        embedding = self.gnn()
-        src_vec = embedding[users]
-        pos_dst_vec = embedding[pos]
-        neg_dst_vec = embedding[neg]
-        pos_score = torch.bmm(src_vec.unsqueeze(1), pos_dst_vec.unsqueeze(2)).squeeze()
-        neg_score = torch.bmm(src_vec.unsqueeze(1), neg_dst_vec.unsqueeze(2)).squeeze()
-        loss = torch.mean(F.logsigmoid(pos_score - neg_score)) * (-1.0)
-        reg_loss = l2_loss_mean(src_vec) + l2_loss_mean(pos_dst_vec) + l2_loss_mean(neg_dst_vec)
-        return loss + self.reg_lambda * reg_loss
-
-    def get_sampler(self):
-        return self.sampler(), self.n_batches
-
-    def predict(self, save=False):
-        ''' this should be a model-agnostic method '''
-
-        users = list(self.test_user_dict)
-        y_pred, y_true = [], []
-        with torch.no_grad():  # don't calculate gradient since we only predict
-            items_emb, users_emb = torch.split(self.gnn(), [self.n_items, self.n_users])
-            for batch_users in tqdm(minibatch(users, batch_size=self.batch_size),
-                                    total=len(users) // self.batch_size + 1,
-                                    desc='test batches',
-                                    leave=False,
-                                    dynamic_ncols=True):
-
-                batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
-                rating = torch.matmul(batch_user_emb, items_emb.t())
-                exclude_index, exclude_items = [], []
-                pos_items = [self.train_user_dict[u] for u in batch_users]
-                for ind, items in enumerate(pos_items):
-                    exclude_index += [ind] * len(items)
-                    exclude_items.append(items)
-                exclude_items = np.concatenate(exclude_items)
-                rating[exclude_index, exclude_items] = np.NINF
-                _, rank_indices = torch.topk(rating, k=max(self.k))
-                y_pred += list(rank_indices.cpu().numpy().tolist())
-                y_true += [self.test_user_dict[u] for u in batch_users]
-
-        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true})
-        if save:
-            predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
-            self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
-        return predictions
+        node_embed_cache = torch.cat(node_embed_cache, 1)
+        return torch.split(node_embed_cache, [self.n_items, self.n_users])[::-1]

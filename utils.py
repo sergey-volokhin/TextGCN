@@ -1,8 +1,6 @@
 import logging
 import os
 
-import dgl
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -31,19 +29,43 @@ def early_stop(res):
     return len(res['recall']) > 1 and all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values())
 
 
+def minibatch(*tensors, **kwargs):
+    batch_size = kwargs['batch_size']
+    if len(tensors) == 1:
+        tensor = tensors[0]
+        for i in range(0, len(tensor), batch_size):
+            yield tensor[i:i + batch_size]
+    else:
+        for i in range(0, len(tensors[0]), batch_size):
+            yield tuple(x[i:i + batch_size] for x in tensors)
+
+
+def shuffle(*arrays):
+    assert len(set(len(x) for x in arrays)) == 1, 'All inputs to shuffle must have the same length.'
+    shuffle_indices = np.arange(len(arrays[0]))
+    np.random.shuffle(shuffle_indices)
+    if len(arrays) == 1:
+        return arrays[0][shuffle_indices]
+    return tuple(x[shuffle_indices] for x in arrays)
+
+
 def embed_text(sentences, path, bert_model, batch_size, device):
-    tokenization = tokenize_text(sentences, path, bert_model, batch_size)
+
+    sentences_to_embed = sentences.unique().tolist()
+    tokenization = tokenize_text(sentences_to_embed, path, bert_model, batch_size)
     bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
         embs = []
         for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True):
             embs.append(bert(**batch).last_hidden_state[:, 0].detach().cpu().numpy())
-        embeddings = torch.from_numpy(np.concatenate(embs))
+        embeddings = np.concatenate(embs)
     del bert
     torch.cuda.empty_cache()
-    torch.save(embeddings, f'{path}/embeddings_{bert_model.split("/")[-1]}.torch')
     os.system(f'rm -f {path}/tokenization_{bert_model.split("/")[-1]}.torch')
-    return embeddings
+    mapping = {i: emb.tolist() for i, emb in zip(sentences_to_embed, embeddings)}
+    result = sentences.map(mapping)
+    torch.save(result, f'{path}/embeddings_{bert_model.split("/")[-1]}.torch')
+    return result
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
@@ -72,18 +94,10 @@ def tokenize_text(sentences, path, bert_model, batch_size):
 def draw_bipartite(graph):
     ''' draw a bipartite graph '''
     import networkx as nx
+    import matplotlib.pyplot as plt
+    import dgl
+
     nx_g = dgl.to_homogeneous(graph).to_networkx().to_undirected()
     pos = nx.drawing.layout.bipartite_layout(nx_g, range(len(nx_g.nodes()) // 2))
     nx.draw(nx_g, pos, with_labels=True, node_color=[[.7, .7, .7]])
     plt.show()
-
-
-def minibatch(*tensors, **kwargs):
-    batch_size = kwargs['batch_size']
-    if len(tensors) == 1:
-        tensor = tensors[0]
-        for i in range(0, len(tensor), batch_size):
-            yield tensor[i:i + batch_size]
-    else:
-        for i in range(0, len(tensors[0]), batch_size):
-            yield tuple(x[i:i + batch_size] for x in tensors)

@@ -1,14 +1,15 @@
 import os
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.optim as optim
 from tensorboardX import SummaryWriter
 from torch import nn
 from tqdm import tqdm, trange
 
-from utils import early_stop
-from metrics import hit, recall, precision, ndcg
+from metrics import hit, ndcg, precision, recall
+from utils import early_stop, minibatch
 
 
 class BaseModel(nn.Module):
@@ -19,8 +20,8 @@ class BaseModel(nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self.logger.info(args)
         self._save_code()
+        self.logger.info(args)
 
         self.current_epoch = 0
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
@@ -35,16 +36,24 @@ class BaseModel(nn.Module):
         self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
+        self.emb_size = args.emb_size
         self.save_path = args.save_path
         self.load_path = args.load_path
         self.save_model = args.save_model
+        self.batch_size = args.batch_size
+        self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
 
     def _copy_dataset_args(self, dataset):
         self.graph = dataset.graph
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
+        self.n_batches = dataset.n_batches
         self.test_user_dict = dataset.test_user_dict
+        self.embedding_user = dataset.embedding_user
+        self.embedding_item = dataset.embedding_item
+        self.get_user_pos_items = dataset.get_user_pos_items
+        self.sampler = dataset.sampler
 
     def _build_optimizer(self):
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
@@ -53,24 +62,42 @@ class BaseModel(nn.Module):
                                                               patience=5,
                                                               min_lr=1e-6)
 
+    def get_loss(self, users, pos, neg):
+        ''' get normal loss '''
+        users_emb, item_emb = self.get_representation()
+        users_emb = users_emb[users.long()]
+        pos_emb = item_emb[pos.long()]
+        neg_emb = item_emb[neg.long()]
+        pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
+        neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
+        loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
+
+        ''' get regularization loss '''
+        user_ego = self.embedding_user(users.long())
+        pos_ego = self.embedding_item(pos.long())
+        neg_ego = self.embedding_item(neg.long())
+        reg_loss = (user_ego.norm(2).pow(2) + pos_ego.norm(2).pow(2) + neg_ego.norm(2).pow(2)) / len(users) / 2
+
+        return loss + self.reg_lambda * reg_loss
+
     def step(self):
         '''
-            one iteration over all train users
+            one iteration over n_train number of samples
             i.e. one step of the training cycle
             returns total loss over all users
         '''
         total_loss = 0
-        sampler, batches = self.get_sampler()
-        for arguments in tqdm(sampler,
-                              total=batches,
+        for arguments in tqdm(self.sampler(),
+                              total=self.n_batches,
                               desc='current batch',
                               leave=False,
                               dynamic_ncols=True):
             self.optimizer.zero_grad()
             loss = self.get_loss(*arguments)
+            total_loss += loss.cpu().item()
             loss.backward()
             self.optimizer.step()
-            total_loss += loss.cpu().item()
+
         self.w.add_scalar('Training_loss', total_loss, self.current_epoch)
         assert not np.isnan(total_loss), 'loss is nan while training'
         self.scheduler.step(total_loss)
@@ -79,23 +106,26 @@ class BaseModel(nn.Module):
     def workout(self):
         ''' training loop called 'workout' because torch models already have internal .train method '''
         for epoch in trange(1, self.epochs + 1, desc='epochs', dynamic_ncols=True):
+
             self.train()
             self.current_epoch += 1
             loss = self.step()
-            torch.cuda.empty_cache()
+
             if epoch % self.evaluate_every:
                 continue
             self.logger.info(f'Epoch {epoch}: loss = {loss}')
+
             self.evaluate()
             if self.save_model:
                 self.checkpoint()
             if early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
+
         if self.save_model:
             self.checkpoint()
         self.report_best_scores()
-        self.w.close()
+        self.w.flush()
 
     def evaluate(self):
         ''' calculate and report metrics for test users against predictions '''
@@ -107,6 +137,7 @@ class BaseModel(nn.Module):
         for k in self.k:
             predictions[f'intersection_{k}'] = predictions.apply(lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
 
+        ''' get metrics per user '''
         n_users = len(self.test_user_dict)
         for row in predictions.itertuples(index=False):
             r = self.test_one_user(row)
@@ -118,6 +149,7 @@ class BaseModel(nn.Module):
                                {str(self.k[i]): results[metric][i] for i in range(len(self.k))},
                                self.current_epoch)
 
+        ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
         for i in results:
             self.metrics_logger[i] = np.append(self.metrics_logger[i], [results[i]], axis=0)
@@ -125,6 +157,43 @@ class BaseModel(nn.Module):
         self.save_progression()
 
         return results
+
+    def predict(self, save=False):
+        '''
+            returns a dataframe with predicted and true items for each test user:
+            pd.DataFrame(columns=['y_pred', 'y_true'])
+        '''
+
+        users = list(self.test_user_dict)
+        y_pred, y_true = [], []
+        with torch.no_grad():  # don't calculate gradient since we only predict
+            users_emb, items_emb = self.get_representation()
+            for batch_users in tqdm(minibatch(users, batch_size=self.batch_size),
+                                    total=(len(users) - 1) // self.batch_size + 1,
+                                    desc='test batches',
+                                    leave=False,
+                                    dynamic_ncols=True):
+
+                batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
+                rating = torch.matmul(batch_user_emb, items_emb.t())
+
+                # set scores for train items to be -inf so we don't recommend them
+                exclude_index, exclude_items = [], []
+                for ind, items in enumerate(self.get_user_pos_items(batch_users)):
+                    exclude_index += [ind] * len(items)
+                    exclude_items.append(items)
+                exclude_items = np.concatenate(exclude_items)
+                rating[exclude_index, exclude_items] = np.NINF
+
+                _, rank_indices = torch.topk(rating, k=max(self.k))
+                y_pred += list(rank_indices.cpu().numpy().tolist())
+                y_true += [self.test_user_dict[u] for u in batch_users]
+
+        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true})
+        if save:
+            predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
+            self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
+        return predictions
 
     def test_one_user(self, row):
         result = {i: [] for i in self.metrics}
@@ -141,9 +210,10 @@ class BaseModel(nn.Module):
     def _save_code(self):
         ''' saving the code to the folder with the model (for debugging) '''
         folder = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(f'{self.save_path}/code', exist_ok=True)
         for file in os.listdir(folder):
             if file.endswith('.py'):
-                os.system(f'cp {folder}/{file} {self.save_path}')
+                os.system(f'cp {folder}/{file} {self.save_path}/code/{file}_')
 
     def load_model(self):
         ''' load torch weights from file '''
@@ -185,24 +255,6 @@ class BaseModel(nn.Module):
             self.logger.info(f'{k:11}' + ' '.join([f'{j:.4f}' for j in v[idx]]))
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-    def get_loss(self, *args):
-        ''' calculate loss given a batch of users and their positive and negative items '''
-        raise NotImplementedError
-
-    def get_sampler(self):
-        '''
-            returns a sampler and batch_size used in the `step` function
-            sampler is iterated over and arguments are used to calculate loss in `get_loss` function:
-            ```
-            for args in sampler:
-                loss = self.get_loss(*args)
-            ```
-        '''
-        raise NotImplementedError
-
-    def predict(self):
-        '''
-            returns a dataframe with predicted and true items for each test user:
-            pd.DataFrame(columns=['y_pred', 'y_true'])
-        '''
+    def get_representation(self):
+        ''' get the users' and items' final representations using calculated embeddings '''
         raise NotImplementedError
