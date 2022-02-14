@@ -63,7 +63,7 @@ class ConvLayer(nn.Module):
             return rst
 
 
-class ModelText(BaseModel):
+class TextModel(BaseModel):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)

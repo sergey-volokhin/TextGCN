@@ -1,5 +1,5 @@
 from dataloader import DataLoaderText, DataLoaderLightGCN
-from model import ModelText
+from text_model import TextModel
 from lightgcn import LightGCN
 from parser import parse_args
 from utils import set_seed
@@ -12,7 +12,7 @@ if __name__ == '__main__':
     set_seed(args.seed)
 
     loader_class = {'text': DataLoaderText, 'lightgcn': DataLoaderLightGCN}[args.model]
-    model_class = {'text': ModelText, 'lightgcn': LightGCN}[args.model]
+    model_class = {'text': TextModel, 'lightgcn': LightGCN}[args.model]
 
     dataset = loader_class(args)
     model = model_class(args, dataset)
