@@ -50,10 +50,8 @@ class ConvLayer(nn.Module):
 
             ''' get user and item vectors updated '''
             # get layer based on the type of vertex
-            feat_src = self.fc_src(h_src).view(-1, self._out_feats)  # W_1 * e_u + b_1
-            feat_dst = self.fc_dst(h_dst).view(-1, self._out_feats)  # W_2 * e_j + b_2
-            feat_src = self.activation(feat_src)  # g(W_1 * e_u + b_1)
-            feat_dst = self.activation(feat_dst)  # g(W_2 * e_j + b_2)
+            feat_src = self.activation(self.fc_src(h_src).view(-1, self._out_feats))  # g(W_1 * e_u + b_1)
+            feat_dst = self.activation(self.fc_dst(h_dst).view(-1, self._out_feats))  # g(W_1 * e_u + b_1)
             graph.ndata['g(We+b)'] = {'user': feat_src, 'item': feat_dst}
 
             graph['bought'].update_all(fn.u_mul_e('g(We+b)', 'alpha', 'm'), fn.sum('m', 'e_new'))  # sum att over item-neighbors
@@ -114,4 +112,5 @@ class ModelText(BaseModel):
             out = F.normalize(h, p=2, dim=1)
             node_embed_cache.append(out)
         node_embed_cache = torch.cat(node_embed_cache, 1)
-        return torch.split(node_embed_cache, [self.n_items, self.n_users])[::-1]
+
+        return torch.split(node_embed_cache, [self.n_users, self.n_items])

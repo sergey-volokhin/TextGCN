@@ -15,7 +15,7 @@ def parse_args():
                         help='which model to use')
     parser.add_argument('--datapath',
                         type=str,
-                        default='data/dummy/',
+                        default='data/amazon-book-2018/',
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
                         type=int,
@@ -23,7 +23,7 @@ def parse_args():
                         help='number of epochs')
     parser.add_argument('--emb_size',
                         type=int,
-                        default=768,
+                        default=64,
                         help='embedding size')
     parser.add_argument('--batch_size',
                         type=int,
@@ -80,7 +80,6 @@ def parse_args():
                         default=1e-5,
                         help='the weight decay for l2 normalizaton')
 
-    ''' ours '''
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
                             type=int,
@@ -107,16 +106,18 @@ def parse_args():
                             default='[SEP]',
                             dest='sep',
                             help='Separator for table comprehension')
+    text_hyper.add_argument('--freeze',
+                            action='store_true',
+                            help='whether to freeze textual item embeddings')
 
-    ''' lightgcn '''
     lightgcn = parser.add_argument_group('lightGCN hyperparams')
     lightgcn.add_argument('--n_layers',
                           type=int,
                           default=3,
                           help="num layers")
-    lightgcn.add_argument('--no-dropout',
+    lightgcn.add_argument('--dropout',
                           action='store_true',
-                          help="using the dropout or not (use by default)")
+                          help="using the dropout or not")
     lightgcn.add_argument('--keep_prob',
                           type=float,
                           default=0.6,
@@ -143,7 +144,5 @@ def parse_args():
     args.logger = get_logger(args)
 
     args.layer_size = [args.emb_size] + args.layer_size
-
-    args.dropout = not args.no_dropout
 
     return args

@@ -119,6 +119,7 @@ class DataLoaderText(DataLoader):
         super()._copy_args(args)
 
         self.sep = args.sep
+        self.freeze = args.freeze
         self.bert_model = args.bert_model
         self.single_vector = args.single_vector
         self.emb_batch_size = args.emb_batch_size
@@ -126,7 +127,6 @@ class DataLoaderText(DataLoader):
     def _load_files(self):
         super()._load_files()
         self.kg_df_text = pd.read_table(self.path + 'kg_readable.tsv', dtype=str)[['asin', 'relation', 'attribute']]
-        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
 
     def _construct_text_representation(self):
@@ -152,8 +152,7 @@ class DataLoaderText(DataLoader):
         else:
             embeddings = torch.load(self.path + emb_path, map_location=self.device)
 
-        with torch.no_grad():
-            self.embedding_item.weight[:] = torch.tensor(embeddings).to(self.device)
+        self.embedding_item = torch.nn.Embedding.from_pretrained(torch.tensor(embeddings).to(self.device), freeze=self.freeze)
 
     def _set_single_vector(self):
         ''' set up the initial user vector if using single-vector-initiation '''
@@ -168,7 +167,7 @@ class DataLoaderText(DataLoader):
         self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
                                       ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)})
         self.graph = self.graph.to(self.device)
-        user_ids = torch.tensor(self.user_mapping['remap_id'], dtype=torch.long, device=self.device)
+        user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long, device=self.device)
         item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long, device=self.device)
         self.graph.ndata['e'] = {'user': self.embedding_user(user_ids),
                                  'item': self.embedding_item(item_ids)}

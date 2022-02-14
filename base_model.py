@@ -26,7 +26,7 @@ class BaseModel(nn.Module):
         self.current_epoch = 0
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
         self.metrics_logger = {i: np.zeros((0, len(args.k))) for i in self.metrics}
-        self.w = SummaryWriter(self.save_path)
+        self.w = SummaryWriter(self.save_path)  # .*[precision/recall]/20
 
     def _copy_args(self, args):
         self.k = args.k
