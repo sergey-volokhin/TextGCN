@@ -27,7 +27,7 @@ def parse_args():
                         help='embedding size')
     parser.add_argument('--batch_size',
                         type=int,
-                        default=1024,
+                        default=2048,
                         help='batch size for training and prediction')
     parser.add_argument('--uid',
                         type=str,
