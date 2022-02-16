@@ -13,7 +13,7 @@ def parse_args():
                         default='text',
                         choices=['lightgcn', 'text', 'tripartite'],
                         help='which model to use')
-    parser.add_argument('--datapath',
+    parser.add_argument('--data',
                         default='data/amazon-book-2018/',
                         type=str,
                         help='folder with the train/test data')
@@ -83,6 +83,10 @@ def parse_args():
                         default=0.6,  # 0.6 for lightgcn, 0.1 for kgat
                         type=float,
                         help="probability of keeping the link in graph when doing dropout")
+    parser.add_argument('--n_layers',
+                        default=3,
+                        type=int,
+                        help="num layers")
 
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
@@ -110,11 +114,6 @@ def parse_args():
                             action='store_true',
                             help='whether to freeze textual item embeddings')
 
-    lightgcn = parser.add_argument_group('lightGCN hyperparams')
-    lightgcn.add_argument('--n_layers',
-                          default=3,
-                          type=int,
-                          help="num layers")
     args = parser.parse_args()
 
     ''' paths '''
@@ -124,9 +123,9 @@ def parse_args():
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.datapath))}/{args.uid}'
+        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
-    args.datapath = os.path.join(args.datapath, '')  # make sure path ends with '/'
+    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
 
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu

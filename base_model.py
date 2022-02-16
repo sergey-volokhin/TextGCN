@@ -3,16 +3,15 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-import torch.optim as optim
+import torch.optim as opt
 from tensorboardX import SummaryWriter
-from torch import nn
 from tqdm import tqdm, trange
 
 from metrics import hit, ndcg, precision, recall
 from utils import early_stop, minibatch
 
 
-class BaseModel(nn.Module):
+class BaseModel(torch.nn.Module):
     ''' meta class that has model-agnostic utility functions '''
 
     def __init__(self, args, dataset):
@@ -26,7 +25,7 @@ class BaseModel(nn.Module):
         self.current_epoch = 0
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
         self.metrics_logger = {i: np.zeros((0, len(args.k))) for i in self.metrics}
-        self.w = SummaryWriter(self.save_path)  # .*[precision/recall]/20
+        self.w = SummaryWriter(self.save_path)
 
     def _copy_args(self, args):
         self.k = args.k
@@ -37,6 +36,8 @@ class BaseModel(nn.Module):
         self.logger = args.logger
         self.device = args.device
         self.emb_size = args.emb_size
+        self.n_layers = args.n_layers
+        self.keep_prob = args.keep_prob
         self.save_path = args.save_path
         self.load_path = args.load_path
         self.save_model = args.save_model
@@ -46,6 +47,7 @@ class BaseModel(nn.Module):
 
     def _copy_dataset_args(self, dataset):
         self.graph = dataset.graph
+        self.adj_matrix = dataset.adj_matrix
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.n_batches = dataset.n_batches
@@ -56,11 +58,11 @@ class BaseModel(nn.Module):
         self.sampler = dataset.sampler
 
     def _build_optimizer(self):
-        self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,
-                                                              verbose=(not self.quiet),
-                                                              patience=5,
-                                                              min_lr=1e-6)
+        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
+        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(self.optimizer,
+                                                            verbose=(not self.quiet),
+                                                            patience=5,
+                                                            min_lr=1e-6)
 
     def get_loss(self, users, pos, neg):
         ''' get normal loss '''
@@ -73,10 +75,12 @@ class BaseModel(nn.Module):
         loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
 
         ''' get regularization loss '''
-        user_ego = self.embedding_user(users.long())
-        pos_ego = self.embedding_item(pos.long())
-        neg_ego = self.embedding_item(neg.long())
-        reg_loss = (user_ego.norm(2).pow(2) + pos_ego.norm(2).pow(2) + neg_ego.norm(2).pow(2)) / len(users) / 2
+        user_vec = self.embedding_user(users.long())
+        pos_vec = self.embedding_item(pos.long())
+        neg_vec = self.embedding_item(neg.long())
+        reg_loss = (user_vec.norm(2).pow(2) + \
+                    pos_vec.norm(2).pow(2) + \
+                    neg_vec.norm(2).pow(2)) / len(users) / 2
 
         return loss + self.reg_lambda * reg_loss
 
@@ -220,9 +224,10 @@ class BaseModel(nn.Module):
         if self.load_path:
             self.load_state_dict(torch.load(self.load_path))
             self.logger.info(f'Loaded model {self.load_path}')
+            index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
         else:
             self.logger.info(f'Created model {self.uid}')
-        index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
+            index = 0
         self.progression_path = f'{self.save_path}/progression_{index + 1}.txt'
 
     def checkpoint(self):
@@ -256,5 +261,8 @@ class BaseModel(nn.Module):
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def get_representation(self):
-        ''' get the users' and items' final representations using calculated embeddings '''
+        '''
+            get the users' and items' final representations using
+            calculated embeddings and propagated through layers
+        '''
         raise NotImplementedError
