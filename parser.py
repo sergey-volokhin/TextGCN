@@ -11,99 +11,99 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         default='text',
-                        choices=['lightgcn', 'text'],
+                        choices=['lightgcn', 'text', 'tripartite'],
                         help='which model to use')
     parser.add_argument('--datapath',
-                        type=str,
                         default='data/amazon-book-2018/',
+                        type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        type=int,
                         default=1000,
+                        type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
-                        type=int,
                         default=64,
+                        type=int,
                         help='embedding size')
     parser.add_argument('--batch_size',
+                        default=2048,
                         type=int,
-                        default=1024,
                         help='batch size for training and prediction')
     parser.add_argument('--uid',
-                        type=str,
                         default=False,
+                        type=str,
                         help="optional name for the model instead of generated uid")
 
     parser.add_argument('--evaluate_every',
+                        default=10,
                         type=int,
-                        default=100,
                         help='how often evaluation is performed during training (default: every 100 epochs)')
     parser.add_argument('-k',
-                        type=int,
                         default=[20, 40],
+                        type=int,
                         nargs='*',
                         help='list of k-s for metrics @k')
     parser.add_argument('--save_model',
                         action='store_true',
                         help='whether to save the model')
     parser.add_argument('--load_path',
-                        type=str,
                         default=False,
+                        type=str,
                         help='path to the model we want to load and continue training or evaluate')
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')
     parser.add_argument('--gpu',
-                        type=str,
                         default='0',
+                        type=str,
                         help='comma delimited list of GPUs that torch can see')
     parser.add_argument('--quiet', '-q',
                         action='store_true',
                         help='supress textual output in terminal (equivalent to error logging level)')
     parser.add_argument('--logging_level',
-                        type=str,
                         default='info',
+                        type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
     parser.add_argument('--seed',
-                        type=int,
                         default=1234,
+                        type=int,
                         help='the random seed')
 
     ''' hyperparameters '''
     parser.add_argument('--lr',
-                        type=float,
                         default=0.0001,
+                        type=float,
                         help='Learning rate.')
     parser.add_argument('--reg_lambda',
-                        type=float,
                         default=1e-5,
+                        type=float,
                         help='the weight decay for l2 normalizaton')
+    parser.add_argument('--keep_prob',
+                        default=0.6,  # 0.6 for lightgcn, 0.1 for kgat
+                        type=float,
+                        help="probability of keeping the link in graph when doing dropout")
 
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
-                            type=int,
                             default=256,
+                            type=int,
                             help='batch size for embedding')
     text_hyper.add_argument('--bert-model',
-                            type=str,
                             default='microsoft/deberta-v3-base',
+                            type=str,
                             help='version of BERT to use')
     text_hyper.add_argument('--single_vector',
                             action='store_true',
                             help='whether to use one vector for all users or one per each')
     text_hyper.add_argument('--layer_size',
+                            default=[64, 32, 16],
                             nargs='*',
                             type=int,
-                            default=[64, 32, 16],
                             help='Output sizes of every layer')
-    text_hyper.add_argument('--mess_dropout',
-                            type=float,
-                            default=0.1,
-                            help='Keep probability w.r.t. message dropout (i.e., 1-dropout_ratio) for each deep layer. 1: no dropout.')
     text_hyper.add_argument('--separator', '-sep',
-                            type=str,
                             default='[SEP]',
+                            type=str,
                             dest='sep',
                             help='Separator for table comprehension')
     text_hyper.add_argument('--freeze',
@@ -112,17 +112,9 @@ def parse_args():
 
     lightgcn = parser.add_argument_group('lightGCN hyperparams')
     lightgcn.add_argument('--n_layers',
-                          type=int,
                           default=3,
+                          type=int,
                           help="num layers")
-    lightgcn.add_argument('--dropout',
-                          action='store_true',
-                          help="using the dropout or not")
-    lightgcn.add_argument('--keep_prob',
-                          type=float,
-                          default=0.6,
-                          help="dropout??")
-
     args = parser.parse_args()
 
     ''' paths '''
