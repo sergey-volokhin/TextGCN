@@ -1,10 +1,12 @@
-dgl==0.6.1
+dgl-cu110==0.6.1
 torch==1.10.0
 pandas
 numpy
+cppimport
 tqdm
 transformers
 matplotlib
 networkx
 tensorboardX
 sentencepiece
+scikit-learn
