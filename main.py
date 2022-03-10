@@ -1,18 +1,17 @@
+import cProfile
+import pstats
+
+import numpy as np
+import torch
 from rich import pretty, traceback
 
-from dataloader import DataLoader
+from dataloader import DataLoader as DataLoaderLightGCN
 from lightgcn import LightGCN
-from text_model import DataLoaderText, TextModel
-from tripartite import DataLoaderTripartite, Tripartite
-
-# from dataloader import DataLoaderText, DataLoaderLightGCN
-# from lightgcn import LightGCN
-# from text_model import TextModel
-
 from parser import parse_args
-from utils import set_seed
+from text_model import DataLoaderText, TextModel
+from text_model_reviews import DataLoaderReviews, TextModelReviews
 
-traceback.install()
+# traceback.install()
 pretty.install()
 
 
@@ -20,12 +19,16 @@ if __name__ == '__main__':
 
     args = parse_args()
 
-    set_seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     loader_class, model_class = {'text': (DataLoaderText, TextModel),
-                                 'lightgcn': (DataLoader, LightGCN),
-                                 'tripartite': (DataLoaderTripartite, Tripartite)
+                                 'lightgcn': (DataLoaderLightGCN, LightGCN),
+                                 'reviews': (DataLoaderReviews, TextModelReviews)
                                  }[args.model]
+
+    # profiler = cProfile.Profile()
+    # profiler.enable()
 
     dataset = loader_class(args)
     model = model_class(args, dataset)
@@ -33,3 +36,7 @@ if __name__ == '__main__':
     model.workout()
     if args.predict:
         predictions = model.predict(save=True)
+
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats('cumtime')
+    # stats.print_stats()

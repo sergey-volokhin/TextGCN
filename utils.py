@@ -5,13 +5,33 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from transformers import DebertaV2Model, DebertaV2Tokenizer
+import torch
 
 
-def set_seed(seed):
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.manual_seed(seed)
+def hit(row):
+    return row['intersecting_items'].shape[0] > 0
+
+
+def recall(row):
+    return row['intersecting_items'].shape[0] / row['y_true'].shape[0]
+
+
+def precision(row, k):
+    return row['intersecting_items'].shape[0] / k
+
+
+def dcg(rel):
+    return np.sum((2 ** rel - 1) / np.log2(np.arange(2, rel.size + 2)))
+
+
+def ndcg(row, k):
+    idcg = dcg(np.concatenate([np.ones(min(k, row['y_true'].shape[0],)),
+                               np.zeros(max(0, k - row['y_true'].shape[0]))]))
+    rel = np.zeros(k)
+    rel[np.where(np.isin(row['y_pred'][:k], row['intersecting_items']))] = 1
+    numerator = dcg(rel)
+
+    return numerator / idcg
 
 
 def get_logger(args):
@@ -26,6 +46,10 @@ def get_logger(args):
 
 
 def early_stop(res):
+    '''
+        returns True if the difference between metrics
+        from current and previous epochs is less than 1e-4
+    '''
     return len(res['recall']) > 1 and all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values())
 
 
@@ -50,7 +74,6 @@ def shuffle(*arrays):
 
 
 def embed_text(sentences, path, bert_model, batch_size, device):
-
     sentences_to_embed = sentences.unique().tolist()
     tokenization = tokenize_text(sentences_to_embed, path, bert_model, batch_size)
     bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
@@ -69,7 +92,8 @@ def embed_text(sentences, path, bert_model, batch_size, device):
 
 
 def tokenize_text(sentences, path, bert_model, batch_size):
-    if not os.path.exists(f'{path}/tokenization_{bert_model.split("/")[-1]}.torch'):
+    tok_path = f'{path}/tokenization_{bert_model.split("/")[-1]}.torch'
+    if not os.path.exists(tok_path):
         tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
         num_samples = len(sentences)
         token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
@@ -85,9 +109,9 @@ def tokenize_text(sentences, path, bert_model, batch_size):
                                           max_length=512))
         del tokenizer
         torch.cuda.empty_cache()
-        torch.save(tokenization, f'{path}/tokenization_{bert_model.split("/")[-1]}.torch')
+        torch.save(tokenization, tok_path)
     else:
-        tokenization = torch.load(f'{path}/tokenization_{bert_model.split("/")[-1]}.torch')
+        tokenization = torch.load(tok_path)
     return tokenization
 
 

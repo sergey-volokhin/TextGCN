@@ -7,8 +7,7 @@ import torch.optim as opt
 from tensorboardX import SummaryWriter
 from tqdm import tqdm, trange
 
-from metrics import hit, ndcg, precision, recall
-from utils import early_stop, minibatch
+from utils import early_stop, hit, minibatch, ndcg, precision, recall
 
 
 class BaseModel(torch.nn.Module):
@@ -19,13 +18,19 @@ class BaseModel(torch.nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._save_code()
-        self.logger.info(args)
+        self._build_model()
+        self.load_model()
+        self.to(self.device)
+        self._build_optimizer()
 
         self.current_epoch = 0
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
         self.metrics_logger = {i: np.zeros((0, len(args.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
+
+        self._save_code()
+        self.logger.info(args)
+        self.logger.info(self)
 
     def _copy_args(self, args):
         self.k = args.k
@@ -40,22 +45,31 @@ class BaseModel(torch.nn.Module):
         self.keep_prob = args.keep_prob
         self.save_path = args.save_path
         self.load_path = args.load_path
+        self.layer_size = args.layer_size
         self.save_model = args.save_model
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
 
     def _copy_dataset_args(self, dataset):
-        self.graph = dataset.graph
-        self.adj_matrix = dataset.adj_matrix
+        self.graph = dataset.graph            # dgl graph
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
+        self.sampler = dataset.sampler
         self.n_batches = dataset.n_batches
         self.test_user_dict = dataset.test_user_dict
         self.embedding_user = dataset.embedding_user
         self.embedding_item = dataset.embedding_item
         self.get_user_pos_items = dataset.get_user_pos_items
-        self.sampler = dataset.sampler
+        self._dropout_norm_matrix = dataset._dropout_norm_matrix
+        self.adj = self.graph.adj(etype='bought', ctx=self.device)
+
+    def _build_model(self):
+        '''
+            adding all the torch variables so we could
+            move to cuda before making optimizers
+        '''
+        pass
 
     def _build_optimizer(self):
         self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
@@ -65,22 +79,22 @@ class BaseModel(torch.nn.Module):
                                                             min_lr=1e-6)
 
     def get_loss(self, users, pos, neg):
-        ''' get normal loss '''
-        users_emb, item_emb = self.get_representation()
-        users_emb = users_emb[users.long()]
-        pos_emb = item_emb[pos.long()]
-        neg_emb = item_emb[neg.long()]
-        pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
-        neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
 
-        ''' get regularization loss '''
-        user_vec = self.embedding_user(users.long())
-        pos_vec = self.embedding_item(pos.long())
-        neg_vec = self.embedding_item(neg.long())
-        reg_loss = (user_vec.norm(2).pow(2) + \
-                    pos_vec.norm(2).pow(2) + \
-                    neg_vec.norm(2).pow(2)) / len(users) / 2
+        ''' normal loss '''
+        # TODO change to only return representation of (users,pos,neg)
+        users_emb, item_emb = self.get_representation()
+        users_emb = users_emb[users]
+        pos_emb = item_emb[pos]
+        neg_emb = item_emb[neg]
+        pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)  # inner product
+        neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)  # inner product
+        loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))  # bpr loss
+
+        ''' regularization loss '''
+        user_vec = self.embedding_user(users)
+        pos_vec = self.embedding_item(pos)
+        neg_vec = self.embedding_item(neg)
+        reg_loss = (user_vec.norm(2).pow(2) + pos_vec.norm(2).pow(2) + neg_vec.norm(2).pow(2)) / len(users) / 2
 
         return loss + self.reg_lambda * reg_loss
 
@@ -98,10 +112,11 @@ class BaseModel(torch.nn.Module):
                               dynamic_ncols=True):
             self.optimizer.zero_grad()
             loss = self.get_loss(*arguments)
-            total_loss += loss.cpu().item()
+            total_loss += loss
             loss.backward()
             self.optimizer.step()
 
+        total_loss = total_loss.item()
         self.w.add_scalar('Training_loss', total_loss, self.current_epoch)
         assert not np.isnan(total_loss), 'loss is nan while training'
         self.scheduler.step(total_loss)
@@ -110,7 +125,6 @@ class BaseModel(torch.nn.Module):
     def workout(self):
         ''' training loop called 'workout' because torch models already have internal .train method '''
         for epoch in trange(1, self.epochs + 1, desc='epochs', dynamic_ncols=True):
-
             self.train()
             self.current_epoch += 1
             loss = self.step()
@@ -125,10 +139,8 @@ class BaseModel(torch.nn.Module):
             if early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
-
         if self.save_model:
             self.checkpoint()
-        self.report_best_scores()
         self.w.flush()
 
     def evaluate(self):
@@ -178,6 +190,7 @@ class BaseModel(torch.nn.Module):
                                     leave=False,
                                     dynamic_ncols=True):
 
+                # get the estimated user-item scores with matmul embedding matrices
                 batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
                 rating = torch.matmul(batch_user_emb, items_emb.t())
 
@@ -189,6 +202,7 @@ class BaseModel(torch.nn.Module):
                 exclude_items = np.concatenate(exclude_items)
                 rating[exclude_index, exclude_items] = np.NINF
 
+                # select top-k items with highest ratings
                 _, rank_indices = torch.topk(rating, k=max(self.k))
                 y_pred += list(rank_indices.cpu().numpy().tolist())
                 y_true += [self.test_user_dict[u] for u in batch_users]
@@ -249,15 +263,6 @@ class BaseModel(torch.nn.Module):
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
         open(self.progression_path, 'w').write('\n'.join(progression))
-
-    def report_best_scores(self):
-        ''' print scores from best epoch on screen '''
-        self.metrics_logger = {k: np.array(v) for k, v in self.metrics_logger.items()}
-        idx = np.argmax(self.metrics_logger[self.metrics[0]][:, 0])
-        self.logger.info(f'Best Metrics (at epoch {(idx + 1) * self.evaluate_every}):')
-        self.logger.info(' ' * 11 + ' '.join([f'@{i:<5}' for i in self.k]))
-        for k, v in self.metrics_logger.items():
-            self.logger.info(f'{k:11}' + ' '.join([f'{j:.4f}' for j in v[idx]]))
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def get_representation(self):

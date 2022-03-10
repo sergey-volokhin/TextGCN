@@ -11,7 +11,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         default='text',
-                        choices=['lightgcn', 'text', 'tripartite'],
+                        choices=['lightgcn', 'text', 'reviews'],
                         help='which model to use')
     parser.add_argument('--data',
                         default='data/amazon-book-2018/',

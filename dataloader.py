@@ -21,7 +21,7 @@ class DataLoader:
         self._build_dicts()
         self._init_embeddings()
         self._construct_graph()
-        self._generate_adj_matrix()
+        self._precalculate_normalization()
 
     def _copy_args(self, args):
         self.seed = args.seed
@@ -29,6 +29,7 @@ class DataLoader:
         self.logger = args.logger
         self.device = args.device
         self.emb_size = args.emb_size
+        self.keep_prob = args.keep_prob
         self.batch_size = args.batch_size
 
     def _load_files(self):
@@ -50,9 +51,9 @@ class DataLoader:
         torch.nn.init.normal_(self.embedding_item.weight, std=0.1)
 
     def _build_dicts(self):
-        self.train_user_dict = self.train_df.groupby('user_id')['asin'].apply(sorted).to_dict()
-        self.test_user_dict = self.test_df.groupby('user_id')['asin'].apply(sorted).to_dict()
-        self.positive_lists = [self.train_user_dict[u] for u in list(range(self.n_users))]
+        self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list).to_dict()
+        self.test_user_dict = self.test_df.groupby('user_id')['asin'].aggregate(list).to_dict()
+        self.positive_lists = [self.train_user_dict[u] for u in range(self.n_users)]
 
     def _print_info(self):
         self.n_users = self.train_df.user_id.nunique()
@@ -69,8 +70,8 @@ class DataLoader:
 
     def _construct_graph(self):
         ''' create bipartite graph with initial vectors '''
-        self.graph = dgl.heterograph({('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-                                      ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values)})
+        self.graph = dgl.heterograph({('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
+                                      ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values)})
         self.graph = self.graph.to(self.device)
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long, device=self.device)
         item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long, device=self.device)
@@ -79,8 +80,13 @@ class DataLoader:
         self.graph.ndata['id'] = {'user': user_ids,
                                   'item': item_ids}
 
-    def _generate_adj_matrix(self):
-        ''' create adjacency matrix from the graph '''
+    def _precalculate_normalization(self):
+        '''
+            precalculate normalization coefficients:
+                            1
+            c_(ij) = ----------------
+                     sqrt(|N_u||N_i|)
+        '''
         adj_mat = self.graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
         adj_mat._shape = (self.n_users + self.n_items, self.n_users + self.n_items)
         adj_mat.col += self.n_users
@@ -90,8 +96,8 @@ class DataLoader:
         d_inv[np.isinf(d_inv)] = 0
         d_mat = sp.diags(d_inv)
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocsr()
-        self.adj_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj)
-        self.adj_matrix = self.adj_matrix.coalesce().to(self.device)
+        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj)
+        self.norm_matrix = self.norm_matrix.coalesce().to(self.device)
 
     def _convert_sp_mat_to_sp_tensor(self, x):
         ''' convert sparse matrix into torch sparse tensor '''
@@ -101,6 +107,15 @@ class DataLoader:
         index = torch.stack([row, col])
         data = torch.FloatTensor(coo.data)
         return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
+
+    def _dropout_norm_matrix(self):
+        ''' drop (1 - self.keep_prob) elements from adjacency table '''
+        index = self.norm_matrix.indices().t()
+        values = self.norm_matrix.values()
+        random_index = (torch.rand(len(values)) + self.keep_prob).int().bool()
+        index = index[random_index]
+        values = values[random_index] / self.keep_prob
+        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
 
     def sampler(self, neg_ratio=1):
         '''
@@ -117,9 +132,9 @@ class DataLoader:
         except Exception:
             S = self.python_sampler()
 
-        users = torch.Tensor(S[:, 0]).long().to(self.device)
-        pos_items = torch.Tensor(S[:, 1]).long().to(self.device)
-        neg_items = torch.Tensor(S[:, 2]).long().to(self.device)
+        users = torch.Tensor(S[:, 0]).to(self.device).long().to(self.device)
+        pos_items = torch.Tensor(S[:, 1]).to(self.device).long().to(self.device)
+        neg_items = torch.Tensor(S[:, 2]).to(self.device).long().to(self.device)
         return minibatch(*shuffle(users, pos_items, neg_items), batch_size=self.batch_size)
 
     def python_sampler(self):
