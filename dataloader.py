@@ -45,8 +45,10 @@ class DataLoader:
 
     def _init_embeddings(self):
         ''' randomly initialize entity embeddings '''
-        self.embedding_user = torch.nn.Embedding(num_embeddings=self.n_users, embedding_dim=self.emb_size, device=self.device)
-        self.embedding_item = torch.nn.Embedding(num_embeddings=self.n_items, embedding_dim=self.emb_size, device=self.device)
+        self.embedding_user = torch.nn.Embedding(num_embeddings=self.n_users,
+                                                 embedding_dim=self.emb_size).to(self.device)
+        self.embedding_item = torch.nn.Embedding(num_embeddings=self.n_items,
+                                                 embedding_dim=self.emb_size).to(self.device)
         torch.nn.init.normal_(self.embedding_user.weight, std=0.1)
         torch.nn.init.normal_(self.embedding_item.weight, std=0.1)
 
@@ -70,11 +72,13 @@ class DataLoader:
 
     def _construct_graph(self):
         ''' create bipartite graph with initial vectors '''
-        self.graph = dgl.heterograph({('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
-                                      ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values)})
+        self.graph = dgl.heterograph({('item', 'bought_by', 'user'): (self.train_df['asin'].values,
+                                                                      self.train_df['user_id'].values),
+                                      ('user', 'bought', 'item'): (self.train_df['user_id'].values,
+                                                                   self.train_df['asin'].values)})
         self.graph = self.graph.to(self.device)
-        user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long, device=self.device)
-        item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long, device=self.device)
+        user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long).to(self.device)
+        item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long).to(self.device)
         self.graph.ndata['e'] = {'user': self.embedding_user(user_ids),
                                  'item': self.embedding_item(item_ids)}
         self.graph.ndata['id'] = {'user': user_ids,
@@ -97,7 +101,7 @@ class DataLoader:
         d_mat = sp.diags(d_inv)
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocsr()
         self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj)
-        self.norm_matrix = self.norm_matrix.coalesce().to(self.device)
+        self.norm_matrix = self.norm_matrix.coalesce()
 
     def _convert_sp_mat_to_sp_tensor(self, x):
         ''' convert sparse matrix into torch sparse tensor '''
@@ -115,7 +119,7 @@ class DataLoader:
         random_index = (torch.rand(len(values)) + self.keep_prob).int().bool()
         index = index[random_index]
         values = values[random_index] / self.keep_prob
-        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
+        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
 
     def sampler(self, neg_ratio=1):
         '''
@@ -132,9 +136,9 @@ class DataLoader:
         except Exception:
             S = self.python_sampler()
 
-        users = torch.Tensor(S[:, 0]).to(self.device).long().to(self.device)
-        pos_items = torch.Tensor(S[:, 1]).to(self.device).long().to(self.device)
-        neg_items = torch.Tensor(S[:, 2]).to(self.device).long().to(self.device)
+        users = torch.Tensor(S[:, 0]).to(self.device).long()
+        pos_items = torch.Tensor(S[:, 1]).to(self.device).long()
+        neg_items = torch.Tensor(S[:, 2]).to(self.device).long()
         return minibatch(*shuffle(users, pos_items, neg_items), batch_size=self.batch_size)
 
     def python_sampler(self):

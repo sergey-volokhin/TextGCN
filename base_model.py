@@ -50,6 +50,7 @@ class BaseModel(torch.nn.Module):
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
+        self.slurm = args.slurm
 
     def _copy_dataset_args(self, dataset):
         self.graph = dataset.graph            # dgl graph
@@ -105,11 +106,16 @@ class BaseModel(torch.nn.Module):
             returns total loss over all users
         '''
         total_loss = 0
-        for arguments in tqdm(self.sampler(),
-                              total=self.n_batches,
-                              desc='current batch',
-                              leave=False,
-                              dynamic_ncols=True):
+        if self.slurm:
+            sampler = self.sampler()
+        else:
+            sampler = tqdm(self.sampler(),
+                           total=self.n_batches,
+                           desc='current batch',
+                           leave=False,
+                           dynamic_ncols=True)
+
+        for arguments in sampler:
             self.optimizer.zero_grad()
             loss = self.get_loss(*arguments)
             total_loss += loss

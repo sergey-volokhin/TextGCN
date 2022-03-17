@@ -70,6 +70,10 @@ def parse_args():
                         type=int,
                         help='the random seed')
 
+    parser.add_argument('--slurm',
+                        action='store_true',
+                        help='whether using slurm to run (less tqdm)')
+
     ''' hyperparameters '''
     parser.add_argument('--lr',
                         default=0.0001,
