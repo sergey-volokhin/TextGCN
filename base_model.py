@@ -23,7 +23,7 @@ class BaseModel(torch.nn.Module):
         self.to(self.device)
         self._build_optimizer()
 
-        self.current_epoch = 0
+        self.current_epoch = 1
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
         self.metrics_logger = {i: np.zeros((0, len(args.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
@@ -40,11 +40,11 @@ class BaseModel(torch.nn.Module):
         self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
+        self.load_path = args.load
         self.emb_size = args.emb_size
         self.n_layers = args.n_layers
         self.keep_prob = args.keep_prob
         self.save_path = args.save_path
-        self.load_path = args.load_path
         self.layer_size = args.layer_size
         self.save_model = args.save_model
         self.batch_size = args.batch_size
@@ -130,20 +130,20 @@ class BaseModel(torch.nn.Module):
 
     def workout(self):
         ''' training loop called 'workout' because torch models already have internal .train method '''
-        for epoch in trange(1, self.epochs + 1, desc='epochs', dynamic_ncols=True):
+        for self.current_epoch in trange(self.current_epoch,
+                                         self.epochs + 1,
+                                         desc='epochs',
+                                         dynamic_ncols=True):
             self.train()
-            self.current_epoch += 1
             loss = self.step()
-
-            if epoch % self.evaluate_every:
+            if self.current_epoch % self.evaluate_every:
                 continue
-            self.logger.info(f'Epoch {epoch}: loss = {loss}')
-
+            self.logger.info(f'Epoch {self.current_epoch}: loss = {loss}')
             self.evaluate()
             if self.save_model:
                 self.checkpoint()
             if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                self.logger.warning(f'Early stopping triggerred at epoch {self.current_epoch}')
                 break
         if self.save_model:
             self.checkpoint()
@@ -190,11 +190,17 @@ class BaseModel(torch.nn.Module):
         y_pred, y_true = [], []
         with torch.no_grad():  # don't calculate gradient since we only predict
             users_emb, items_emb = self.get_representation()
-            for batch_users in tqdm(minibatch(users, batch_size=self.batch_size),
-                                    total=(len(users) - 1) // self.batch_size + 1,
-                                    desc='test batches',
-                                    leave=False,
-                                    dynamic_ncols=True):
+
+            if self.slurm:
+                batches = minibatch(users, batch_size=self.batch_size)
+            else:
+                batches = tqdm(minibatch(users, batch_size=self.batch_size),
+                               total=(len(users) - 1) // self.batch_size + 1,
+                               desc='test batches',
+                               leave=False,
+                               dynamic_ncols=True)
+
+            for batch_users in batches:
 
                 # get the estimated user-item scores with matmul embedding matrices
                 batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
@@ -253,10 +259,10 @@ class BaseModel(torch.nn.Module):
     def checkpoint(self):
         ''' save current model and update the best one '''
         os.system(f'rm -f {self.save_path}/model_checkpoint*')
-        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}')
+        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {self.current_epoch}')
-            torch.save(self.state_dict(), f'{self.save_path}/model_best')
+            torch.save(self.state_dict(), f'{self.save_path}/model_best.pkl')
 
     def save_progression(self):
         ''' save all scores in one file for clarity '''

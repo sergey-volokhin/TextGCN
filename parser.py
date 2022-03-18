@@ -46,7 +46,7 @@ def parse_args():
     parser.add_argument('--save_model',
                         action='store_true',
                         help='whether to save the model')
-    parser.add_argument('--load_path',
+    parser.add_argument('--load',
                         default=False,
                         type=str,
                         help='path to the model we want to load and continue training or evaluate')
@@ -96,11 +96,12 @@ def parse_args():
     text_hyper.add_argument('--emb_batch_size',
                             default=256,
                             type=int,
-                            help='batch size for embedding')
+                            help='batch size for embedding textual data')
     text_hyper.add_argument('--bert-model',
                             default='microsoft/deberta-v3-base',
                             type=str,
                             help='version of BERT to use')
+
     text_hyper.add_argument('--single_vector',
                             action='store_true',
                             help='whether to use one vector for all users or one per each')
@@ -121,8 +122,8 @@ def parse_args():
     args = parser.parse_args()
 
     ''' paths '''
-    if args.load_path:
-        args.save_path = os.path.dirname(args.load_path)
+    if args.load:
+        args.save_path = os.path.dirname(args.load)
         args.uid = os.path.basename(args.save_path)
     else:
         if not args.uid:
@@ -137,7 +138,5 @@ def parse_args():
 
     args.k = sorted(args.k)
     args.logger = get_logger(args)
-
-    args.layer_size = [args.emb_size] + args.layer_size
 
     return args

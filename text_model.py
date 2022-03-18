@@ -41,10 +41,12 @@ class DataLoaderText(DataLoader):
         if not os.path.exists(self.path + emb_path):
             self._construct_text_representation()
             embeddings = embed_text(self.item_mapping['text'],
+                                    'item_kg_representation',
                                     self.path,
                                     self.bert_model,
                                     self.emb_batch_size,
-                                    self.device)
+                                    self.device,
+                                    self.logger)
         else:
             embeddings = torch.load(self.path + emb_path, map_location=self.device)
 
@@ -115,7 +117,7 @@ class TextModel(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-        self.layer_size = args.layer_size
+        self.layer_size = args.layer_size = [args.emb_size] + args.layer_size
         self.single_vector = args.single_vector
 
     def _copy_dataset_args(self, dataset):

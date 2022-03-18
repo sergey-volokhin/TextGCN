@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from transformers import DebertaV2Model, DebertaV2Tokenizer
-import torch
 
 
 def hit(row):
@@ -73,55 +72,38 @@ def shuffle(*arrays):
     return tuple(x[shuffle_indices] for x in arrays)
 
 
-def embed_text(sentences, path, bert_model, batch_size, device):
+def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
+    save_path = f'{path}/embeddings_{name}_{bert_model.split("/")[-1]}.torch'
+    if os.path.exists(save_path):
+        return torch.load(save_path)
+
     sentences_to_embed = sentences.unique().tolist()
-    tokenization = tokenize_text(sentences_to_embed, path, bert_model, batch_size)
+    tokenization = tokenize_text(sentences_to_embed, bert_model, batch_size)
     bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
         embs = []
         for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True):
             embs.append(bert(**batch).last_hidden_state[:, 0].detach().cpu().numpy())
         embeddings = np.concatenate(embs)
-    del bert
-    torch.cuda.empty_cache()
-    os.system(f'rm -f {path}/tokenization_{bert_model.split("/")[-1]}.torch')
     mapping = {i: emb.tolist() for i, emb in zip(sentences_to_embed, embeddings)}
     result = sentences.map(mapping)
-    torch.save(result, f'{path}/embeddings_{bert_model.split("/")[-1]}.torch')
+    logger.info('saving embeddings')
+    torch.save(result, save_path)
     return result
 
 
-def tokenize_text(sentences, path, bert_model, batch_size):
-    tok_path = f'{path}/tokenization_{bert_model.split("/")[-1]}.torch'
-    if not os.path.exists(tok_path):
-        tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
-        num_samples = len(sentences)
-        token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
-                        [sentences[(num_samples // batch_size) * batch_size:]]
-        if len(token_batches[-1]) == 0:
-            token_batches = token_batches[:-1]
-        tokenization = []
-        for batch in tqdm(token_batches, desc='tokenization', dynamic_ncols=True):
-            tokenization.append(tokenizer(batch,
-                                          return_tensors="pt",
-                                          padding=True,
-                                          truncation=True,
-                                          max_length=512))
-        del tokenizer
-        torch.cuda.empty_cache()
-        torch.save(tokenization, tok_path)
-    else:
-        tokenization = torch.load(tok_path)
+def tokenize_text(sentences, bert_model, batch_size):
+    tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
+    num_samples = len(sentences)
+    token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
+                    [sentences[(num_samples // batch_size) * batch_size:]]
+    if len(token_batches[-1]) == 0:
+        token_batches = token_batches[:-1]
+    tokenization = []
+    for batch in tqdm(token_batches, desc='tokenization', dynamic_ncols=True):
+        tokenization.append(tokenizer(batch,
+                                      return_tensors="pt",
+                                      padding=True,
+                                      truncation=True,
+                                      max_length=512))
     return tokenization
-
-
-def draw_bipartite(graph):
-    ''' draw a bipartite graph '''
-    import networkx as nx
-    import matplotlib.pyplot as plt
-    import dgl
-
-    nx_g = dgl.to_homogeneous(graph).to_networkx().to_undirected()
-    pos = nx.drawing.layout.bipartite_layout(nx_g, range(len(nx_g.nodes()) // 2))
-    nx.draw(nx_g, pos, with_labels=True, node_color=[[.7, .7, .7]])
-    plt.show()
