@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import pandas as pd
 import torch
@@ -34,6 +35,7 @@ class TextModelReviews(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
+        self.path = args.data
         self.bert_model = args.bert_model
         self.emb_batch_size = args.emb_batch_size
 
@@ -124,13 +126,19 @@ class TextModelReviews(BaseModel):
         self.item_text_vectors = torch.stack([i[1] for i in sorted(item_text_vectors.items())]).to(self.device)
 
     def workout(self):
-        ''' first phase: train lightgcn embs '''
-        self.logger.info('Phase 1: Training LightGCN weights')
-        self.phase = 1
-        super().workout()
 
-        ''' second phase: pool trained with textual embeddings '''
-        self.logger.info('Phase 2: Training with pooled textual weights')
-        self.phase = 2
-        self.setup_second_phase()
-        super().workout()
+        if self.current_epoch <= self.total_epochs // 2:
+            ''' first phase: train lightgcn embs for half epochs '''
+            self.logger.info('Phase 1: Training LightGCN weights')
+            self.phase = 1
+            self.epochs //= 2
+            super().workout()
+
+        if self.current_epoch <= self.total_epochs:
+            ''' second phase: pool trained with textual embeddings for half epochs '''
+            self.logger.info('Phase 2: Training with pooled textual weights')
+            self.phase = 2
+            self.epochs = self.total_epochs
+            self.current_epoch += 1
+            self.setup_second_phase()
+            super().workout()

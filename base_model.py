@@ -18,15 +18,16 @@ class BaseModel(torch.nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._build_model()
-        self.load_model()
-        self.to(self.device)
-        self._build_optimizer()
 
         self.current_epoch = 1
         self.metrics = ['recall', 'precision', 'hit', 'ndcg']
         self.metrics_logger = {i: np.zeros((0, len(args.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
+
+        self._build_model()
+        self.to(self.device)
+        self._build_optimizer()
+        self.load_model()
 
         self._save_code()
         self.logger.info(args)
@@ -37,7 +38,6 @@ class BaseModel(torch.nn.Module):
         self.lr = args.lr
         self.uid = args.uid
         self.quiet = args.quiet
-        self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
         self.load_path = args.load
@@ -50,6 +50,7 @@ class BaseModel(torch.nn.Module):
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
+        self.epochs = self.total_epochs = args.epochs
         self.slurm = args.slurm
 
     def _copy_dataset_args(self, dataset):
@@ -144,9 +145,11 @@ class BaseModel(torch.nn.Module):
                 self.checkpoint()
             if early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {self.current_epoch}')
+                self.current_epoch = self.epochs
                 break
-        if self.save_model:
-            self.checkpoint()
+        else:
+            if self.save_model:
+                self.checkpoint()
         self.w.flush()
 
     def evaluate(self):
@@ -248,21 +251,28 @@ class BaseModel(torch.nn.Module):
     def load_model(self):
         ''' load torch weights from file '''
         if self.load_path:
-            self.load_state_dict(torch.load(self.load_path))
+            checkpoint = torch.load(self.load_path)
+            self.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.current_epoch = checkpoint['current_epoch']
+            self.total_epochs = checkpoint['total_epochs']
+            self.metrics_logger = checkpoint['metrics']
             self.logger.info(f'Loaded model {self.load_path}')
-            index = max([0] + [int(i[12:-4]) for i in os.listdir(self.save_path) if i.startswith('progression_')])
         else:
             self.logger.info(f'Created model {self.uid}')
-            index = 0
-        self.progression_path = f'{self.save_path}/progression_{index + 1}.txt'
+        self.progression_path = f'{self.save_path}/progression.txt'
 
     def checkpoint(self):
         ''' save current model and update the best one '''
-        os.system(f'rm -f {self.save_path}/model_checkpoint*')
-        torch.save(self.state_dict(), f'{self.save_path}/model_checkpoint{self.current_epoch}.pkl')
+        torch.save({'current_epoch': self.current_epoch,
+                    'total_epochs': self.total_epochs,
+                    'model_state_dict': self.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'metrics': self.metrics_logger},
+                   f'{self.save_path}/checkpoint.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {self.current_epoch}')
-            torch.save(self.state_dict(), f'{self.save_path}/model_best.pkl')
+            os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
 
     def save_progression(self):
         ''' save all scores in one file for clarity '''
