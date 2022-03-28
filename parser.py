@@ -10,8 +10,14 @@ from utils import get_logger
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
-                        default='text',
-                        choices=['lightgcn', 'text', 'reviews'],
+                        default='lightgcn',
+                        choices=['lightgcn',
+                                 'lgcn_single',
+                                 'lgcn_weights',
+                                 'lightattn',
+                                 'kg',
+                                 'reviews',
+                                 'ngcf'],
                         help='which model to use')
     parser.add_argument('--data',
                         default='data/amazon-book-2018/',
@@ -98,26 +104,28 @@ def parse_args():
                             type=int,
                             help='batch size for embedding textual data')
     text_hyper.add_argument('--bert-model',
-                            default='microsoft/deberta-v3-base',
+                            default='google/bert_uncased_L-2_H-128_A-2',
+                            # default='microsoft/deberta-v3-base',
+                            # default='microsoft/deberta-v3-xsmall',
                             type=str,
                             help='version of BERT to use')
 
-    text_hyper.add_argument('--single_vector',
-                            action='store_true',
-                            help='whether to use one vector for all users or one per each')
-    text_hyper.add_argument('--layer_size',
-                            default=[64, 32, 16],
-                            nargs='*',
-                            type=int,
-                            help='Output sizes of every layer')
-    text_hyper.add_argument('--separator', '-sep',
-                            default='[SEP]',
-                            type=str,
-                            dest='sep',
-                            help='Separator for table comprehension')
-    text_hyper.add_argument('--freeze',
-                            action='store_true',
-                            help='whether to freeze textual item embeddings')
+    # text_hyper.add_argument('--single_vector',
+    #                         action='store_true',
+    #                         help='whether to use one vector for all users or one per each')
+    # text_hyper.add_argument('--layer_sizes',
+    #                         default=[64, 32, 16],
+    #                         nargs='*',
+    #                         type=int,
+    #                         help='Output sizes of every layer')
+    # text_hyper.add_argument('--separator', '-sep',
+    #                         default='[SEP]',
+    #                         type=str,
+    #                         dest='sep',
+    #                         help='Separator for table comprehension')
+    # text_hyper.add_argument('--freeze',
+    #                         action='store_true',
+    #                         help='whether to freeze textual item embeddings')
 
     args = parser.parse_args()
 

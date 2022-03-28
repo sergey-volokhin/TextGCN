@@ -1,3 +1,5 @@
+# ! borked
+
 import os
 
 import dgl.function as fn
@@ -8,11 +10,11 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from base_model import BaseModel
-from dataloader import DataLoader
+from dataloader import MyDataLoader
 from utils import embed_text
 
 
-class DataLoaderText(DataLoader):
+class DataLoaderKG(MyDataLoader):
 
     def _copy_args(self, args):
         super()._copy_args(args)
@@ -113,23 +115,23 @@ class ConvLayer(nn.Module):
             return rst
 
 
-class TextModel(BaseModel):
+class TextModelKG(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-        self.layer_size = args.layer_size = [args.emb_size] + args.layer_size
+        self.layer_sizes = [args.emb_size] + args.layer_sizes
         self.single_vector = args.single_vector
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.train_user_dict = dataset.train_user_dict
 
-    def _build_model(self):
+    def _add_torch_vars(self):
 
         ''' aggregation layers '''
         self.layers = nn.ModuleList()
-        for k in range(len(self.layer_size) - 1):
-            self.layers.append(ConvLayer(self.layer_size[k], self.layer_size[k + 1], self.keep_prob))
+        for k in range(len(self.layer_sizes) - 1):
+            self.layers.append(ConvLayer(self.layer_sizes[k], self.layer_sizes[k + 1], self.keep_prob))
 
         ''' set up the initial user vector if only having one vector for all users '''
         if self.single_vector:
@@ -138,13 +140,16 @@ class TextModel(BaseModel):
         else:
             self.user_vector = None
 
-    def get_representation(self):
+    @property
+    def representation(self):
         g = self.graph.local_var()  # entering local mode to freeze the graph for computations
+
         h = torch.cat([self.embedding_user.weight, self.embedding_item.weight])
         node_embed_cache = [h]  # we need to remove the first layer representations of the user nodes
 
         ''' first layer processed using user_vector '''
         h = self.layers[0](g, h, self.user_vector)  # add norm_matrix multiplication
+
         out = F.normalize(h, p=2, dim=1)
         node_embed_cache.append(out)
 
@@ -153,6 +158,6 @@ class TextModel(BaseModel):
             h = layer(g, h)
             out = F.normalize(h, p=2, dim=1)
             node_embed_cache.append(out)
-        node_embed_cache = torch.cat(node_embed_cache, 1)
+        aggregated_embeddings = torch.cat(node_embed_cache, 1)
 
-        return torch.split(node_embed_cache, [self.n_users, self.n_items])
+        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])

@@ -4,7 +4,7 @@ import os
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformers import DebertaV2Model, DebertaV2Tokenizer
+from transformers import AutoModel, AutoTokenizer
 
 
 def hit(row):
@@ -29,7 +29,6 @@ def ndcg(row, k):
     rel = np.zeros(k)
     rel[np.where(np.isin(row['y_pred'][:k], row['intersecting_items']))] = 1
     numerator = dcg(rel)
-
     return numerator / idcg
 
 
@@ -73,13 +72,15 @@ def shuffle(*arrays):
 
 
 def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
+    logger.info(f'Getting {name} embeddings')
+
     save_path = f'{path}/embeddings_{name}_{bert_model.split("/")[-1]}.torch'
     if os.path.exists(save_path):
         return torch.load(save_path)
 
     sentences_to_embed = sentences.unique().tolist()
     tokenization = tokenize_text(sentences_to_embed, bert_model, batch_size)
-    bert = torch.nn.DataParallel(DebertaV2Model.from_pretrained(bert_model)).to(device)
+    bert = torch.nn.DataParallel(AutoModel.from_pretrained(bert_model)).to(device)
     with torch.no_grad():
         embs = []
         for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True):
@@ -87,13 +88,13 @@ def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
         embeddings = np.concatenate(embs)
     mapping = {i: emb.tolist() for i, emb in zip(sentences_to_embed, embeddings)}
     result = sentences.map(mapping)
-    logger.info('saving embeddings')
+    logger.info('Saving calculated embeddings')
     torch.save(result, save_path)
     return result
 
 
 def tokenize_text(sentences, bert_model, batch_size):
-    tokenizer = DebertaV2Tokenizer.from_pretrained(bert_model, strip_accents=True)
+    tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
     num_samples = len(sentences)
     token_batches = [sentences[j * batch_size:(j + 1) * batch_size] for j in range(num_samples // batch_size)] + \
                     [sentences[(num_samples // batch_size) * batch_size:]]
