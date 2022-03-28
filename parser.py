@@ -11,7 +11,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         default='lightgcn',
-                        choices=['lightgcn',
+                        choices=['lgcn',
                                  'lgcn_single',
                                  'lgcn_weights',
                                  'lightattn',
