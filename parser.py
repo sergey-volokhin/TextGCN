@@ -10,8 +10,8 @@ from utils import get_logger
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
-                        default='lightgcn',
-                        choices=['lightgcn',
+                        default='lgcn',
+                        choices=['lgcn',
                                  'lgcn_single',
                                  'lgcn_weights',
                                  'lightattn',
