@@ -51,7 +51,7 @@ if __name__ == '__main__':
     loader_class, model_class = {'kg': (DataLoaderKG, TextModelKG),
                                  'lgcn': (DataLoaderLightGCN, LightGCN),
                                  'lgcn_single': (DataLoaderLightGCN, LightGCNSingle),
-                                 'lgcn_weigths': (DataLoaderLightGCN, LightGCNWeight),
+                                 'lgcn_weights': (DataLoaderLightGCN, LightGCNWeight),
                                  'lightattn': (DataLoaderLightGCN, LightGCNAttn),
                                  'reviews': (DataLoaderReviews, TextModelReviews),
                                  'ngcf': (DataLoaderReviews, NGCF),
