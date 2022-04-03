@@ -1,12 +1,11 @@
-import scipy.sparse as sp
 import os
 
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
 import torch.optim as opt
 from tensorboardX import SummaryWriter
+from torch import nn
 from tqdm import tqdm, trange
 
 from utils import early_stop, hit, minibatch, ndcg, precision, recall
@@ -21,15 +20,10 @@ class BaseModel(nn.Module):
         self._copy_args(args)
         self._copy_dataset_args(dataset)
         self._init_embeddings()
-        self._precalculate_normalization()
-
         self._add_vars()
         self._add_torch_vars()
 
-        self.to(self.device)
-        self._add_optimizer()
         self.load_model()
-
         self._save_code()
         self.logger.info(args)
         self.logger.info(self)
@@ -54,11 +48,11 @@ class BaseModel(nn.Module):
         self.slurm = args.slurm
 
     def _copy_dataset_args(self, dataset):
-        self.graph = dataset.graph            # dgl graph
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.sampler = dataset.sampler
         self.n_batches = dataset.n_batches
+        self.norm_matrix = dataset.norm_matrix
         self.test_user_dict = dataset.test_user_dict
         self.get_user_pos_items = dataset.get_user_pos_items
 
@@ -84,33 +78,6 @@ class BaseModel(nn.Module):
         '''
         pass
 
-    def _precalculate_normalization(self):
-        '''
-            precalculate normalization coefficients:
-                            1
-            c_(ij) = ----------------
-                     sqrt(|N_u||N_i|)
-        '''
-        adj_mat = self.graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
-        adj_mat._shape = (self.n_users + self.n_items, self.n_users + self.n_items)
-        adj_mat.col += self.n_users
-        adj_mat = (adj_mat + adj_mat.T).todok()
-        rowsum = np.array(adj_mat.sum(axis=1))
-        d_inv = np.power(rowsum, -0.5).flatten()
-        d_inv[np.isinf(d_inv)] = 0
-        d_mat = sp.diags(d_inv)
-        norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocsr()
-        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce()
-
-    def _convert_sp_mat_to_sp_tensor(self, x):
-        ''' convert sparse matrix into torch sparse tensor '''
-        coo = x.tocoo().astype(np.float32)
-        row = torch.Tensor(coo.row).long()
-        col = torch.Tensor(coo.col).long()
-        index = torch.stack([row, col])
-        data = torch.FloatTensor(coo.data)
-        return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
-
     @property
     def _dropout_norm_matrix(self):
         ''' drop (1 - self.keep_prob) elements from adjacency table '''
@@ -120,13 +87,6 @@ class BaseModel(nn.Module):
         index = index[random_index]
         values = values[random_index] / self.keep_prob
         return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
-
-    def _add_optimizer(self):
-        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
-        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(self.optimizer,
-                                                            verbose=(not self.quiet),
-                                                            patience=5,
-                                                            min_lr=1e-6)
 
     def get_loss(self, users, pos, neg):
 
@@ -150,7 +110,7 @@ class BaseModel(nn.Module):
 
     def step(self):
         '''
-            one iteration over n_train number of samples
+            one iteration over one sampler
             i.e. one step of the training cycle
             returns total loss over all users
         '''
@@ -346,3 +306,11 @@ class BaseModel(nn.Module):
             calculated embeddings and propagated through layers
         '''
         raise NotImplementedError
+
+    def torch_forward(self, args):
+        self.optimizer.zero_grad()
+        loss = self.get_loss(*args.t())
+        loss.backward()
+        self.optimizer.step()
+        self.w.add_scalar('Training_loss', loss, self.current_epoch)
+        return loss

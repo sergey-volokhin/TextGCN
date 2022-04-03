@@ -7,14 +7,15 @@ import torch
 from utils import get_logger
 
 
-def parse_args():
+def parse_args(s=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         default='lgcn',
                         choices=['lgcn',
                                  'lgcn_single',
                                  'lgcn_weights',
-                                 'lightattn',
+                                 'lgcn_single_attn',
+                                 'lgcn_attn',
                                  'kg',
                                  'reviews',
                                  'ngcf'],
@@ -82,11 +83,11 @@ def parse_args():
 
     ''' hyperparameters '''
     parser.add_argument('--lr',
-                        default=0.0001,
+                        default=0.001,
                         type=float,
                         help='Learning rate.')
     parser.add_argument('--reg_lambda',
-                        default=1e-5,
+                        default=1e-4,
                         type=float,
                         help='the weight decay for l2 normalizaton')
     parser.add_argument('--keep_prob',
@@ -98,17 +99,17 @@ def parse_args():
                         type=int,
                         help="num layers")
 
-    text_hyper = parser.add_argument_group('text model hyperparams')
-    text_hyper.add_argument('--emb_batch_size',
-                            default=256,
-                            type=int,
-                            help='batch size for embedding textual data')
-    text_hyper.add_argument('--bert-model',
-                            default='google/bert_uncased_L-2_H-128_A-2',
-                            # default='microsoft/deberta-v3-base',
-                            # default='microsoft/deberta-v3-xsmall',
-                            type=str,
-                            help='version of BERT to use')
+    # text_hyper = parser.add_argument_group('text model hyperparams')
+    # text_hyper.add_argument('--emb_batch_size',
+    #                         default=256,
+    #                         type=int,
+    #                         help='batch size for embedding textual data')
+    # text_hyper.add_argument('--bert-model',
+    #                         default='google/bert_uncased_L-2_H-128_A-2',
+    #                         # default='microsoft/deberta-v3-base',
+    #                         # default='microsoft/deberta-v3-xsmall',
+    #                         type=str,
+    #                         help='version of BERT to use')
 
     # text_hyper.add_argument('--single_vector',
     #                         action='store_true',
@@ -127,7 +128,7 @@ def parse_args():
     #                         action='store_true',
     #                         help='whether to freeze textual item embeddings')
 
-    args = parser.parse_args()
+    args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     ''' paths '''
     if args.load:
@@ -136,7 +137,7 @@ def parse_args():
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+        args.save_path = f'centralized_runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
 
