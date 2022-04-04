@@ -25,7 +25,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=1000,
+                        default=700,
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
@@ -42,7 +42,7 @@ def parse_args(s=None):
                         help="optional name for the model instead of generated uid")
 
     parser.add_argument('--evaluate_every',
-                        default=10,
+                        default=25,
                         type=int,
                         help='how often evaluation is performed during training (default: every 100 epochs)')
     parser.add_argument('-k',
@@ -131,6 +131,7 @@ def parse_args(s=None):
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     ''' paths '''
+    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
     if args.load:
         args.save_path = os.path.dirname(args.load)
         args.uid = os.path.basename(args.save_path)
@@ -139,7 +140,6 @@ def parse_args(s=None):
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
         args.save_path = f'centralized_runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
-    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
 
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
