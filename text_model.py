@@ -6,19 +6,17 @@ import dgl.function as fn
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from tqdm import tqdm
 
 from base_model import BaseModel
-from dataloader import MyDataLoader
+from dataset import BaseDataset
 from utils import embed_text
 
 
-class DataLoaderKG(MyDataLoader):
+class DatasetKG(BaseDataset):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-
         self.sep = args.sep
         self.freeze = args.freeze
         self.bert_model = args.bert_model
@@ -36,7 +34,7 @@ class DataLoaderKG(MyDataLoader):
         self.item_mapping['text'] = self.item_mapping['org_id'].map(self.item_text_dict)
 
     def _init_embeddings(self):
-        ''' construct BERT representation for items and overwrite model item embeddings with them'''
+        ''' construct BERT representation for items and overwrite model item embeddings '''
         super()._init_embeddings()
 
         emb_path = f'embeddings_{self.bert_model.split("/")[-1]}.torch'
@@ -145,19 +143,20 @@ class TextModelKG(BaseModel):
         g = self.graph.local_var()  # entering local mode to freeze the graph for computations
 
         h = torch.cat([self.embedding_user.weight, self.embedding_item.weight])
-        node_embed_cache = [h]  # we need to remove the first layer representations of the user nodes
+        # norm_matrix = self._dropout_norm_matrix
+        node_embed_cache = [h]
 
         ''' first layer processed using user_vector '''
         h = self.layers[0](g, h, self.user_vector)  # add norm_matrix multiplication
-
-        out = F.normalize(h, p=2, dim=1)
-        node_embed_cache.append(out)
+        node_embed_cache.append(h)
 
         ''' rest of the layers processed using user embeddings '''
         for layer in self.layers[1:]:
             h = layer(g, h)
-            out = F.normalize(h, p=2, dim=1)
-            node_embed_cache.append(out)
-        aggregated_embeddings = torch.cat(node_embed_cache, 1)
-
+            # h = self.layer_propagate(norm_matrix, h)
+            node_embed_cache.append(h)
+        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+
+    def layer_aggregation(self, vectors):
+        return torch.cat(vectors, 1)

@@ -7,38 +7,29 @@ from base_model import BaseModel
 
 class LightGCN(BaseModel):
 
-    @property
-    def representation(self):
-        '''
-            calculate current embeddings,
-            pull the through layers and aggregate
-        '''
-        h = torch.cat([self.embedding_user.weight, self.embedding_item.weight])
-        norm_matrix = self._dropout_norm_matrix
-        node_embed_cache = [h]
-        for _ in range(self.n_layers):
-            h = self.layer_propagate(norm_matrix, h)
-            node_embed_cache.append(h)
-        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
-        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
-
-    def layer_propagate(self, norm_matrix, h):
-        return torch.sparse.mm(norm_matrix, h)
+    def layer_propagate(self, norm_matrix, emb_matrix):
+        return torch.sparse.mm(norm_matrix, emb_matrix)
 
     def layer_aggregation(self, vectors):
         return torch.mean(torch.stack(vectors, dim=1), dim=1)
 
+    def embedding_matrix(self):
+        ''' get the embedding matrix of 0th layer '''
+        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
+
 
 class LightGCNAttn(LightGCN):
 
-    def _add_torch_vars(self):
-        # ngcf variables init
+    def _add_vars(self):
+        super()._add_vars()
+
+        # NGCF weights
         self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
         nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
 
     def layer_propagate(self, norm_matrix, h):
         '''
-            propagate messages through layer using ngcf formula
+            propagate messages through layer using NGCF attention
                                          e_i                   e_u ⊙ e_i
             e_u = σ(W1*e_u + W1*SUM---------------- + W2*SUM----------------)
                                    sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
@@ -51,7 +42,9 @@ class LightGCNAttn(LightGCN):
 
 class LightGCNWeight(LightGCN):
 
-    def _add_torch_vars(self):
+    def _add_vars(self):
+        super()._add_vars()
+
         # linear combination of layer represenatations
         self.W_layers = nn.Parameter(torch.empty((self.n_layers + 1, 1)), requires_grad=True)
         nn.init.xavier_normal_(self.W_layers, gain=nn.init.calculate_gain('relu'))
@@ -66,5 +59,5 @@ class LightGCNSingle(LightGCN):
         return vectors[-1]
 
 
-class LightSingleGCNAttn(LightGCNSingle, LightGCNAttn):
+class LightGCNSingleAttn(LightGCNSingle, LightGCNAttn):
     pass

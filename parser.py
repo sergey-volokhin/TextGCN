@@ -25,7 +25,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=1000,
+                        default=700,
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
@@ -42,7 +42,7 @@ def parse_args(s=None):
                         help="optional name for the model instead of generated uid")
 
     parser.add_argument('--evaluate_every',
-                        default=10,
+                        default=25,
                         type=int,
                         help='how often evaluation is performed during training (default: every 100 epochs)')
     parser.add_argument('-k',
@@ -90,26 +90,26 @@ def parse_args(s=None):
                         default=1e-4,
                         type=float,
                         help='the weight decay for l2 normalizaton')
-    parser.add_argument('--keep_prob',
-                        default=0.6,  # 0.6 for lightgcn, 0.1 for kgat
+    parser.add_argument('--dropout',
+                        default=0.4,  # 0.4 for lightgcn, 0.9 for kgat
                         type=float,
-                        help="probability of keeping the link in graph when doing dropout")
+                        help="dropout probability for links in graph")
     parser.add_argument('--n_layers',
                         default=3,
                         type=int,
                         help="num layers")
 
-    # text_hyper = parser.add_argument_group('text model hyperparams')
-    # text_hyper.add_argument('--emb_batch_size',
-    #                         default=256,
-    #                         type=int,
-    #                         help='batch size for embedding textual data')
-    # text_hyper.add_argument('--bert-model',
-    #                         default='google/bert_uncased_L-2_H-128_A-2',
-    #                         # default='microsoft/deberta-v3-base',
-    #                         # default='microsoft/deberta-v3-xsmall',
-    #                         type=str,
-    #                         help='version of BERT to use')
+    text_hyper = parser.add_argument_group('text model hyperparams')
+    text_hyper.add_argument('--emb_batch_size',
+                            default=256,
+                            type=int,
+                            help='batch size for embedding textual data')
+    text_hyper.add_argument('--bert-model',
+                            default='google/bert_uncased_L-2_H-128_A-2',
+                            # default='microsoft/deberta-v3-base',
+                            # default='microsoft/deberta-v3-xsmall',
+                            type=str,
+                            help='version of BERT to use')
 
     # text_hyper.add_argument('--single_vector',
     #                         action='store_true',
@@ -129,8 +129,10 @@ def parse_args(s=None):
     #                         help='whether to freeze textual item embeddings')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
+    assert args.emb_size == 128 or 'lgcn' in args.model
 
     ''' paths '''
+    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
     if args.load:
         args.save_path = os.path.dirname(args.load)
         args.uid = os.path.basename(args.save_path)
@@ -139,7 +141,6 @@ def parse_args(s=None):
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
         args.save_path = f'centralized_runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
-    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
 
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu

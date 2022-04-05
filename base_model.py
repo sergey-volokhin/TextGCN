@@ -3,12 +3,11 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-import torch.optim as opt
 from tensorboardX import SummaryWriter
 from torch import nn
 from tqdm import tqdm, trange
 
-from utils import early_stop, hit, minibatch, ndcg, precision, recall
+from utils import early_stop, hit, ndcg, precision, recall
 
 
 class BaseModel(nn.Module):
@@ -19,27 +18,22 @@ class BaseModel(nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._init_embeddings()
+        self._init_embeddings(args.emb_size)
         self._add_vars()
-        self._add_torch_vars()
 
-        self.load_model()
+        self.load_model(args.load)
         self._save_code()
         self.logger.info(args)
         self.logger.info(self)
 
     def _copy_args(self, args):
         self.k = args.k
-        self.lr = args.lr
         self.uid = args.uid
-        self.quiet = args.quiet
         self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
-        self.load_path = args.load
-        self.emb_size = args.emb_size
+        self.dropout = args.dropout
         self.n_layers = args.n_layers
-        self.keep_prob = args.keep_prob
         self.save_path = args.save_path
         self.save_model = args.save_model
         self.batch_size = args.batch_size
@@ -50,43 +44,25 @@ class BaseModel(nn.Module):
     def _copy_dataset_args(self, dataset):
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
-        self.sampler = dataset.sampler
         self.n_batches = dataset.n_batches
         self.norm_matrix = dataset.norm_matrix
         self.test_user_dict = dataset.test_user_dict
         self.get_user_pos_items = dataset.get_user_pos_items
 
-    def _init_embeddings(self):
+    def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
         self.embedding_user = nn.Embedding(num_embeddings=self.n_users,
-                                           embedding_dim=self.emb_size).to(self.device)
+                                           embedding_dim=emb_size).to(self.device)
         self.embedding_item = nn.Embedding(num_embeddings=self.n_items,
-                                           embedding_dim=self.emb_size).to(self.device)
+                                           embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
     def _add_vars(self):
-        self.current_epoch = 0
+        ''' adding all the remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
-
-    def _add_torch_vars(self):
-        '''
-            adding all the torch variables so we could
-            move to cuda before making optimizers
-        '''
-        pass
-
-    @property
-    def _dropout_norm_matrix(self):
-        ''' drop (1 - self.keep_prob) elements from adjacency table '''
-        index = self.norm_matrix.indices().t()
-        values = self.norm_matrix.values()
-        random_index = (torch.rand(len(values)) + self.keep_prob).int().bool()
-        index = index[random_index]
-        values = values[random_index] / self.keep_prob
-        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
 
     def get_loss(self, users, pos, neg):
 
@@ -108,56 +84,7 @@ class BaseModel(nn.Module):
 
         return loss + self.reg_lambda * reg_loss
 
-    def step(self):
-        '''
-            one iteration over one sampler
-            i.e. one step of the training cycle
-            returns total loss over all users
-        '''
-        total_loss = 0
-        if self.slurm:
-            sampler = self.sampler()
-        else:
-            sampler = tqdm(self.sampler(),
-                           total=self.n_batches,
-                           desc='current batch',
-                           leave=False,
-                           dynamic_ncols=True)
-
-        for arguments in sampler:
-            self.optimizer.zero_grad()
-            loss = self.get_loss(*arguments)
-            total_loss += loss
-            loss.backward()
-            self.optimizer.step()
-
-        total_loss = total_loss.item()
-        self.w.add_scalar('Training_loss', total_loss, self.current_epoch)
-        assert not np.isnan(total_loss), 'loss is nan while training'
-        self.scheduler.step(total_loss)
-        return total_loss
-
-    def forward(self):
-        for self.current_epoch in trange(self.current_epoch + 1,
-                                         self.epochs + 1,
-                                         desc='epochs',
-                                         dynamic_ncols=True):
-            self.train()
-            loss = self.step()
-            if self.current_epoch % self.evaluate_every:
-                continue
-            self.logger.info(f'Epoch {self.current_epoch}: loss = {loss}')
-            self.evaluate()
-            self.checkpoint()
-            if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {self.current_epoch}')
-                self.current_epoch = self.epochs
-                break
-        else:
-            self.checkpoint()
-        self.w.flush()
-
-    def evaluate(self):
+    def evaluate(self, epoch):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         predictions = self.predict()
@@ -178,7 +105,7 @@ class BaseModel(nn.Module):
             results[metric] /= n_users
             self.w.add_scalars(f'Test/{metric}',
                                {str(self.k[i]): results[metric][i] for i in range(len(self.k))},
-                               self.current_epoch)
+                               epoch)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -200,14 +127,8 @@ class BaseModel(nn.Module):
         with torch.no_grad():  # don't calculate gradient since we only predict
             users_emb, items_emb = self.representation
 
-            if self.slurm:
-                batches = minibatch(users, batch_size=self.batch_size)
-            else:
-                batches = tqdm(minibatch(users, batch_size=self.batch_size),
-                               total=(len(users) - 1) // self.batch_size + 1,
-                               desc='test batches',
-                               leave=False,
-                               dynamic_ncols=True)
+            batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
+            batches = batches if self.slurm else tqdm(batches, desc='batches', leave=False, dynamic_ncols=True)
 
             for batch_users in batches:
 
@@ -260,30 +181,22 @@ class BaseModel(nn.Module):
             if file.endswith('.py'):
                 os.system(f'cp {folder}/{file} {self.save_path}/code/{file}_')
 
-    def load_model(self):
+    def load_model(self, load_path):
         ''' load torch weights from file '''
-        if self.load_path:
-            checkpoint = torch.load(self.load_path)
-            self.load_state_dict(checkpoint['model_state_dict'])
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.current_epoch = checkpoint['current_epoch']
-            self.metrics_logger = checkpoint['metrics']
-            self.logger.info(f'Loaded model {self.load_path}')
+        if load_path:
+            self.load_state_dict(torch.load(load_path))
+            self.logger.info(f'Loaded model {load_path}')
         else:
             self.logger.info(f'Created model {self.uid}')
         self.progression_path = f'{self.save_path}/progression.txt'
 
-    def checkpoint(self):
+    def checkpoint(self, epoch):
         ''' save current model and update the best one '''
         if not self.save_model:
             return
-        torch.save({'current_epoch': self.current_epoch,
-                    'model_state_dict': self.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'metrics': self.metrics_logger},
-                   f'{self.save_path}/checkpoint.pkl')
+        torch.save(self.state_dict(), f'{self.save_path}/checkpoint.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
-            self.logger.info(f'Updating best model at epoch {self.current_epoch}')
+            self.logger.info(f'Updating best model at epoch {epoch}')
             os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
 
     def save_progression(self):
@@ -302,15 +215,74 @@ class BaseModel(nn.Module):
     @property
     def representation(self):
         '''
-            get the users' and items' final representations using
-            calculated embeddings and propagated through layers
+            get the users' and items' final representations
+            propagated through all the layers
+        '''
+        curent_lvl_emb_matrix = self.embedding_matrix
+        norm_matrix = self._dropout_norm_matrix
+        node_embed_cache = [curent_lvl_emb_matrix]
+        for _ in range(self.n_layers):
+            curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
+            node_embed_cache.append(curent_lvl_emb_matrix)
+        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
+        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+
+    def layer_propagate(self, *args, **kwargs):
+        '''
+            propagate the current layer embedding matrix
+            through and get the matrix of the next layer
         '''
         raise NotImplementedError
 
-    def torch_forward(self, args):
-        self.optimizer.zero_grad()
-        loss = self.get_loss(*args.t())
-        loss.backward()
-        self.optimizer.step()
-        self.w.add_scalar('Training_loss', loss, self.current_epoch)
-        return loss
+    def layer_aggregation(self, *args, **kwargs):
+        '''
+            given embeddings from all layers
+            combine them into final representation matrix
+        '''
+        raise NotImplementedError
+
+    def embedding_matrix(self, *args, **kwargs):
+        ''' get the embedding matrix of 0th layer '''
+        raise NotImplementedError
+
+    @property
+    def _dropout_norm_matrix(self):
+        '''
+            drop self.dropout elements from adj table
+            to help with overfitting
+        '''
+        index = self.norm_matrix.indices().t()
+        values = self.norm_matrix.values()
+        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
+        index = index[random_index]
+        values = values[random_index] / (1 - self.dropout)
+        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
+
+    def forward(self, batches, optimizer, scheduler):
+        ''' training function '''
+
+        for epoch in trange(1, self.epochs + 1, desc='epochs'):
+            self.train()
+            total_loss = 0
+            batches = batches if self.slurm else tqdm(batches, desc='batches', leave=False, dynamic_ncols=True)
+            for data in batches:
+                optimizer.zero_grad()
+                loss = self.get_loss(*data.to(self.device).t())
+                total_loss += loss
+                loss.backward()
+                optimizer.step()
+            self.w.add_scalar('Training_loss', total_loss, epoch)
+            scheduler.step(total_loss)
+
+            if epoch % self.evaluate_every:
+                continue
+
+            self.logger.info(f'Epoch {epoch}: loss = {total_loss}')
+            self.evaluate(epoch)
+            self.checkpoint(epoch)
+
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        else:
+            self.checkpoint(self.epochs)
