@@ -58,6 +58,8 @@ class BaseModel(nn.Module):
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
+        self.f = nn.Sigmoid()
+
     def _add_vars(self):
         ''' adding all the remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
@@ -134,7 +136,7 @@ class BaseModel(nn.Module):
 
                 # get the estimated user-item scores with matmul embedding matrices
                 batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
-                rating = torch.matmul(batch_user_emb, items_emb.t())
+                rating = self.f(torch.matmul(batch_user_emb, items_emb.t()))
 
                 # set scores for train items to be -inf so we don't recommend them
                 exclude_index, exclude_items = [], []
