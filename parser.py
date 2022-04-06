@@ -25,7 +25,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=700,
+                        default=500,
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',

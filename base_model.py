@@ -218,7 +218,7 @@ class BaseModel(nn.Module):
             get the users' and items' final representations
             propagated through all the layers
         '''
-        curent_lvl_emb_matrix = self.embedding_matrix
+        curent_lvl_emb_matrix = self.embedding_matrix()
         norm_matrix = self._dropout_norm_matrix
         node_embed_cache = [curent_lvl_emb_matrix]
         for _ in range(self.n_layers):
