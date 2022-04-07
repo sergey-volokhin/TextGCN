@@ -46,7 +46,7 @@ class ReviewModel(BaseModel):
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
         self.phase = 1
-        self.epochs //= 2
+        # self.epochs //= 2
 
     def _copy_args(self, args):
         super()._copy_args(args)
@@ -106,8 +106,8 @@ class ReviewModel(BaseModel):
         reviews = torch.tensor(np.stack(reviews)[:self.num_reviews]).float()
         return F.pad(reviews, (0, 0, 0, self.num_reviews - reviews.shape[0]))
 
-    def layer_propagate(self, norm_matrix, h):
-        return torch.sparse.mm(norm_matrix, h)
+    def layer_propagate(self, norm_matrix, curent_lvl_emb_matrix):
+        return torch.sparse.mm(norm_matrix, curent_lvl_emb_matrix)
 
     def layer_aggregation(self, vectors):
         return torch.mean(torch.stack(vectors, dim=1), dim=1)
@@ -140,7 +140,8 @@ class ReviewModel(BaseModel):
     def forward(self, loader, optimizer, scheduler):
         super().forward(loader, optimizer, scheduler)
         self.phase = 2
-        super().forward(loader, optimizer, scheduler)
+        torch.save(self.state_dict(), f'{self.save_path}/lgcn_250e_128d.pkl')
+        # super().forward(loader, optimizer, scheduler)
 
 
 class ReviewModelSingle(ReviewModel):
@@ -156,7 +157,7 @@ class NGCF(ReviewModel):
         self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
         nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
 
-    def layer_propagate(self, norm_matrix, h):
+    def layer_propagate(self, norm_matrix, emb_matrix):
         '''
             propagate messages through layer using ngcf formula
                                          e_i                   e_u ⊙ e_i
@@ -164,6 +165,7 @@ class NGCF(ReviewModel):
                                    sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
         '''
 
-        summ = torch.sparse.mm(norm_matrix, h)
-        return F.leaky_relu((self.W_ngcf[0] * h) + (self.W_ngcf[0] * summ) +
-                            (self.W_ngcf[1] * torch.mul(h, summ)))
+        summ = torch.sparse.mm(norm_matrix, emb_matrix)
+        return F.leaky_relu((self.W_ngcf[0] * emb_matrix) +
+                            (self.W_ngcf[0] * summ) +
+                            (self.W_ngcf[1] * torch.mul(emb_matrix, summ)))

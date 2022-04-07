@@ -221,7 +221,7 @@ class BaseModel(nn.Module):
             get the users' and items' final representations
             propagated through all the layers
         '''
-        curent_lvl_emb_matrix = self.embedding_matrix()
+        curent_lvl_emb_matrix = self.embedding_matrix
 
         if self.training:
             norm_matrix = self._dropout_norm_matrix
@@ -249,7 +249,8 @@ class BaseModel(nn.Module):
         '''
         raise NotImplementedError
 
-    def embedding_matrix(self, *args, **kwargs):
+    @property
+    def embedding_matrix(self):
         ''' get the embedding matrix of 0th layer '''
         raise NotImplementedError
 

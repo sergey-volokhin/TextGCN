@@ -92,7 +92,7 @@ class TextModelKG(BaseModel):
     @property
     def representation(self):
 
-        curent_lvl_emb_matrix = self.embedding_matrix()
+        curent_lvl_emb_matrix = self.embedding_matrix
         norm_matrix = self._dropout_norm_matrix
         node_embed_cache = [curent_lvl_emb_matrix]
 
