@@ -27,7 +27,7 @@ class LightGCNAttn(LightGCN):
         self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
         nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
 
-    def layer_propagate(self, norm_matrix, h):
+    def layer_propagate(self, norm_matrix, emb_matrix):
         '''
             propagate messages through layer using NGCF attention
                                          e_i                   e_u ⊙ e_i
@@ -35,9 +35,10 @@ class LightGCNAttn(LightGCN):
                                    sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
         '''
 
-        summ = torch.sparse.mm(norm_matrix, h)
-        return F.leaky_relu((self.W_ngcf[0] * h) + (self.W_ngcf[0] * summ) +
-                            (self.W_ngcf[1] * torch.mul(h, summ)))
+        summ = torch.sparse.mm(norm_matrix, emb_matrix)
+        return F.leaky_relu((self.W_ngcf[0] * emb_matrix) +
+                            (self.W_ngcf[0] * summ) +
+                            (self.W_ngcf[1] * torch.mul(emb_matrix, summ)))
 
 
 class LightGCNWeight(LightGCN):

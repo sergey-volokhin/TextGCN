@@ -65,6 +65,7 @@ class BaseModel(nn.Module):
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
+        self.training = True
 
     def get_loss(self, users, pos, neg):
 
@@ -221,7 +222,12 @@ class BaseModel(nn.Module):
             propagated through all the layers
         '''
         curent_lvl_emb_matrix = self.embedding_matrix()
-        norm_matrix = self._dropout_norm_matrix
+
+        if self.training:
+            norm_matrix = self._dropout_norm_matrix
+        else:
+            norm_matrix = self.norm_matrix
+
         node_embed_cache = [curent_lvl_emb_matrix]
         for _ in range(self.n_layers):
             curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
@@ -280,7 +286,9 @@ class BaseModel(nn.Module):
                 continue
 
             self.logger.info(f'Epoch {epoch}: loss = {total_loss}')
+            self.training = False
             self.evaluate(epoch)
+            self.training = True
             self.checkpoint(epoch)
 
             if early_stop(self.metrics_logger):
