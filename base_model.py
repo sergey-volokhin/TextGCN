@@ -29,13 +29,13 @@ class BaseModel(nn.Module):
     def _copy_args(self, args):
         self.k = args.k
         self.uid = args.uid
+        self.save = args.save
         self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
         self.dropout = args.dropout
         self.n_layers = args.n_layers
         self.save_path = args.save_path
-        self.save_model = args.save_model
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
@@ -195,7 +195,7 @@ class BaseModel(nn.Module):
 
     def checkpoint(self, epoch):
         ''' save current model and update the best one '''
-        if not self.save_model:
+        if not self.save:
             return
         torch.save(self.state_dict(), f'{self.save_path}/checkpoint.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:

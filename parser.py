@@ -50,7 +50,7 @@ def parse_args(s=None):
                         type=int,
                         nargs='*',
                         help='list of k-s for metrics @k')
-    parser.add_argument('--save_model',
+    parser.add_argument('--save',
                         action='store_true',
                         help='whether to save the model')
     parser.add_argument('--load',
