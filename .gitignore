@@ -137,3 +137,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+convert_to_tsv.py
+lightgcn.py
+jaccard.py
