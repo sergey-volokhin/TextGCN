@@ -5,6 +5,7 @@ import pstats
 
 import numpy as np
 import torch
+from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
@@ -47,7 +48,7 @@ def get_logger(args):
 def early_stop(res):
     '''
         returns True if the difference between metrics
-        from current and previous epochs is less than 1e-4
+        from current and previous epoch is less than 1e-4
     '''
     return len(res['recall']) > 1 and all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values())
 
@@ -99,3 +100,20 @@ def profile(func):
         stats = pstats.Stats(profiler).sort_stats('cumtime')
         stats.print_stats()
     return wrapper
+
+
+def sent_trans_embed_text(sentences, path, bert_model, batch_size, device, logger):
+    logger.info('Getting embeddings')
+
+    if os.path.exists(path):
+        return torch.load(path)
+
+    def dedup_and_sort(l):
+        return sorted(list(set(l)), key=lambda x: len(x.split(" ")), reverse=True)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    model = SentenceTransformer(bert_model, device=device)
+    sentences_to_embed = dedup_and_sort(sentences)
+
+    embedding = model.encode(sentences_to_embed, batch_size=batch_size, convert_to_tensor=True)
+    torch.save({i: j for i, j in zip(sentences_to_embed, embedding)}, path)

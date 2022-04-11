@@ -5,6 +5,7 @@ import pandas as pd
 import torch
 from tensorboardX import SummaryWriter
 from torch import nn
+from torch.nn import functional as F
 from tqdm import tqdm, trange
 
 from utils import early_stop, hit, ndcg, precision, recall
@@ -57,7 +58,6 @@ class BaseModel(nn.Module):
                                            embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
-
         self.f = nn.Sigmoid()
 
     def _add_vars(self):
@@ -77,19 +77,22 @@ class BaseModel(nn.Module):
         neg_emb = item_emb[neg]
         pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
         neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
+        loss = torch.mean(F.softplus(neg_scores - pos_scores))
 
         ''' regularization loss '''
         user_vec = self.embedding_user(users)
         pos_vec = self.embedding_item(pos)
         neg_vec = self.embedding_item(neg)
-        reg_loss = (user_vec.norm(2).pow(2) + pos_vec.norm(2).pow(2) + neg_vec.norm(2).pow(2)) / len(users) / 2
+        reg_loss = (user_vec.norm(2).pow(2) +
+                    pos_vec.norm(2).pow(2) +
+                    neg_vec.norm(2).pow(2)) / len(users) / 2
 
         return loss + self.reg_lambda * reg_loss
 
     def evaluate(self, epoch):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
+        self.training = False
         predictions = self.predict()
         results = {i: np.zeros(len(self.k)) for i in self.metrics}
         for col in predictions.columns:
@@ -131,7 +134,7 @@ class BaseModel(nn.Module):
             users_emb, items_emb = self.representation
 
             batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
-            batches = batches if self.slurm else tqdm(batches, desc='batches', leave=False, dynamic_ncols=True)
+            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
 
             for batch_users in batches:
 
@@ -216,24 +219,66 @@ class BaseModel(nn.Module):
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     @property
+    def _dropout_norm_matrix(self):
+        '''
+            drop self.dropout elements from adj table
+            to help with overfitting
+        '''
+        index = self.norm_matrix.indices().t()
+        values = self.norm_matrix.values()
+        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
+        index = index[random_index]
+        values = values[random_index] / (1 - self.dropout)
+        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
+
+    @property
     def representation(self):
         '''
             get the users' and items' final representations
             propagated through all the layers
         '''
-        curent_lvl_emb_matrix = self.embedding_matrix
-
         if self.training:
             norm_matrix = self._dropout_norm_matrix
         else:
             norm_matrix = self.norm_matrix
 
+        curent_lvl_emb_matrix = self.embedding_matrix
         node_embed_cache = [curent_lvl_emb_matrix]
         for _ in range(self.n_layers):
             curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
             node_embed_cache.append(curent_lvl_emb_matrix)
         aggregated_embeddings = self.layer_aggregation(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+
+    def forward(self, batches, optimizer, scheduler):
+        ''' training function '''
+
+        for epoch in trange(1, self.epochs + 1, desc='epochs'):
+            self.train()
+            total_loss = 0
+            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
+            for data in batches:
+                optimizer.zero_grad()
+                loss = self.get_loss(*data.to(self.device).t())
+                total_loss += loss
+                loss.backward()
+                optimizer.step()
+            self.w.add_scalar('Training_loss', total_loss, epoch)
+            scheduler.step(total_loss)
+
+            if epoch % self.evaluate_every:
+                continue
+
+            self.logger.info(f'Epoch {epoch}: loss = {total_loss}')
+            self.evaluate(epoch)
+            self.training = True
+            self.checkpoint(epoch)
+
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        else:
+            self.checkpoint(self.epochs)
 
     def layer_propagate(self, *args, **kwargs):
         '''
@@ -254,46 +299,55 @@ class BaseModel(nn.Module):
         ''' get the embedding matrix of 0th layer '''
         raise NotImplementedError
 
-    @property
-    def _dropout_norm_matrix(self):
+
+class Single:
+    '''
+        model that only returns the last layer representation
+        instead of combining all layers
+    '''
+
+    def layer_aggregation(self, vectors):
+        return vectors[-1]
+
+
+class Attn:
+    '''
+        using a more complex attention formula
+        from NGCF paper for layer propagation
+    '''
+
+    def _add_vars(self):
+        super()._add_vars()
+
+        # ngcf variables init
+        self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
+        nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
+
+    def layer_propagate(self, norm_matrix, emb_matrix):
         '''
-            drop self.dropout elements from adj table
-            to help with overfitting
+            propagate messages through layer using ngcf formula
+                                         e_i                   e_u ⊙ e_i
+            e_u = σ(W1*e_u + W1*SUM---------------- + W2*SUM----------------)
+                                   sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
         '''
-        index = self.norm_matrix.indices().t()
-        values = self.norm_matrix.values()
-        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
-        index = index[random_index]
-        values = values[random_index] / (1 - self.dropout)
-        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
+        summ = torch.sparse.mm(norm_matrix, emb_matrix)
+        return F.leaky_relu((self.W_ngcf[0] * emb_matrix) +
+                            (self.W_ngcf[0] * summ) +
+                            (self.W_ngcf[1] * torch.mul(emb_matrix, summ)))
 
-    def forward(self, batches, optimizer, scheduler):
-        ''' training function '''
 
-        for epoch in trange(1, self.epochs + 1, desc='epochs'):
-            self.train()
-            total_loss = 0
-            batches = batches if self.slurm else tqdm(batches, desc='batches', leave=False, dynamic_ncols=True)
-            for data in batches:
-                optimizer.zero_grad()
-                loss = self.get_loss(*data.to(self.device).t())
-                total_loss += loss
-                loss.backward()
-                optimizer.step()
-            self.w.add_scalar('Training_loss', total_loss, epoch)
-            scheduler.step(total_loss)
+class Weight:
+    '''
+        learning weights for layer aggregation
+        instead of taking the average
+    '''
 
-            if epoch % self.evaluate_every:
-                continue
+    def _add_vars(self):
+        super()._add_vars()
+        # linear combination of layer represenatations
+        self.W_layers = nn.Parameter(torch.empty((self.n_layers + 1, 1)), requires_grad=True)
+        nn.init.xavier_normal_(self.W_layers, gain=nn.init.calculate_gain('relu'))
 
-            self.logger.info(f'Epoch {epoch}: loss = {total_loss}')
-            self.training = False
-            self.evaluate(epoch)
-            self.training = True
-            self.checkpoint(epoch)
-
-            if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
-                break
-        else:
-            self.checkpoint(self.epochs)
+    def layer_aggregation(self, vectors):
+        ''' aggregate layer representations into one vector '''
+        return (self.W_layers.T * torch.stack(vectors).T).T.sum(axis=0)  # TODO could improve. attention?

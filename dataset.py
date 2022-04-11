@@ -20,6 +20,7 @@ class BaseDataset(Dataset):
     def _copy_args(self, args):
         self.seed = args.seed
         self.path = args.data
+        self.quiet = args.quiet
         self.logger = args.logger
         self.device = args.device
         self.batch_size = args.batch_size

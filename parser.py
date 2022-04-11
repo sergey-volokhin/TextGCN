@@ -21,7 +21,7 @@ def parse_args(s=None):
                                  'ngcf'],
                         help='which model to use')
     parser.add_argument('--data',
-                        default='data/amazon-book-2018/',
+                        default='data/smaller/',
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
@@ -29,7 +29,7 @@ def parse_args(s=None):
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
-                        default=64,
+                        default=128,
                         type=int,
                         help='embedding size')
     parser.add_argument('--batch_size',
@@ -105,31 +105,23 @@ def parse_args(s=None):
                             type=int,
                             help='batch size for embedding textual data')
     text_hyper.add_argument('--bert-model',
-                            default='google/bert_uncased_L-2_H-128_A-2',
-                            # default='microsoft/deberta-v3-base',
-                            # default='microsoft/deberta-v3-xsmall',
+                            default='roberta-large',
                             type=str,
+                            choices=['google/bert_uncased_L-2_H-128_A-2',
+                                     'all-MiniLM-L6-v2',
+                                     'microsoft/deberta-v3-base',
+                                     'microsoft/deberta-v3-xsmall',
+                                     'roberta-large',
+                                     ],
                             help='version of BERT to use')
 
-    # text_hyper.add_argument('--single_vector',
-    #                         action='store_true',
-    #                         help='whether to use one vector for all users or one per each')
-    # text_hyper.add_argument('--layer_sizes',
-    #                         default=[64, 32, 16],
-    #                         nargs='*',
-    #                         type=int,
-    #                         help='Output sizes of every layer')
-    # text_hyper.add_argument('--separator', '-sep',
-    #                         default='[SEP]',
-    #                         type=str,
-    #                         dest='sep',
-    #                         help='Separator for table comprehension')
-    # text_hyper.add_argument('--freeze',
-    #                         action='store_true',
-    #                         help='whether to freeze textual item embeddings')
+    text_hyper.add_argument('--separator', '-sep',
+                            default='[SEP]',
+                            type=str,
+                            dest='sep',
+                            help='Separator for table comprehension')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
-    assert args.emb_size == 128 or 'lgcn' in args.model
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
@@ -139,7 +131,7 @@ def parse_args(s=None):
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-        args.save_path = f'centralized_runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''

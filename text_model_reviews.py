@@ -17,27 +17,26 @@ class DatasetReviews(BaseDataset):
 
         self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
-        self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)[['asin',
-                                                                                 'user_id',
-                                                                                 'review',
-                                                                                 'unixReviewTime']]
+        self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)[['asin', 'user_id', 'review', 'time']]
 
-        ''' number of reviews to use for representing items and users'''
+        ''' number of reviews to use for representing items and users '''
         self.num_reviews = int(pd.concat([self.reviews.groupby('user_id')['asin'].agg(len),
                                           self.reviews.groupby('asin')['user_id'].agg(len)]).median())
 
-        ''' remove extra reviews not used in representation '''
+        ''' use only most recent reviews for representation '''
         cut_reviews = set()
         for _, group in tqdm(self.reviews.groupby('user_id'),
                              leave=False,
                              desc='selecting reviews',
-                             dynamic_ncols=True):
-            cut_reviews |= set(group.sort_values('unixReviewTime', ascending=False)['review'].head(self.num_reviews))
+                             dynamic_ncols=True,
+                             disable=self.quiet):
+            cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
         for _, group in tqdm(self.reviews.groupby('asin'),
                              leave=False,
                              desc='selecting reviews',
-                             dynamic_ncols=True):
-            cut_reviews |= set(group.sort_values('unixReviewTime', ascending=False)['review'].head(self.num_reviews))
+                             dynamic_ncols=True,
+                             disable=self.quiet):
+            cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
         self.reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
 
 
@@ -46,7 +45,7 @@ class ReviewModel(BaseModel):
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
         self.phase = 1
-        # self.epochs //= 2
+        self.epochs //= 2
 
     def _copy_args(self, args):
         super()._copy_args(args)
@@ -114,12 +113,12 @@ class ReviewModel(BaseModel):
 
     @property
     def embedding_matrix(self):
-        ''' recalculate embeddings # TODO use (users, pos, neg) to save time?
+        ''' recalculate embeddings
 
-            for lightgcn phase:
+            for phase 1 (lightgcn):
                 take embs as is
 
-            for reviews phase:
+            for phase 2 (reviews):
                 get linear combination of top num_reviews reviews,
                 combine with LGCN vector using another linear layer
         '''
@@ -140,32 +139,4 @@ class ReviewModel(BaseModel):
     def forward(self, loader, optimizer, scheduler):
         super().forward(loader, optimizer, scheduler)
         self.phase = 2
-        torch.save(self.state_dict(), f'{self.save_path}/lgcn_250e_128d.pkl')
-        # super().forward(loader, optimizer, scheduler)
-
-
-class ReviewModelSingle(ReviewModel):
-    def layer_aggregation(self, vectors):
-        return vectors[-1]
-
-
-class NGCF(ReviewModel):
-
-    def _add_vars(self):
-        super()._add_vars()
-        # ngcf variables init
-        self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
-        nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
-
-    def layer_propagate(self, norm_matrix, emb_matrix):
-        '''
-            propagate messages through layer using ngcf formula
-                                         e_i                   e_u ⊙ e_i
-            e_u = σ(W1*e_u + W1*SUM---------------- + W2*SUM----------------)
-                                   sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
-        '''
-
-        summ = torch.sparse.mm(norm_matrix, emb_matrix)
-        return F.leaky_relu((self.W_ngcf[0] * emb_matrix) +
-                            (self.W_ngcf[0] * summ) +
-                            (self.W_ngcf[1] * torch.mul(emb_matrix, summ)))
+        super().forward(loader, optimizer, scheduler)
