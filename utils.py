@@ -56,9 +56,8 @@ def early_stop(res):
 def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
     logger.info(f'Getting {name} embeddings')
 
-    save_path = f'{path}/embeddings_{name}_{bert_model.split("/")[-1]}.torch'
-    if os.path.exists(save_path):
-        return torch.load(save_path)
+    if os.path.exists(path):
+        return torch.load(path)
 
     sentences_to_embed = sentences.unique().tolist()
     tokenization = tokenize_text(sentences_to_embed, bert_model, batch_size)
@@ -71,7 +70,7 @@ def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
     mapping = {i: emb.tolist() for i, emb in zip(sentences_to_embed, embeddings)}
     result = sentences.map(mapping)
     logger.info('Saving calculated embeddings')
-    torch.save(result, save_path)
+    torch.save(result, path)
     return result
 
 
@@ -116,4 +115,7 @@ def sent_trans_embed_text(sentences, path, bert_model, batch_size, device, logge
     sentences_to_embed = dedup_and_sort(sentences)
 
     embedding = model.encode(sentences_to_embed, batch_size=batch_size, convert_to_tensor=True)
-    torch.save({i: j for i, j in zip(sentences_to_embed, embedding)}, path)
+    result = {i: j for i, j in zip(sentences_to_embed, embedding)}
+    torch.save(result, path)
+
+    return result

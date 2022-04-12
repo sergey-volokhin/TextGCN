@@ -140,7 +140,6 @@ class BaseModel(nn.Module):
 
             batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
             batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
-
             for batch_users in batches:
 
                 # get the estimated user-item scores with matmul embedding matrices
@@ -236,6 +235,11 @@ class BaseModel(nn.Module):
         return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
 
     @property
+    def embedding_matrix(self):
+        ''' get the embedding matrix of 0th layer '''
+        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
+
+    @property
     def representation(self):
         '''
             get the users' and items' final representations
@@ -298,11 +302,6 @@ class BaseModel(nn.Module):
             combine them into final representation matrix
         '''
         raise NotImplementedError
-
-    @property
-    def embedding_matrix(self):
-        ''' get the embedding matrix of 0th layer '''
-        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
 
 
 class Single:
