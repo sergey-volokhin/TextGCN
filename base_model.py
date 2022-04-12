@@ -35,6 +35,7 @@ class BaseModel(nn.Module):
         self.logger = args.logger
         self.device = args.device
         self.dropout = args.dropout
+        self.model_name = args.model
         self.n_layers = args.n_layers
         self.save_path = args.save_path
         self.batch_size = args.batch_size
@@ -67,18 +68,17 @@ class BaseModel(nn.Module):
         self.w = SummaryWriter(self.save_path)
         self.training = True
 
-    def get_loss(self, users, pos, neg):
-
-        ''' normal loss '''
-        # TODO change to only return representation of (users,pos,neg)
+    def bpr_loss(self, users, pos, neg):
+        ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
         pos_emb = item_emb[pos]
         neg_emb = item_emb[neg]
         pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
         neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        loss = torch.mean(F.softplus(neg_scores - pos_scores))
+        return torch.mean(F.softplus(neg_scores - pos_scores))
 
+    def reg_loss(self, users, pos, neg):
         ''' regularization loss '''
         user_vec = self.embedding_user(users)
         pos_vec = self.embedding_item(pos)
@@ -86,8 +86,13 @@ class BaseModel(nn.Module):
         reg_loss = (user_vec.norm(2).pow(2) +
                     pos_vec.norm(2).pow(2) +
                     neg_vec.norm(2).pow(2)) / len(users) / 2
+        return self.reg_lambda * reg_loss
 
-        return loss + self.reg_lambda * reg_loss
+    def get_loss(self, users, pos, neg):
+        ''' get total loss per batch of users '''
+        bpr_loss = self.bpr_loss(users, pos, neg)
+        reg_loss = self.reg_loss(users, pos, neg)
+        return bpr_loss + reg_loss
 
     def evaluate(self, epoch):
         ''' calculate and report metrics for test users against predictions '''
@@ -216,7 +221,6 @@ class BaseModel(nn.Module):
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
         open(self.progression_path, 'w').write('\n'.join(progression))
-        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     @property
     def _dropout_norm_matrix(self):
@@ -279,6 +283,7 @@ class BaseModel(nn.Module):
                 break
         else:
             self.checkpoint(self.epochs)
+        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def layer_propagate(self, *args, **kwargs):
         '''
@@ -297,7 +302,7 @@ class BaseModel(nn.Module):
     @property
     def embedding_matrix(self):
         ''' get the embedding matrix of 0th layer '''
-        raise NotImplementedError
+        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
 
 
 class Single:
@@ -310,7 +315,7 @@ class Single:
         return vectors[-1]
 
 
-class Attn:
+class NGCF:
     '''
         using a more complex attention formula
         from NGCF paper for layer propagation

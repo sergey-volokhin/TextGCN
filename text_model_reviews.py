@@ -29,13 +29,13 @@ class DatasetReviews(BaseDataset):
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
-                             disable=self.quiet):
+                             disable=self.slurm):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
         for _, group in tqdm(self.reviews.groupby('asin'),
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
-                             disable=self.quiet):
+                             disable=self.slurm):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
         self.reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
 
@@ -78,7 +78,6 @@ class ReviewModel(BaseModel):
 
         ''' load/calc embeddings of the reviews and setup the dicts '''
 
-        # calculate reviews' embeddings
         self.reviews['vector'] = embed_text(self.reviews['review'],
                                             'reviews',
                                             self.path,
@@ -113,7 +112,7 @@ class ReviewModel(BaseModel):
 
     @property
     def embedding_matrix(self):
-        ''' recalculate embeddings
+        ''' get the embedding matrix of 0th layer
 
             for phase 1 (lightgcn):
                 take embs as is
@@ -124,7 +123,7 @@ class ReviewModel(BaseModel):
         '''
 
         if self.phase == 1:
-            return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
+            return super().embedding_matrix
 
         user_vectors = self.review_agg_layer(self.user_text_embs.transpose(-1, 1)).squeeze()
         u_stacked = torch.stack((self.embedding_user.weight, user_vectors), axis=1)

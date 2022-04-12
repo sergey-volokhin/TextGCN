@@ -9,7 +9,7 @@ from lightgcn import LightGCN
 from text_model_desc import DatasetKG, TextModelKG
 from text_model_reviews import DatasetReviews, ReviewModel
 from parser import parse_args
-from base_model import Attn, Single, Weight
+from base_model import NGCF, Single, Weight
 
 
 def get_class(name, logger):
@@ -27,13 +27,15 @@ def get_class(name, logger):
     else:
         raise AttributeError('incorrect model')
 
-    for i, j in [('attn', Attn), ('single', Single), ('weight', Weight)]:
-        if i in name:
-            classes.append(j)
-
+    if args.single:
+        classes.insert(0, Single)
+    if args.ngcf:
+        classes.insert(0, NGCF)
+    # if 'ngcf' in name:
+    #     classes.insert(0, Weight)
     logger.info(f'Classes: {classes}')
 
-    class Model(*classes[::-1]):
+    class Model(*classes):
         pass
 
     return Dataset, Model
@@ -47,17 +49,17 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
 
     Dataset, Model = get_class(args.model, args.logger)
+
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
-    model = nn.DataParallel(model, device_ids=range(len(args.gpu.split(','))))
-    model = model.to(torch.device("cuda"))
+    model = nn.DataParallel(model, device_ids=range(len(args.gpu.split(',')))).to(args.device)
 
     optimizer = opt.Adam(model.parameters(), lr=args.lr)
     scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                    verbose=(not args.quiet),
                                                    patience=5,
-                                                   min_lr=1e-6)
+                                                   min_lr=1e-8)
 
     model(loader, optimizer, scheduler)
 

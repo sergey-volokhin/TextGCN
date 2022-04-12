@@ -24,7 +24,10 @@ class DatasetKG(BaseDataset):
 
     def _construct_text_representation(self):
         item_text_dict = {}
-        for asin, group in tqdm(self.kg_df_text.groupby('asin'), desc='construct text repr', dynamic_ncols=True):
+        for asin, group in tqdm(self.kg_df_text.groupby('asin'),
+                                desc='construct text repr',
+                                dynamic_ncols=True,
+                                disable=self.slurm):
             vals = group[['relation', 'attribute']].values
             item_text_dict[asin] = f' {self.sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
         self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
@@ -75,45 +78,26 @@ class TextModelKG(BaseModel):
     def layer_propagate(self, norm_matrix, emb_matrix):
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    @property
-    def embedding_matrix(self):
-        ''' get the embedding matrix of 0th layer '''
-        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
-
-    def get_loss(self, users, pos, neg):
-
-        ''' normal loss '''
-        # TODO change to only return representation of (users, pos, neg)
+    def bpr_loss(self, users, pos, neg):
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
         pos_emb = item_emb[pos]
         neg_emb = item_emb[neg]
         pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
         neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        old_loss = F.softplus(neg_scores - pos_scores)
+        bpr_loss = F.softplus(neg_scores - pos_scores)
 
-        weight = neg_scores - pos_scores
-        new_loss = torch.abs(weight * (self.bert_sim(pos, neg) - self.gnn_sim(pos, neg)))
-        loss = torch.mean(old_loss + new_loss)
+        weight = neg_scores - pos_scores if 'weight' in self.model else 1
+        bs = self.bert_sim(pos, neg) - self.gnn_sim(pos, neg) * int('both' in self.model)
+        semantic_regularzation = weight * torch.abs(bs)
 
-        ''' regularization loss '''
-        user_vec = self.embedding_user(users)
-        pos_vec = self.embedding_item(pos)
-        neg_vec = self.embedding_item(neg)
-        reg_loss = (user_vec.norm(2).pow(2) +
-                    pos_vec.norm(2).pow(2) +
-                    neg_vec.norm(2).pow(2)) / len(users) / 2
-
-        return loss + self.reg_lambda * reg_loss
+        return torch.mean(bpr_loss + semantic_regularzation)
 
     def bert_sim(self, pos, neg):
         cands = self.item_mapping['text'].values[pos.cpu()].tolist()
         refs = self.item_mapping['text'].values[neg.cpu()].tolist()
-        cands_norm = F.normalize(torch.stack([self.stats_dict[i] for i in cands]), p=2, dim=1)
-        refs_norm = F.normalize(torch.stack([self.stats_dict[i] for i in refs]), p=2, dim=1)
-        return (cands_norm * refs_norm).sum(axis=1).to(self.device)
+        return F.cosine_similarity(torch.stack([self.stats_dict[i] for i in cands]),
+                                   torch.stack([self.stats_dict[i] for i in refs]))
 
     def gnn_sim(self, pos, neg):
-        pos_norm = F.normalize(self.embedding_item(pos), p=2, dim=1)
-        neg_norm = F.normalize(self.embedding_item(neg), p=2, dim=1)
-        return (pos_norm * neg_norm).sum(axis=1).to(self.device)
+        return F.cosine_similarity(self.embedding_item(pos), self.embedding_item(neg))

@@ -12,13 +12,8 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         default='lgcn',
                         choices=['lgcn',
-                                 'lgcn_single',
-                                 'lgcn_weights',
-                                 'lgcn_single_attn',
-                                 'lgcn_attn',
                                  'kg',
-                                 'reviews',
-                                 'ngcf'],
+                                 'reviews'],
                         help='which model to use')
     parser.add_argument('--data',
                         default='data/smaller/',
@@ -98,6 +93,12 @@ def parse_args(s=None):
                         default=3,
                         type=int,
                         help="num layers")
+    parser.add_argument('--single',
+                        action='store_true',
+                        help="whether to use the 'single' verison of the model or not")
+    parser.add_argument('--ngcf',
+                        action='store_true',
+                        help="whether to use NGCF attention formula or original LightGCN")
 
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
@@ -105,7 +106,7 @@ def parse_args(s=None):
                             type=int,
                             help='batch size for embedding textual data')
     text_hyper.add_argument('--bert-model',
-                            default='roberta-large',
+                            default='all-MiniLM-L6-v2',
                             type=str,
                             choices=['google/bert_uncased_L-2_H-128_A-2',
                                      'all-MiniLM-L6-v2',
@@ -114,7 +115,6 @@ def parse_args(s=None):
                                      'roberta-large',
                                      ],
                             help='version of BERT to use')
-
     text_hyper.add_argument('--separator', '-sep',
                             default='[SEP]',
                             type=str,
@@ -122,6 +122,8 @@ def parse_args(s=None):
                             help='Separator for table comprehension')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
+
+    # assert not (args.single and args.weights), "Model can't be both single and use weights for aggregation"
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
