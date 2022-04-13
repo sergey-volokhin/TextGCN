@@ -41,16 +41,19 @@ def get_logger(args):
     logging.basicConfig(level=(logging.ERROR if args.quiet else args.logging_level),
                         format='%(asctime)-10s - %(levelname)s: %(message)s',
                         datefmt='%d/%m/%y %H:%M',
-                        handlers=[logging.FileHandler(f'{args.save_path}/log.log'), logging.StreamHandler()])
+                        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log')),
+                                  logging.StreamHandler()])
     return logging.getLogger()
 
 
 def early_stop(res):
     '''
         returns True if the difference between metrics
-        from current and previous epoch is less than 1e-4
+        from current and 2 previous epochs is less than 1e-4
     '''
-    return len(res['recall']) > 1 and all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values())
+    return len(res['recall']) > 2 and \
+        all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values()) and \
+        all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
 
 
 def embed_text(sentences, name, path, bert_model, batch_size, device, logger):

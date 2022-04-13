@@ -1,12 +1,9 @@
 dgl-cu110==0.6.1
 torch==1.10.0
 pandas
-numpy
-tqdm
-transformers
-matplotlib
 networkx
 tensorboardX
+sentence_transformers
 sentencepiece
 scikit-learn
-sentence_transformers
+transformers

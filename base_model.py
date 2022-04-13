@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -186,10 +187,11 @@ class BaseModel(nn.Module):
     def _save_code(self):
         ''' saving the code to the folder with the model (for debugging) '''
         folder = os.path.dirname(os.path.abspath(__file__))
-        os.makedirs(f'{self.save_path}/code', exist_ok=True)
+        os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
         for file in os.listdir(folder):
             if file.endswith('.py'):
-                os.system(f'cp {folder}/{file} {self.save_path}/code/{file}_')
+                shutil.copyfile(os.path.join(folder, file),
+                                os.path.join(self.save_path, 'code', file + '_'))
 
     def load_model(self, load_path):
         ''' load torch weights from file '''
@@ -208,6 +210,8 @@ class BaseModel(nn.Module):
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {epoch}')
             os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
+            shutil.copyfile(os.path.join(self.save_path, 'checkpoint.pkl'),
+                            os.path.join(self.save_path, 'best.pkl'))
 
     def save_progression(self):
         ''' save all scores in one file for clarity '''
@@ -263,6 +267,7 @@ class BaseModel(nn.Module):
 
         for epoch in trange(1, self.epochs + 1, desc='epochs'):
             self.train()
+            self.sem_reg = 0
             total_loss = 0
             batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
             for data in batches:
@@ -277,12 +282,12 @@ class BaseModel(nn.Module):
             if epoch % self.evaluate_every:
                 continue
 
-            self.logger.info(f'Epoch {epoch}: loss = {total_loss}')
+            self.logger.info(f'Epoch {epoch}: loss = {total_loss:.4f}, sem_reg = {self.sem_reg:.4f}')
             self.evaluate(epoch)
             self.training = True
             self.checkpoint(epoch)
 
-            if early_stop(self.metrics_logger):
+            if epoch >= 250 and early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
         else:

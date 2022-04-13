@@ -1,5 +1,5 @@
 # custom files
-*.turing
+events.out.tfevents*
 *.pkl
 *.py_
 progression.txt

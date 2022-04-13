@@ -87,11 +87,28 @@ class TextModelKG(BaseModel):
         neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
         bpr_loss = F.softplus(neg_scores - pos_scores)
 
-        weight = neg_scores - pos_scores if 'weight' in self.model else 1
-        bs = self.bert_sim(pos, neg) - self.gnn_sim(pos, neg) * int('both' in self.model)
-        semantic_regularzation = weight * torch.abs(bs)
+        semantic_regularization = self.semantic_reg_los(users, pos, neg, pos_scores, neg_scores)
 
-        return torch.mean(bpr_loss + semantic_regularzation)
+        return torch.mean(bpr_loss + semantic_regularization)
+
+    def semantic_reg_los(self, users, pos, neg, pos_scores, neg_scores):
+        ''' get semantic regularization using textual embeddings '''
+
+        weight = 1
+        # weight = max(neg_scores - pos_scores, 0) <- useless since pos will be higher than neg in long term
+        # weight = max(pos_scores - neg_scores, 0)
+        # weight = torch.abs(pos_scores - neg_scores)
+
+        # distance = torch.abs(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg))
+        # distance = torch.max(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg), torch.tensor(0))
+        distance = torch.max(self.bert_sim(pos, neg), torch.tensor(0))
+        # distance = torch.max(self.gnn_sim(pos, neg) - self.bert_sim(pos, neg), torch.tensor(0))
+        # distance = self.bert_sim(pos, neg) * self.gnn_sim(pos, neg)
+        # distance = self.bert_sim(pos, neg) / self.gnn_sim(pos, neg)
+
+        semantic_regularization = weight * distance
+        self.sem_reg += semantic_regularization.mean()
+        return semantic_regularization
 
     def bert_sim(self, pos, neg):
         cands = self.item_mapping['text'].values[pos.cpu()].tolist()
