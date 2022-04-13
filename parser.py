@@ -123,6 +123,7 @@ def parse_args(s=None):
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
+    assert not (args.data in ['data/amazon-book/', 'data/amazon-book'] and args.emb_size!=64)
     # assert not (args.single and args.weights), "Model can't be both single and use weights for aggregation"
 
     ''' paths '''
