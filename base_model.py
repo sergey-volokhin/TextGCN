@@ -69,31 +69,31 @@ class BaseModel(nn.Module):
         self.w = SummaryWriter(self.save_path)
         self.training = True
 
-    def bpr_loss(self, users, pos, neg):
+    def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
         pos_emb = item_emb[pos]
-        neg_emb = item_emb[neg]
         pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
-        neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        return torch.mean(F.softplus(neg_scores - pos_scores))
+        loss = 0
+        for neg in negs:
+            neg_emb = item_emb[neg]
+            neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
+            loss += torch.mean(F.softplus(neg_scores - pos_scores))
+        return loss / len(negs)
 
-    def reg_loss(self, users, pos, neg):
+    def reg_loss(self, users, pos, negs):
         ''' regularization loss '''
         user_vec = self.embedding_user(users)
         pos_vec = self.embedding_item(pos)
-        neg_vec = self.embedding_item(neg)
-        reg_loss = (user_vec.norm(2).pow(2) +
-                    pos_vec.norm(2).pow(2) +
-                    neg_vec.norm(2).pow(2)) / len(users) / 2
-        return self.reg_lambda * reg_loss
+        loss = user_vec.norm(2).pow(2) + pos_vec.norm(2).pow(2)
+        for neg in negs:
+            loss += self.embedding_item(neg).norm(2).pow(2) / len(negs)
+        return self.reg_lambda * loss / len(users) / 2
 
-    def get_loss(self, users, pos, neg):
+    def get_loss(self, users, pos, *negs):
         ''' get total loss per batch of users '''
-        bpr_loss = self.bpr_loss(users, pos, neg)
-        reg_loss = self.reg_loss(users, pos, neg)
-        return bpr_loss + reg_loss
+        return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
     def evaluate(self, epoch):
         ''' calculate and report metrics for test users against predictions '''

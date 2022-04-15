@@ -24,6 +24,7 @@ class BaseDataset(Dataset):
         self.logger = args.logger
         self.device = args.device
         self.batch_size = args.batch_size
+        self.neg_samples = args.neg_samples
 
     def _load_files(self):
         self.logger.info('loading data')
@@ -101,7 +102,13 @@ class BaseDataset(Dataset):
         idx //= (self.n_train // self.n_users)
         pos = random.choice(self.positive_lists[idx])
         pos_set = set(self.positive_lists[idx])
-        while True:
+
+        if len(pos_set) + self.neg_samples >= self.n_items:
+            self.logger.warn(f"user {idx} doesn't have enough items for negative sampling")
+
+        neg_set = set()
+        while len(neg_set) < self.neg_samples:
             neg = random.choice(range(self.n_items))
             if neg not in pos_set:
-                return torch.tensor([idx, pos, neg])
+                neg_set.add(neg)
+        return torch.tensor([idx, pos] + list(neg_set))

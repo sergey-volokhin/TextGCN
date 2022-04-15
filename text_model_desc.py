@@ -78,20 +78,21 @@ class TextModelKG(BaseModel):
     def layer_propagate(self, norm_matrix, emb_matrix):
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    def bpr_loss(self, users, pos, neg):
+    def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
         pos_emb = item_emb[pos]
-        neg_emb = item_emb[neg]
         pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
-        neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
-        bpr_loss = F.softplus(neg_scores - pos_scores)
+        loss = 0
+        for neg in negs:
+            neg_emb = item_emb[neg]
+            neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
+            bpr_loss = F.softplus(neg_scores - pos_scores)
+            semantic_regularization = self.semantic_reg_los(pos, neg, pos_scores, neg_scores)
+            loss += torch.mean(bpr_loss + semantic_regularization)
+        return loss / len(negs)
 
-        semantic_regularization = self.semantic_reg_los(users, pos, neg, pos_scores, neg_scores)
-
-        return torch.mean(bpr_loss + semantic_regularization)
-
-    def semantic_reg_los(self, users, pos, neg, pos_scores, neg_scores):
+    def semantic_reg_los(self, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
         weight = 1
@@ -101,10 +102,9 @@ class TextModelKG(BaseModel):
 
         # distance = torch.abs(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg))
         # distance = torch.max(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg), torch.tensor(0))
-        distance = torch.max(self.bert_sim(pos, neg), torch.tensor(0))
         # distance = torch.max(self.gnn_sim(pos, neg) - self.bert_sim(pos, neg), torch.tensor(0))
-        # distance = self.bert_sim(pos, neg) * self.gnn_sim(pos, neg)
-        # distance = self.bert_sim(pos, neg) / self.gnn_sim(pos, neg)
+        distance = torch.max(self.bert_sim(pos, neg), torch.tensor(0))
+        # distance = torch.abs(self.bert_sim(pos, neg) * self.gnn_sim(pos, neg))
 
         semantic_regularization = weight * distance
         self.sem_reg += semantic_regularization.mean()

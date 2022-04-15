@@ -27,6 +27,10 @@ def parse_args(s=None):
                         default=64,
                         type=int,
                         help='embedding size')
+    parser.add_argument('--neg_samples',
+                        default=1,
+                        type=int,
+                        help='number of negative examples to sample together with one positive')
     parser.add_argument('--batch_size',
                         default=2048,
                         type=int,
@@ -123,7 +127,7 @@ def parse_args(s=None):
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
-    assert not (args.data in ['data/amazon-book/', 'data/amazon-book'] and args.emb_size!=64)
+    assert not (args.data in ['data/amazon-book/', 'data/amazon-book'] and args.emb_size != 64)
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
