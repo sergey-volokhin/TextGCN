@@ -55,7 +55,7 @@ def parse_args(s=None):
     parser.add_argument('--load',
                         default=False,
                         type=str,
-                        help='path to the model we want to load and continue training or evaluate')
+                        help='path to the model to load')
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')
@@ -119,11 +119,11 @@ def parse_args(s=None):
                                      'roberta-large',
                                      ],
                             help='version of BERT to use')
-    text_hyper.add_argument('--separator', '-sep',
+    text_hyper.add_argument('--separator', '--sep',
                             default='[SEP]',
                             type=str,
                             dest='sep',
-                            help='Separator for table comprehension')
+                            help='separator for table comprehension')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 

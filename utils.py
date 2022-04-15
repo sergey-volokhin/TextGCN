@@ -94,6 +94,7 @@ def tokenize_text(sentences, bert_model, batch_size):
 
 
 def profile(func):
+    ''' function profiler to monitor time it takes for each call '''
     def wrapper(*args, **kwargs):
         profiler = cProfile.Profile()
         profiler.enable()
@@ -105,6 +106,7 @@ def profile(func):
 
 
 def sent_trans_embed_text(sentences, path, bert_model, batch_size, device, logger):
+    ''' calculate SentenceBERT embeddings'''
     logger.info('Getting embeddings')
 
     if os.path.exists(path):

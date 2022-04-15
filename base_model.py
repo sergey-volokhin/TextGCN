@@ -69,6 +69,89 @@ class BaseModel(nn.Module):
         self.w = SummaryWriter(self.save_path)
         self.training = True
 
+    @property
+    def _dropout_norm_matrix(self):
+        '''
+            drop self.dropout elements from adj table
+            to help with overfitting
+        '''
+        index = self.norm_matrix.indices().t()
+        values = self.norm_matrix.values()
+        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
+        index = index[random_index]
+        values = values[random_index] / (1 - self.dropout)
+        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
+
+    @property
+    def embedding_matrix(self):
+        ''' get the embedding matrix of 0th layer '''
+        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
+
+    @property
+    def representation(self):
+        '''
+            get the users' and items' final representations
+            propagated through all the layers
+        '''
+        if self.training:
+            norm_matrix = self._dropout_norm_matrix
+        else:
+            norm_matrix = self.norm_matrix
+
+        curent_lvl_emb_matrix = self.embedding_matrix
+        node_embed_cache = [curent_lvl_emb_matrix]
+        for _ in range(self.n_layers):
+            curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
+            node_embed_cache.append(curent_lvl_emb_matrix)
+        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
+        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+
+    def forward(self, batches, optimizer, scheduler):
+        ''' training function '''
+
+        for epoch in trange(1, self.epochs + 1, desc='epochs'):
+            self.train()
+            self.sem_reg = 0
+            total_loss = 0
+            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
+            for data in batches:
+                optimizer.zero_grad()
+                loss = self.get_loss(*data.to(self.device).t())
+                total_loss += loss
+                loss.backward()
+                optimizer.step()
+            self.w.add_scalar('Training_loss', total_loss, epoch)
+            scheduler.step(total_loss)
+
+            if epoch % self.evaluate_every:
+                continue
+
+            self.logger.info(f'Epoch {epoch}: loss = {total_loss:.4f}, sem_reg = {self.sem_reg:.4f}')
+            self.evaluate(epoch)
+            self.training = True
+            self.checkpoint(epoch)
+
+            if epoch >= 250 and early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        else:
+            self.checkpoint(self.epochs)
+        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
+
+    def layer_propagate(self, *args, **kwargs):
+        '''
+            propagate the current layer embedding matrix
+            through and get the matrix of the next layer
+        '''
+        raise NotImplementedError
+
+    def layer_aggregation(self, *args, **kwargs):
+        '''
+            given embeddings from all layers
+            combine them into final representation matrix
+        '''
+        raise NotImplementedError
+
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, item_emb = self.representation
@@ -224,89 +307,6 @@ class BaseModel(nn.Module):
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
         open(self.progression_path, 'w').write('\n'.join(progression))
-
-    @property
-    def _dropout_norm_matrix(self):
-        '''
-            drop self.dropout elements from adj table
-            to help with overfitting
-        '''
-        index = self.norm_matrix.indices().t()
-        values = self.norm_matrix.values()
-        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
-        index = index[random_index]
-        values = values[random_index] / (1 - self.dropout)
-        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
-
-    @property
-    def embedding_matrix(self):
-        ''' get the embedding matrix of 0th layer '''
-        return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
-
-    @property
-    def representation(self):
-        '''
-            get the users' and items' final representations
-            propagated through all the layers
-        '''
-        if self.training:
-            norm_matrix = self._dropout_norm_matrix
-        else:
-            norm_matrix = self.norm_matrix
-
-        curent_lvl_emb_matrix = self.embedding_matrix
-        node_embed_cache = [curent_lvl_emb_matrix]
-        for _ in range(self.n_layers):
-            curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
-            node_embed_cache.append(curent_lvl_emb_matrix)
-        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
-        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
-
-    def forward(self, batches, optimizer, scheduler):
-        ''' training function '''
-
-        for epoch in trange(1, self.epochs + 1, desc='epochs'):
-            self.train()
-            self.sem_reg = 0
-            total_loss = 0
-            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
-            for data in batches:
-                optimizer.zero_grad()
-                loss = self.get_loss(*data.to(self.device).t())
-                total_loss += loss
-                loss.backward()
-                optimizer.step()
-            self.w.add_scalar('Training_loss', total_loss, epoch)
-            scheduler.step(total_loss)
-
-            if epoch % self.evaluate_every:
-                continue
-
-            self.logger.info(f'Epoch {epoch}: loss = {total_loss:.4f}, sem_reg = {self.sem_reg:.4f}')
-            self.evaluate(epoch)
-            self.training = True
-            self.checkpoint(epoch)
-
-            if epoch >= 250 and early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
-                break
-        else:
-            self.checkpoint(self.epochs)
-        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
-
-    def layer_propagate(self, *args, **kwargs):
-        '''
-            propagate the current layer embedding matrix
-            through and get the matrix of the next layer
-        '''
-        raise NotImplementedError
-
-    def layer_aggregation(self, *args, **kwargs):
-        '''
-            given embeddings from all layers
-            combine them into final representation matrix
-        '''
-        raise NotImplementedError
 
 
 class Single:

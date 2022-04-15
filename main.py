@@ -4,12 +4,12 @@ import torch.optim as opt
 from torch import nn
 from torch.utils.data import DataLoader
 
+from base_model import NGCF, Single, Weight
 from dataset import BaseDataset
 from lightgcn import LightGCN
+from parser import parse_args
 from text_model_desc import DatasetKG, TextModelKG
 from text_model_reviews import DatasetReviews, ReviewModel
-from parser import parse_args
-from base_model import NGCF, Single, Weight
 
 
 def get_class(name, logger):
@@ -31,8 +31,6 @@ def get_class(name, logger):
         classes.insert(0, Single)
     if args.ngcf:
         classes.insert(0, NGCF)
-    # if 'ngcf' in name:
-    #     classes.insert(0, Weight)
     logger.info(f'Classes: {classes}')
 
     class Model(*classes):
