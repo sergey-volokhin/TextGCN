@@ -1,3 +1,5 @@
+# borked
+
 import numpy as np
 import pandas as pd
 import torch
@@ -15,8 +17,8 @@ class DatasetReviews(BaseDataset):
     def _load_files(self):
         super()._load_files()
 
-        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
-        self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
+        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ', dtype=str)[['org_id', 'remap_id']]
+        self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ', dtype=str)[['org_id', 'remap_id']]
         self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)[['asin', 'user_id', 'review', 'time']]
 
         ''' number of reviews to use for representing items and users '''
@@ -76,38 +78,41 @@ class ReviewModel(BaseModel):
         nn.init.xavier_normal_(self.linear.weight, gain=gain)
         nn.init.constant_(self.linear.bias, 0.0)
 
+    def _init_embeddings(self, emb_size):
+        super()._init_embeddings(emb_size)
+
         ''' load/calc embeddings of the reviews and setup the dicts '''
 
+        emb_file = f'{self.path}/embeddings/item_kg_repr_{self.bert_model.split("/")[-1]}.torch'
         self.reviews['vector'] = embed_text(self.reviews['review'],
-                                            'reviews',
-                                            self.path,
+                                            emb_file,
                                             self.bert_model,
                                             self.emb_batch_size,
                                             self.device,
                                             self.logger)
 
-        # make a table of embedded reviews for user and item to be pooled
+        ''' pool embedded reviews for user and item to be represented '''
         user_text_embs = {}
         for user, group in self.reviews.groupby('user_id')['vector']:
-            user_text_embs[user] = self._pad_reviews(group.values)
-        self.user_text_embs = nn.Parameter(torch.stack(
-            [i[1] for i in sorted(user_text_embs.items())]).to(self.device))
+            # user_text_embs[user] = self._pad_reviews(group.values)
+            user_text_embs[user] = group.values.mean(axis=0)
+        self.user_text_embs = nn.Parameter(torch.stack(self.user_mapping['org_id'].map(user_text_embs).values.tolist()))
 
         item_text_embs = {}
         for item, group in self.reviews.groupby('asin')['vector']:
-            item_text_embs[item] = self._pad_reviews(group.values)
-        self.item_text_embs = nn.Parameter(torch.stack(
-            [i[1] for i in sorted(item_text_embs.items())]).to(self.device))
+            # item_text_embs[item] = self._pad_reviews(group.values)
+            item_text_embs[item] = group.values.mean(axis=0)
+        self.item_text_embs = nn.Parameter(torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist()))
 
     def _pad_reviews(self, reviews):
         ''' pad or cut existing reviews to have equal number per user/item '''
         reviews = torch.tensor(np.stack(reviews)[:self.num_reviews]).float()
         return F.pad(reviews, (0, 0, 0, self.num_reviews - reviews.shape[0]))
 
-    def layer_propagate(self, norm_matrix, curent_lvl_emb_matrix):
+    def layer_aggregation(self, norm_matrix, curent_lvl_emb_matrix):
         return torch.sparse.mm(norm_matrix, curent_lvl_emb_matrix)
 
-    def layer_aggregation(self, vectors):
+    def layer_combination(self, vectors):
         return torch.mean(torch.stack(vectors, dim=1), dim=1)
 
     @property

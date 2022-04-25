@@ -57,7 +57,8 @@ class BaseDataset(Dataset):
         d_inv = np.power(rowsum, -0.5).flatten()
         d_inv[np.isinf(d_inv)] = 0
         d_mat = sp.diags(d_inv)
-        norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocsr()
+        norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float)
+        self.neighbors = [torch.tensor(i) for i in norm_adj.tolil().rows]
         self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
 
     def _adjacency_matrix(self):
@@ -72,9 +73,8 @@ class BaseDataset(Dataset):
                              'item': item_ids}
         return graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
 
-    def _convert_sp_mat_to_sp_tensor(self, x):
+    def _convert_sp_mat_to_sp_tensor(self, coo):
         ''' convert sparse matrix into torch sparse tensor '''
-        coo = x.tocoo().astype(np.float32)
         row = torch.Tensor(coo.row).long()
         col = torch.Tensor(coo.col).long()
         index = torch.stack([row, col])

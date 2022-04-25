@@ -13,10 +13,13 @@ def parse_args(s=None):
                         default='lgcn',
                         choices=['lgcn',
                                  'kg',
-                                 'reviews'],
+                                 'reviews',
+                                 'reviews_loss',
+                                 'graphsage_mean',
+                                 'graphsage_pool'],
                         help='which model to use')
     parser.add_argument('--data',
-                        default='data/smaller/',
+                        default='data/subsampled/',
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
@@ -39,6 +42,10 @@ def parse_args(s=None):
                         default=False,
                         type=str,
                         help="optional name for the model instead of generated uid")
+    parser.add_argument('--max_neighbors',
+                        default=25,
+                        type=int,
+                        help='max number of neighbors to use when doing GraphSagePool')
 
     parser.add_argument('--evaluate_every',
                         default=25,
@@ -109,7 +116,7 @@ def parse_args(s=None):
                             default=256,
                             type=int,
                             help='batch size for embedding textual data')
-    text_hyper.add_argument('--bert-model',
+    text_hyper.add_argument('--bert_model',
                             default='all-MiniLM-L6-v2',
                             type=str,
                             choices=['google/bert_uncased_L-2_H-128_A-2',
@@ -126,6 +133,12 @@ def parse_args(s=None):
                             help='separator for table comprehension')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
+
+    ''' delete unused arguments if the model isn't textual '''
+    if args.model in ['lgcn']:
+        del args.emb_batch_size
+        del args.sep
+        del args.bert_model
 
     assert not (args.data in ['data/amazon-book/', 'data/amazon-book'] and args.emb_size != 64)
 

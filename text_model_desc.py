@@ -51,31 +51,17 @@ class TextModelKG(BaseModel):
         super()._init_embeddings(emb_size)
 
         emb_file = f'{self.path}/embeddings/item_kg_repr_{self.bert_model.split("/")[-1]}.torch'
-        self.stats_dict = sent_trans_embed_text(self.item_mapping['text'].tolist(),
-                                                emb_file,
-                                                self.bert_model,
-                                                self.emb_batch_size,
-                                                self.device,
-                                                self.logger)
+        self.item_mapping_emb = sent_trans_embed_text(self.item_mapping['text'],
+                                                      emb_file,
+                                                      self.bert_model,
+                                                      self.emb_batch_size,
+                                                      self.device,
+                                                      self.logger)
 
-    @property
-    def representation(self):
-        curent_lvl_emb_matrix = self.embedding_matrix
-        if self.training:
-            norm_matrix = self._dropout_norm_matrix
-        else:
-            norm_matrix = self.norm_matrix
-        node_embed_cache = [curent_lvl_emb_matrix]
-        for _ in range(self.n_layers):
-            curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
-            node_embed_cache.append(curent_lvl_emb_matrix)
-        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
-        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
-
-    def layer_aggregation(self, vectors):
+    def layer_combination(self, vectors):
         return torch.mean(torch.stack(vectors, dim=1), dim=1)
 
-    def layer_propagate(self, norm_matrix, emb_matrix):
+    def layer_aggregation(self, norm_matrix, emb_matrix):
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
     def bpr_loss(self, users, pos, negs):
@@ -111,10 +97,13 @@ class TextModelKG(BaseModel):
         return semantic_regularization
 
     def bert_sim(self, pos, neg):
-        cands = self.item_mapping['text'].values[pos.cpu()].tolist()
-        refs = self.item_mapping['text'].values[neg.cpu()].tolist()
-        return F.cosine_similarity(torch.stack([self.stats_dict[i] for i in cands]),
-                                   torch.stack([self.stats_dict[i] for i in refs]))
+        cands = self.item_mapping_emb[pos.cpu()]
+        refs = self.item_mapping_emb[neg.cpu()]
+        return F.cosine_similarity(cands, refs).to(self.device)
+        # return 1 / F.pairwise_distance(cands, refs).to(self.device)
+        # return -F.pairwise_distance(cands, refs).to(self.device)
 
     def gnn_sim(self, pos, neg):
         return F.cosine_similarity(self.embedding_item(pos), self.embedding_item(neg))
+        # return 1 / F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))
+        # return -F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))

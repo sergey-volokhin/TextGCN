@@ -4,26 +4,37 @@ import torch.optim as opt
 from torch import nn
 from torch.utils.data import DataLoader
 
-from base_model import NGCF, Single, Weight
+from base_model import NGCF, Single
 from dataset import BaseDataset
 from lightgcn import LightGCN
+from graphsage import GraphSageMean, GraphSagePool
 from parser import parse_args
 from text_model_desc import DatasetKG, TextModelKG
 from text_model_reviews import DatasetReviews, ReviewModel
+from text_model_reviews_loss import TextModelReviewsLoss
 
 
 def get_class(name, logger):
     ''' create a correct class based on the name of the model '''
 
-    if 'lgcn' in name:
+    if name == 'lgcn':
         Dataset = BaseDataset
         classes = [LightGCN]
-    elif 'review' in name:
+    elif name == 'graphsage_mean':
+        Dataset = BaseDataset
+        classes = [GraphSageMean]
+    elif name == 'graphsage_pool':
+        Dataset = BaseDataset
+        classes = [GraphSagePool]
+    elif name == 'reviews':
         Dataset = DatasetReviews
         classes = [ReviewModel]
-    elif 'kg' in name:
+    elif name == 'kg':
         Dataset = DatasetKG
         classes = [TextModelKG]
+    elif name == 'reviews_loss':
+        Dataset = DatasetReviews
+        classes = [TextModelReviewsLoss]
     else:
         raise AttributeError('incorrect model')
 
@@ -51,7 +62,9 @@ if __name__ == '__main__':
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
-    model = nn.DataParallel(model, device_ids=range(len(args.gpu.split(',')))).to(args.device)
+    if len(args.gpu.split(',')) > 1:
+        model = nn.DataParallel(model, device_ids=range(len(args.gpu.split(','))))
+    model = model.to(args.device)
 
     optimizer = opt.Adam(model.parameters(), lr=args.lr)
     scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer,

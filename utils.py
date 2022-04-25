@@ -3,7 +3,6 @@ import logging
 import os
 import pstats
 
-import pandas as pd
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
