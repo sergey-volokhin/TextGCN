@@ -3,6 +3,7 @@ import logging
 import os
 import pstats
 
+import pandas as pd
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
@@ -56,8 +57,8 @@ def early_stop(res):
         all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
 
 
-def embed_text(sentences, name, path, bert_model, batch_size, device, logger):
-    logger.info(f'Getting {name} embeddings')
+def embed_text(sentences, path, bert_model, batch_size, device, logger):
+    logger.info('Getting embeddings')
 
     if os.path.exists(path):
         return torch.load(path)
@@ -110,17 +111,20 @@ def sent_trans_embed_text(sentences, path, bert_model, batch_size, device, logge
     logger.info('Getting embeddings')
 
     if os.path.exists(path):
-        return torch.load(path)
+        return torch.load(path).to(device)
 
     def dedup_and_sort(l):
-        return sorted(list(set(l)), key=lambda x: len(x.split(" ")), reverse=True)
+        return sorted(l.unique().tolist(), key=lambda x: len(x.split(" ")), reverse=True)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     model = SentenceTransformer(bert_model, device=device)
     sentences_to_embed = dedup_and_sort(sentences)
 
-    embedding = model.encode(sentences_to_embed, batch_size=batch_size, convert_to_tensor=True)
-    result = {i: j for i, j in zip(sentences_to_embed, embedding)}
-    torch.save(result, path)
+    embeddings = model.encode(sentences_to_embed, batch_size=batch_size)
+    del model
 
+    mapping = {i: emb for i, emb in zip(sentences_to_embed, embeddings)}
+    result = torch.from_numpy(np.stack(sentences.map(mapping).values)).to(device=device)
+    logger.info('Saving calculated embeddings')
+    torch.save(result, path)
     return result

@@ -1,3 +1,4 @@
+from collections import defaultdict
 import random
 
 import dgl
@@ -18,7 +19,6 @@ class BaseDataset(Dataset):
         self._precalculate_normalization()
 
     def _copy_args(self, args):
-        self.seed = args.seed
         self.path = args.data
         self.slurm = args.slurm
         self.logger = args.logger
@@ -28,9 +28,14 @@ class BaseDataset(Dataset):
 
     def _load_files(self):
         self.logger.info('loading data')
-        self.train_df = pd.read_table(self.path + 'train.tsv', dtype=np.int32, header=0, names=['user_id', 'asin'])
-        self.test_df = pd.read_table(self.path + 'test.tsv', dtype=np.int32, header=0, names=['user_id', 'asin'])
+        self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
+        self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
         self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
+        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
+        self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping.values))
+        self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping.values))
+        self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping.values))
+        self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping.values))
 
     def _build_dicts(self):
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list).to_dict()
@@ -62,7 +67,7 @@ class BaseDataset(Dataset):
                                  ('user', 'bought', 'item'): (self.train_df['user_id'].values,
                                                               self.train_df['asin'].values)})
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
-        item_ids = torch.tensor(self.item_mapping['remap_id'], dtype=torch.long)
+        item_ids = torch.tensor(self.item_mapping.index, dtype=torch.long)
         graph.ndata['id'] = {'user': user_ids,
                              'item': item_ids}
         return graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
@@ -103,7 +108,7 @@ class BaseDataset(Dataset):
         pos = random.choice(self.positive_lists[idx])
         pos_set = set(self.positive_lists[idx])
 
-        if len(pos_set) + self.neg_samples >= self.n_items:
+        if len(pos_set) + self.neg_samples > self.n_items:
             self.logger.warn(f"user {idx} doesn't have enough items for negative sampling")
 
         neg_set = set()

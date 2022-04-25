@@ -20,8 +20,8 @@ class BaseModel(nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._init_embeddings(args.emb_size)
         self._add_vars()
+        self._init_embeddings(args.emb_size)
 
         self.load_model(args.load)
         self._save_code()
@@ -37,6 +37,7 @@ class BaseModel(nn.Module):
         self.device = args.device
         self.dropout = args.dropout
         self.model_name = args.model
+        self.emb_size = args.emb_size
         self.n_layers = args.n_layers
         self.save_path = args.save_path
         self.batch_size = args.batch_size
@@ -60,7 +61,6 @@ class BaseModel(nn.Module):
                                            embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
-        self.f = nn.Sigmoid()
 
     def _add_vars(self):
         ''' adding all the remaining variables '''
@@ -91,7 +91,8 @@ class BaseModel(nn.Module):
     def representation(self):
         '''
             get the users' and items' final representations
-            propagated through all the layers
+            aggregate embeddings from neighbors for each layer
+            combine layers at the end
         '''
         if self.training:
             norm_matrix = self._dropout_norm_matrix
@@ -101,9 +102,9 @@ class BaseModel(nn.Module):
         curent_lvl_emb_matrix = self.embedding_matrix
         node_embed_cache = [curent_lvl_emb_matrix]
         for _ in range(self.n_layers):
-            curent_lvl_emb_matrix = self.layer_propagate(norm_matrix, curent_lvl_emb_matrix)
+            curent_lvl_emb_matrix = self.layer_aggregation(norm_matrix, curent_lvl_emb_matrix)
             node_embed_cache.append(curent_lvl_emb_matrix)
-        aggregated_embeddings = self.layer_aggregation(node_embed_cache)
+        aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
     def forward(self, batches, optimizer, scheduler):
@@ -126,26 +127,26 @@ class BaseModel(nn.Module):
             if epoch % self.evaluate_every:
                 continue
 
-            self.logger.info(f'Epoch {epoch}: loss = {total_loss:.4f}, sem_reg = {self.sem_reg:.4f}')
+            self.logger.info(f'Epoch {epoch}: bpr_loss = {total_loss-self.sem_reg:.4f}, sem_reg = {self.sem_reg:.4f}')
             self.evaluate(epoch)
             self.training = True
             self.checkpoint(epoch)
 
-            if epoch >= 250 and early_stop(self.metrics_logger):
+            if early_stop(self.metrics_logger):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
         else:
             self.checkpoint(self.epochs)
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-    def layer_propagate(self, *args, **kwargs):
+    def layer_aggregation(self, *args, **kwargs):
         '''
-            propagate the current layer embedding matrix
-            through and get the matrix of the next layer
+            aggregate the neighbor's representations
+            to get next layer node representation
         '''
         raise NotImplementedError
 
-    def layer_aggregation(self, *args, **kwargs):
+    def layer_combination(self, *args, **kwargs):
         '''
             given embeddings from all layers
             combine them into final representation matrix
@@ -163,13 +164,12 @@ class BaseModel(nn.Module):
             neg_emb = item_emb[neg]
             neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
+            # loss += torch.mean(F.selu(neg_scores - pos_scores))
         return loss / len(negs)
 
     def reg_loss(self, users, pos, negs):
         ''' regularization loss '''
-        user_vec = self.embedding_user(users)
-        pos_vec = self.embedding_item(pos)
-        loss = user_vec.norm(2).pow(2) + pos_vec.norm(2).pow(2)
+        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
         for neg in negs:
             loss += self.embedding_item(neg).norm(2).pow(2) / len(negs)
         return self.reg_lambda * loss / len(users) / 2
@@ -228,7 +228,7 @@ class BaseModel(nn.Module):
 
                 # get the estimated user-item scores with matmul embedding matrices
                 batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
-                rating = self.f(torch.matmul(batch_user_emb, items_emb.t()))
+                rating = torch.sigmoid(torch.matmul(batch_user_emb, items_emb.t()))
 
                 # set scores for train items to be -inf so we don't recommend them
                 exclude_index, exclude_items = [], []
@@ -315,7 +315,7 @@ class Single:
         instead of combining all layers
     '''
 
-    def layer_aggregation(self, vectors):
+    def layer_combination(self, vectors):
         return vectors[-1]
 
 
@@ -357,6 +357,6 @@ class Weight:
         self.W_layers = nn.Parameter(torch.empty((self.n_layers + 1, 1)), requires_grad=True)
         nn.init.xavier_normal_(self.W_layers, gain=nn.init.calculate_gain('relu'))
 
-    def layer_aggregation(self, vectors):
-        ''' aggregate layer representations into one vector '''
-        return (self.W_layers.T * torch.stack(vectors).T).T.sum(axis=0)  # TODO could improve. attention?
+    def layer_combination(self, vectors):
+        ''' combine layer representations into one vector '''
+        return (self.W_layers.T * torch.stack(vectors).T).T.sum(axis=0)
