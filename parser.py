@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import time
 
 import torch
@@ -159,5 +160,7 @@ def parse_args(s=None):
 
     args.k = sorted(args.k)
     args.logger = get_logger(args)
+
+    sys.setrecursionlimit(1500)
 
     return args

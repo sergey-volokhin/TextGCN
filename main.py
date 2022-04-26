@@ -29,12 +29,12 @@ def get_class(name, logger):
     elif name == 'reviews':
         Dataset = DatasetReviews
         classes = [ReviewModel]
-    elif name == 'kg':
-        Dataset = DatasetKG
-        classes = [TextModelKG]
     elif name == 'reviews_loss':
         Dataset = DatasetReviews
         classes = [TextModelReviewsLoss]
+    elif name == 'kg':
+        Dataset = DatasetKG
+        classes = [TextModelKG]
     else:
         raise AttributeError('incorrect model')
 

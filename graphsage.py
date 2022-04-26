@@ -24,8 +24,7 @@ class GraphSageMean(BaseModel):
         return torch.sigmoid((numerator / denominator).T)
 
     def layer_combination(self, vectors):
-        # return F.normalize(vectors[-1])
-        return vectors[-1]
+        return F.normalize(vectors[-1])
 
 
 class GraphSagePool(BaseModel):
