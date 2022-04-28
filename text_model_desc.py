@@ -82,14 +82,14 @@ class TextModelKG(BaseModel):
         ''' get semantic regularization using textual embeddings '''
 
         weight = 1
-        # weight = max(neg_scores - pos_scores, 0) <- useless since pos will be higher than neg in long term
-        # weight = max(pos_scores - neg_scores, 0)
+        # weight = F.relu(neg_scores - pos_scores) <- useless since pos will be higher than neg in long term
+        # weight = F.relu((pos_scores - neg_scores)
         # weight = torch.abs(pos_scores - neg_scores)
 
         # distance = torch.abs(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg))
-        # distance = torch.max(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg), torch.tensor(0))
-        # distance = torch.max(self.gnn_sim(pos, neg) - self.bert_sim(pos, neg), torch.tensor(0))
-        distance = torch.max(self.bert_sim(pos, neg), torch.tensor(0))
+        # distance = F.relu(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg))
+        # distance = F.relu(self.gnn_sim(pos, neg) - self.bert_sim(pos, neg))
+        distance = F.relu(self.bert_sim(pos, neg))
         # distance = torch.abs(self.bert_sim(pos, neg) * self.gnn_sim(pos, neg))
 
         semantic_regularization = weight * distance
