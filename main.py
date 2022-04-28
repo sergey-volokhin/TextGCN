@@ -1,13 +1,11 @@
 import numpy as np
 import torch
 import torch.optim as opt
-from torch import nn
 from torch.utils.data import DataLoader
 
-from base_model import NGCF, Single
+from geom_models import TorchGeometric
 from dataset import BaseDataset
 from lightgcn import LightGCN
-from graphsage import GraphSageMean, GraphSagePool
 from parser import parse_args
 from text_model_desc import DatasetKG, TextModelKG
 from text_model_reviews import DatasetReviews, ReviewModel
@@ -17,35 +15,24 @@ from text_model_reviews_loss import TextModelReviewsLoss
 def get_class(name, logger):
     ''' create a correct class based on the name of the model '''
 
+    Dataset = BaseDataset
     if name == 'lgcn':
-        Dataset = BaseDataset
-        classes = [LightGCN]
-    elif name == 'graphsage_mean':
-        Dataset = BaseDataset
-        classes = [GraphSageMean]
-    elif name == 'graphsage_pool':
-        Dataset = BaseDataset
-        classes = [GraphSagePool]
+        Model = LightGCN
     elif name == 'reviews':
         Dataset = DatasetReviews
-        classes = [ReviewModel]
+        Model = ReviewModel
     elif name == 'reviews_loss':
         Dataset = DatasetReviews
-        classes = [TextModelReviewsLoss]
+        Model = TextModelReviewsLoss
     elif name == 'kg':
         Dataset = DatasetKG
-        classes = [TextModelKG]
+        Model = TextModelKG
+    elif name in ['gcn', 'graphsage', 'gat', 'gatv2']:
+        Model = TorchGeometric
     else:
         raise AttributeError('incorrect model')
 
-    if args.single:
-        classes.insert(0, Single)
-    if args.ngcf:
-        classes.insert(0, NGCF)
-    logger.info(f'Classes: {classes}')
-
-    class Model(*classes):
-        pass
+    logger.info(f'Class: {Model}')
 
     return Dataset, Model
 
@@ -62,8 +49,6 @@ if __name__ == '__main__':
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
-    if len(args.gpu.split(',')) > 1:
-        model = nn.DataParallel(model, device_ids=range(len(args.gpu.split(','))))
     model = model.to(args.device)
 
     optimizer = opt.Adam(model.parameters(), lr=args.lr)

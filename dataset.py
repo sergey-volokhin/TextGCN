@@ -116,4 +116,4 @@ class BaseDataset(Dataset):
             neg = random.choice(range(self.n_items))
             if neg not in pos_set:
                 neg_set.add(neg)
-        return torch.tensor([idx, pos] + list(neg_set))
+        return torch.tensor([idx, pos] + list(neg_set)).to(self.device)

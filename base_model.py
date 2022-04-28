@@ -80,7 +80,8 @@ class BaseModel(nn.Module):
         random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
         index = index[random_index]
         values = values[random_index] / (1 - self.dropout)
-        return torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size()).to(self.device)
+        matrix = torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
+        return matrix.coalesce().to(self.device)
 
     @property
     def embedding_matrix(self):
@@ -117,7 +118,7 @@ class BaseModel(nn.Module):
             batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
             for data in batches:
                 optimizer.zero_grad()
-                loss = self.get_loss(*data.to(self.device).t())
+                loss = self.get_loss(*data.t())
                 total_loss += loss
                 loss.backward()
                 optimizer.step()

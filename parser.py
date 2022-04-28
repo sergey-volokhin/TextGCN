@@ -13,12 +13,18 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         default='lgcn',
                         choices=['lgcn',
+                                 'gat',
+                                 'gatv2',
+                                 'gcn',
+                                 'graphsage',
                                  'kg',
                                  'reviews',
                                  'reviews_loss',
-                                 'graphsage_mean',
-                                 'graphsage_pool'],
+                                 ],
                         help='which model to use')
+    parser.add_argument('--aggr', '--aggregator',
+                        default='mean',
+                        choices=['mean', 'max', 'add'])
     parser.add_argument('--data',
                         default='data/subsampled/',
                         type=str,
@@ -136,7 +142,7 @@ def parse_args(s=None):
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     ''' delete unused arguments if the model isn't textual '''
-    if args.model in ['lgcn']:
+    if args.model not in ['kg', 'reviews', 'reviews_loss']:
         del args.emb_batch_size
         del args.sep
         del args.bert_model
@@ -157,10 +163,11 @@ def parse_args(s=None):
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu else "cpu")
+    # args.device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() and args.gpu else "cpu")
 
     args.k = sorted(args.k)
     args.logger = get_logger(args)
 
-    sys.setrecursionlimit(1500)
+    sys.setrecursionlimit(15000)  # this fixes tqdm bug
 
     return args
