@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torch import nn
 import torch.nn.functional as F
 
 from base_model import BaseModel
@@ -7,12 +8,6 @@ from utils import sent_trans_embed_text
 
 
 class TextModelReviewsLoss(BaseModel):
-
-    def layer_combination(self, vectors):
-        return torch.mean(torch.stack(vectors, dim=1), dim=1)
-
-    def layer_aggregation(self, norm_matrix, emb_matrix):
-        return torch.sparse.mm(norm_matrix, emb_matrix)
 
     def _copy_args(self, args):
         super()._copy_args(args)
@@ -28,11 +23,6 @@ class TextModelReviewsLoss(BaseModel):
         self.item_mapping = dataset.item_mapping
         self.train_user_dict = dataset.train_user_dict
 
-    def _pad_reviews(self, reviews):
-        ''' pad or cut existing reviews to have equal number per user/item '''
-        reviews = torch.tensor(np.stack(reviews)[:self.num_reviews]).float()
-        return F.pad(reviews, (0, 0, 0, self.num_reviews - reviews.shape[0]))
-
     def _init_embeddings(self, emb_size):
         super()._init_embeddings(emb_size)
 
@@ -43,12 +33,12 @@ class TextModelReviewsLoss(BaseModel):
                                                        self.bert_model,
                                                        self.emb_batch_size,
                                                        self.device,
-                                                       self.logger)
+                                                       self.logger).cpu().numpy().tolist()
 
         item_text_embs = {}
         for item, group in self.reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.item_text_embs = torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist())
+        self.item_text_embs = nn.Parameter(torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist()))
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -60,11 +50,11 @@ class TextModelReviewsLoss(BaseModel):
             neg_emb = item_emb[neg]
             neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
             bpr_loss = F.softplus(neg_scores - pos_scores)
-            semantic_regularization = self.semantic_reg_los(pos, neg, pos_scores, neg_scores)
+            semantic_regularization = self.semantic_loss(pos, neg, pos_scores, neg_scores)
             loss += torch.mean(bpr_loss + semantic_regularization)
         return loss / len(negs)
 
-    def semantic_reg_los(self, pos, neg, pos_scores, neg_scores):
+    def semantic_loss(self, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
         weight = 1

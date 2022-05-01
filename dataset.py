@@ -101,10 +101,9 @@ class BaseDataset(Dataset):
     ''' this is done for compatibility w torch Dataset class '''
 
     def __len__(self):
-        return self.n_train // self.n_users * self.n_users
+        return self.n_users
 
     def __getitem__(self, idx):
-        idx //= (self.n_train // self.n_users)
         pos = random.choice(self.positive_lists[idx])
         pos_set = set(self.positive_lists[idx])
 

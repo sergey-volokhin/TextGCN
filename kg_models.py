@@ -37,12 +37,13 @@ class TextModelKG(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
+        self.path = args.datam
+        self.sim_fn = args.sim_fn
         self.bert_model = args.bert_model
         self.emb_batch_size = args.emb_batch_size
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
-        self.path = dataset.path
         self.item_mapping = dataset.item_mapping
         self.train_user_dict = dataset.train_user_dict
 
@@ -58,11 +59,15 @@ class TextModelKG(BaseModel):
                                                       self.device,
                                                       self.logger)
 
-    def layer_combination(self, vectors):
-        return torch.mean(torch.stack(vectors, dim=1), dim=1)
-
-    def layer_aggregation(self, norm_matrix, emb_matrix):
-        return torch.sparse.mm(norm_matrix, emb_matrix)
+    def _add_vars(self):
+        super()._add_vars()
+        self.sim_fn = {
+            'cosine': F.cosine_similarity,
+            'euclid_minus': lambda x, y: -F.pairwise_distance(x, y),
+            'euclid_ratio': lambda x, y: torch.nan_to_num(1 / F.pairwise_distance(x, y),
+                                                          posinf=0,
+                                                          neginf=0),
+        }[self.sim_fn]
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -74,11 +79,11 @@ class TextModelKG(BaseModel):
             neg_emb = item_emb[neg]
             neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
             bpr_loss = F.softplus(neg_scores - pos_scores)
-            semantic_regularization = self.semantic_reg_los(pos, neg, pos_scores, neg_scores)
+            semantic_regularization = self.semantic_loss(pos, neg, pos_scores, neg_scores)
             loss += torch.mean(bpr_loss + semantic_regularization)
         return loss / len(negs)
 
-    def semantic_reg_los(self, pos, neg, pos_scores, neg_scores):
+    def semantic_loss(self, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
         weight = 1
@@ -99,11 +104,9 @@ class TextModelKG(BaseModel):
     def bert_sim(self, pos, neg):
         cands = self.item_mapping_emb[pos.cpu()]
         refs = self.item_mapping_emb[neg.cpu()]
-        return F.cosine_similarity(cands, refs).to(self.device)
-        # return 1 / F.pairwise_distance(cands, refs).to(self.device)
-        # return -F.pairwise_distance(cands, refs).to(self.device)
+        return self.sim_fn(cands, refs).to(self.device)
 
     def gnn_sim(self, pos, neg):
-        return F.cosine_similarity(self.embedding_item(pos), self.embedding_item(neg))
-        # return 1 / F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))
-        # return -F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))
+        cands = self.embedding_item(pos)
+        refs = self.embedding_item(neg)
+        return self.sim_fn(cands, refs).to(self.device)

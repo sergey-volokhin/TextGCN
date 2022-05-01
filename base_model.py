@@ -22,6 +22,7 @@ class BaseModel(nn.Module):
         self._copy_dataset_args(dataset)
         self._add_vars()
         self._init_embeddings(args.emb_size)
+        self.to(args.device)
 
         self.load_model(args.load)
         self._save_code()
@@ -95,11 +96,7 @@ class BaseModel(nn.Module):
             aggregate embeddings from neighbors for each layer
             combine layers at the end
         '''
-        if self.training:
-            norm_matrix = self._dropout_norm_matrix
-        else:
-            norm_matrix = self.norm_matrix
-
+        norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         curent_lvl_emb_matrix = self.embedding_matrix
         node_embed_cache = [curent_lvl_emb_matrix]
         for _ in range(self.n_layers):
@@ -140,19 +137,19 @@ class BaseModel(nn.Module):
             self.checkpoint(self.epochs)
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-    def layer_aggregation(self, *args, **kwargs):
+    def layer_aggregation(self, norm_matrix, emb_matrix, **kwargs):
         '''
             aggregate the neighbor's representations
             to get next layer node representation
         '''
-        raise NotImplementedError
+        return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    def layer_combination(self, *args, **kwargs):
+    def layer_combination(self, vectors, **kwargs):
         '''
             given embeddings from all layers
             combine them into final representation matrix
         '''
-        raise NotImplementedError
+        return torch.mean(torch.stack(vectors), axis=0)
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''

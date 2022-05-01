@@ -3,21 +3,21 @@ import torch
 import torch.optim as opt
 from torch.utils.data import DataLoader
 
-from geom_models import TorchGeometric
+from base_model import Single, BaseModel
 from dataset import BaseDataset
-from lightgcn import LightGCN
+from non_text_models import TorchGeometric
 from parser import parse_args
-from text_model_desc import DatasetKG, TextModelKG
-from text_model_reviews import DatasetReviews, ReviewModel
+from kg_models import DatasetKG, TextModelKG
+from reviews_models import DatasetReviews, ReviewModel
 from text_model_reviews_loss import TextModelReviewsLoss
 
 
-def get_class(name, logger):
+def get_class(name):
     ''' create a correct class based on the name of the model '''
 
     Dataset = BaseDataset
     if name == 'lgcn':
-        Model = LightGCN
+        Model = BaseModel
     elif name == 'reviews':
         Dataset = DatasetReviews
         Model = ReviewModel
@@ -27,13 +27,16 @@ def get_class(name, logger):
     elif name == 'kg':
         Dataset = DatasetKG
         Model = TextModelKG
-    elif name in ['gcn', 'graphsage', 'gat', 'gatv2']:
-        Model = TorchGeometric
     else:
-        raise AttributeError('incorrect model')
+        Model = TorchGeometric
+    classes = [Model]
+    if args.single:
+        classes.insert(0, Single)
 
-    logger.info(f'Class: {Model}')
+    class Model(*classes):
+        pass
 
+    args.logger.info(f'Class: {classes}')
     return Dataset, Model
 
 
@@ -44,12 +47,11 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    Dataset, Model = get_class(args.model, args.logger)
+    Dataset, Model = get_class(args.model)
 
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
-    model = model.to(args.device)
 
     optimizer = opt.Adam(model.parameters(), lr=args.lr)
     scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -60,4 +62,4 @@ if __name__ == '__main__':
     model(loader, optimizer, scheduler)
 
     if args.predict:
-        model.module.predict(save=True)
+        model.predict(save=True)
