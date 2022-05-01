@@ -87,6 +87,8 @@ class BaseDataset(Dataset):
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
         self.n_batches = (self.n_train - 1) // self.batch_size + 1
+        self.bucket_len = self.n_train // self.n_users
+        self.iterable_len = self.bucket_len * self.n_users
 
         self.logger.info(f"n_train:    {self.n_train:-7}")
         self.logger.info(f"n_test:     {self.test_df.shape[0]:-7}")
@@ -101,14 +103,14 @@ class BaseDataset(Dataset):
     ''' this is done for compatibility w torch Dataset class '''
 
     def __len__(self):
-        return self.n_train // self.n_users * self.n_users
+        return self.iterable_len
 
     def __getitem__(self, idx):
         '''
             each user has a continuous 'bucket'
             user_id depends on the bucket number
         '''
-        idx //= (self.n_train // self.n_users)
+        idx //= self.bucket_len
         pos = random.choice(self.positive_lists[idx])
         pos_set = set(self.positive_lists[idx])
 
