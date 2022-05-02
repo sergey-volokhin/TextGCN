@@ -37,7 +37,6 @@ class BaseModel(nn.Module):
         self.logger = args.logger
         self.device = args.device
         self.dropout = args.dropout
-        self.model_name = args.model
         self.emb_size = args.emb_size
         self.n_layers = args.n_layers
         self.save_path = args.save_path

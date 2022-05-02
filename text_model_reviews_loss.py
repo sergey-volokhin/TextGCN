@@ -1,6 +1,4 @@
-import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
 
 from base_model import BaseModel
@@ -38,7 +36,17 @@ class TextModelReviewsLoss(BaseModel):
         item_text_embs = {}
         for item, group in self.reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.item_text_embs = nn.Parameter(torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist()))
+        self.item_text_embs = torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist())
+
+    def _add_vars(self):
+        super()._add_vars()
+        self.sim_fn = {
+            'cosine': F.cosine_similarity,
+            'euclid_minus': lambda x, y: -F.pairwise_distance(x, y),
+            'euclid_ratio': lambda x, y: torch.nan_to_num(1 / F.pairwise_distance(x, y),
+                                                          posinf=0,
+                                                          neginf=0),
+        }[self.sim_fn]
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -56,22 +64,18 @@ class TextModelReviewsLoss(BaseModel):
 
     def semantic_loss(self, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
-
         weight = 1
         distance = torch.max(self.bert_sim(pos, neg), torch.tensor(0))
-
         semantic_regularization = weight * distance
         self.sem_reg += semantic_regularization.mean()
         return semantic_regularization
 
     def bert_sim(self, pos, neg):
-        cands = self.item_text_embs[pos.cpu()]
-        refs = self.item_text_embs[neg.cpu()]
-        return F.cosine_similarity(cands, refs).to(self.device)
-        # return 1 / F.pairwise_distance(cands, refs)
-        # return -F.pairwise_distance(cands, refs)
+        cands = self.item_mapping_emb[pos.cpu()]
+        refs = self.item_mapping_emb[neg.cpu()]
+        return self.sim_fn(cands, refs).to(self.device)
 
     def gnn_sim(self, pos, neg):
-        return F.cosine_similarity(self.embedding_item(pos), self.embedding_item(neg))
-        # return 1 / F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))
-        # return -F.pairwise_distance(self.embedding_item(pos), self.embedding_item(neg))
+        cands = self.embedding_item(pos)
+        refs = self.embedding_item(neg)
+        return self.sim_fn(cands, refs).to(self.device)

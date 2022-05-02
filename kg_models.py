@@ -50,7 +50,6 @@ class TextModelKG(BaseModel):
     def _init_embeddings(self, emb_size):
         ''' construct BERT representation for items and overwrite model item embeddings '''
         super()._init_embeddings(emb_size)
-
         emb_file = f'{self.path}/embeddings/item_kg_repr_{self.bert_model.split("/")[-1]}.torch'
         self.item_mapping_emb = sent_trans_embed_text(self.item_mapping['text'],
                                                       emb_file,
@@ -87,8 +86,7 @@ class TextModelKG(BaseModel):
         ''' get semantic regularization using textual embeddings '''
 
         weight = 1
-        # weight = F.relu(neg_scores - pos_scores) <- useless since pos will be higher than neg in long term
-        # weight = F.relu((pos_scores - neg_scores)
+        # weight = F.relu(pos_scores - neg_scores)
         # weight = torch.abs(pos_scores - neg_scores)
 
         # distance = torch.abs(self.bert_sim(pos, neg) - self.gnn_sim(pos, neg))
