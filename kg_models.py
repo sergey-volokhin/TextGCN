@@ -37,7 +37,7 @@ class TextModelKG(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-        self.path = args.datam
+        self.path = args.data
         self.sim_fn = args.sim_fn
         self.bert_model = args.bert_model
         self.emb_batch_size = args.emb_batch_size

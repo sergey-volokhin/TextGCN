@@ -9,7 +9,7 @@ class TorchGeometric(BaseModel):
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
         self.aggr = args.aggr
-        self._build_layers(args.emb_size, args.model_name)
+        self._build_layers(args.emb_size, args.model)
 
     def _build_layers(self, emb_size, model_name):
         LayerClass = {'gat': GATConv,

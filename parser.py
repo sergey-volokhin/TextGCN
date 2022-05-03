@@ -11,7 +11,7 @@ from utils import get_logger
 def parse_args(s=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
-                        default='lgcn',
+                        required=True,
                         choices=['lgcn',
                                  'lightgcn',
                                  'gat',
@@ -24,7 +24,6 @@ def parse_args(s=None):
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
-                        default='mean',
                         choices=['mean', 'max', 'add'],
                         help='neighbor node aggregation function')
     parser.add_argument('--data',
@@ -51,10 +50,6 @@ def parse_args(s=None):
                         default=False,
                         type=str,
                         help="optional name for the model instead of generated uid")
-    parser.add_argument('--max_neighbors',
-                        default=25,
-                        type=int,
-                        help='max number of neighbors to use when doing GraphSagePool')
 
     parser.add_argument('--evaluate_every',
                         default=25,
@@ -116,9 +111,6 @@ def parse_args(s=None):
     parser.add_argument('--single',
                         action='store_true',
                         help="whether to use the 'single' verison of the model or not")
-    parser.add_argument('--ngcf',
-                        action='store_true',
-                        help="whether to use NGCF attention formula or original LightGCN")
 
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
@@ -147,14 +139,7 @@ def parse_args(s=None):
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
-    ''' delete unused arguments if the model isn't textual '''
-    if args.model not in ['kg', 'reviews', 'reviews_loss']:
-        del args.emb_batch_size
-        del args.sep
-        del args.bert_model
-        del args.sim_fn
-
-    assert not (args.data in ['data/amazon-book/', 'data/amazon-book'] and args.emb_size != 64)
+    assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
