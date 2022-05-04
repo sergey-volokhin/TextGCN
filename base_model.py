@@ -13,7 +13,10 @@ from utils import early_stop, hit, ndcg, precision, recall
 
 
 class BaseModel(nn.Module):
-    ''' meta class that has model-agnostic utility functions '''
+    '''
+        meta class with model-agnostic utility functions
+        also works as custom lgcn (vs 'lightgcn' which uses torch_geometric layers)
+    '''
 
     def __init__(self, args, dataset):
         super().__init__()
@@ -111,8 +114,11 @@ class BaseModel(nn.Module):
             self.train()
             self.sem_reg = 0
             total_loss = 0
-            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
-            for data in batches:
+            for data in tqdm(batches,
+                             desc='batches',
+                             leave=False,
+                             dynamic_ncols=True,
+                             disable=self.slurm):
                 optimizer.zero_grad()
                 loss = self.get_loss(*data.t())
                 total_loss += loss
@@ -145,8 +151,8 @@ class BaseModel(nn.Module):
 
     def layer_combination(self, vectors, **kwargs):
         '''
-            given embeddings from all layers
-            combine them into final representation matrix
+            combine embeddings from all layers
+            into final representation matrix
         '''
         return torch.mean(torch.stack(vectors), axis=0)
 
@@ -308,52 +314,9 @@ class BaseModel(nn.Module):
 
 class Single:
     '''
-        model that only returns the last layer representation
+        only return the last layer representation
         instead of combining all layers
     '''
 
     def layer_combination(self, vectors):
         return vectors[-1]
-
-
-class NGCF:
-    '''
-        using a more complex attention formula
-        from NGCF paper for layer propagation
-    '''
-
-    def _add_vars(self):
-        super()._add_vars()
-
-        # ngcf variables init
-        self.W_ngcf = nn.Parameter(torch.empty((2, 1)), requires_grad=True)
-        nn.init.xavier_normal_(self.W_ngcf, gain=nn.init.calculate_gain('relu'))
-
-    def layer_propagate(self, norm_matrix, emb_matrix):
-        '''
-            propagate messages through layer using ngcf formula
-                                         e_i                   e_u ⊙ e_i
-            e_u = σ(W1*e_u + W1*SUM---------------- + W2*SUM----------------)
-                                   sqrt(|N_u||N_i|)         sqrt(|N_u||N_i|)
-        '''
-        summ = torch.sparse.mm(norm_matrix, emb_matrix)
-        return F.leaky_relu((self.W_ngcf[0] * emb_matrix) +
-                            (self.W_ngcf[0] * summ) +
-                            (self.W_ngcf[1] * torch.mul(emb_matrix, summ)))
-
-
-class Weight:
-    '''
-        learning weights for layer aggregation
-        instead of taking the average
-    '''
-
-    def _add_vars(self):
-        super()._add_vars()
-        # linear combination of layer represenatations
-        self.W_layers = nn.Parameter(torch.empty((self.n_layers + 1, 1)), requires_grad=True)
-        nn.init.xavier_normal_(self.W_layers, gain=nn.init.calculate_gain('relu'))
-
-    def layer_combination(self, vectors):
-        ''' combine layer representations into one vector '''
-        return (self.W_layers.T * torch.stack(vectors).T).T.sum(axis=0)

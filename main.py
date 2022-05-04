@@ -8,8 +8,7 @@ from dataset import BaseDataset
 from non_text_models import TorchGeometric
 from parser import parse_args
 from kg_models import DatasetKG, TextModelKG
-from reviews_models import DatasetReviews, ReviewModel
-from text_model_reviews_loss import TextModelReviewsLoss
+from reviews_models import DatasetReviews, TextModelReviews
 
 
 def get_class(name):
@@ -20,10 +19,7 @@ def get_class(name):
         Model = BaseModel
     elif name == 'reviews':
         Dataset = DatasetReviews
-        Model = ReviewModel
-    elif name == 'reviews_loss':
-        Dataset = DatasetReviews
-        Model = TextModelReviewsLoss
+        Model = TextModelReviews
     elif name == 'kg':
         Dataset = DatasetKG
         Model = TextModelKG

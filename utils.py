@@ -56,7 +56,7 @@ def early_stop(res):
         all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
 
 
-def embed_text(sentences, path, bert_model, batch_size, device, logger):
+def old_embed_text(sentences, path, bert_model, batch_size, device, logger):
     logger.info('Getting embeddings')
 
     if os.path.exists(path):
@@ -105,7 +105,7 @@ def profile(func):
     return wrapper
 
 
-def sent_trans_embed_text(sentences, path, bert_model, batch_size, device, logger):
+def embed_text(sentences, path, bert_model, batch_size, device, logger):
     ''' calculate SentenceBERT embeddings'''
     logger.info('Getting embeddings')
 

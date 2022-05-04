@@ -1,146 +1,85 @@
-# borked
-
-import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
-from torch import nn
 from tqdm import tqdm
 
-from base_model import BaseModel
 from dataset import BaseDataset
+from text_model import TextBaseModel
 from utils import embed_text
 
 
 class DatasetReviews(BaseDataset):
 
-    def _load_files(self):
-        super()._load_files()
+    def __init__(self, args):
+        super().__init__(args)
+        self._load_reviews()
+        self._calc_review_embs(args.emb_batch_size, args.bert_model)
+        self._get_items_as_avg_reviews()
 
-        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ', dtype=str)[['org_id', 'remap_id']]
-        self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ', dtype=str)[['org_id', 'remap_id']]
-        self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)[['asin', 'user_id', 'review', 'time']]
+    def _load_reviews(self):
+        self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)
+        self.reviews = self.reviews[['asin', 'user_id', 'review', 'time']].sort_values(['asin', 'user_id'])
+        self.reviews['asin'] = self.reviews['asin'].map(dict(self.item_mapping.values)).astype(int)
+        self.reviews['user_id'] = self.reviews['user_id'].map(dict(self.user_mapping.values)).astype(int)
 
-        ''' number of reviews to use for representing items and users '''
-        self.num_reviews = int(pd.concat([self.reviews.groupby('user_id')['asin'].agg(len),
-                                          self.reviews.groupby('asin')['user_id'].agg(len)]).median())
+    def _calc_review_embs(self, emb_batch_size, bert_model):
+        ''' load/calc embeddings of the reviews and setup the dicts '''
+        emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch'
+        self.reviews['vector'] = embed_text(self.reviews['review'],
+                                            emb_file,
+                                            bert_model,
+                                            emb_batch_size,
+                                            self.device,
+                                            self.logger).cpu().numpy().tolist()
+        self.reviews_vector = self.reviews.set_index(['asin', 'user_id'])['vector']
 
-        ''' use only most recent reviews for representation '''
+    def _get_items_as_avg_reviews(self):
+        ''' use average of reviews to represent items '''
+
+        # number of reviews to use for representing items and users
+        group_user = self.reviews.groupby('user_id')
+        group_item = self.reviews.groupby('asin')
+        self.num_reviews = int(pd.concat([group_item['user_id'].agg(len),
+                                          group_user['asin'].agg(len)]).median())
+
+        # use only most recent reviews for representation
         cut_reviews = set()
-        for _, group in tqdm(self.reviews.groupby('user_id'),
+        for _, group in tqdm(group_user,
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
                              disable=self.slurm):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
-        for _, group in tqdm(self.reviews.groupby('asin'),
+        for _, group in tqdm(group_item,
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
                              disable=self.slurm):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
-        self.reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
+
+        item_text_embs = {}
+        top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
+        for item, group in top_med_reviews.groupby('asin')['vector']:
+            item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
+        self.items_as_avg_reviews = torch.stack(self.item_mapping['remap_id'].map(item_text_embs).values.tolist())
+        del self.reviews
 
 
-class ReviewModel(BaseModel):
-
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
-        self.phase = 1
-        self.epochs //= 2
-
-    def _copy_args(self, args):
-        super()._copy_args(args)
-        self.path = args.data
-        self.bert_model = args.bert_model
-        self.emb_batch_size = args.emb_batch_size
+class TextModelReviews(TextBaseModel):
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
-        self.reviews = dataset.reviews
-        self.num_reviews = dataset.num_reviews
-        self.user_mapping = dataset.user_mapping
-        self.item_mapping = dataset.item_mapping
+        self.reviews_vector = dataset.reviews_vector
+        self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
-    def _add_vars(self):
-        super()._add_vars()
+    def bert_sim(self, users, pos, neg):
 
-        ''' pooling layers to combine lgcn and bert '''
-        gain = nn.init.calculate_gain('relu')
+        # # represent pos items with respective user's review
+        # cands = torch.tensor(self.reviews_vector.loc[torch.stack([pos, users], axis=1).tolist()].values.tolist())
 
-        # linear combination of reviews' vectors
-        self.review_agg_layer = nn.Linear(in_features=self.num_reviews, out_features=1, bias=True, device=self.device)
-        nn.init.xavier_normal_(self.review_agg_layer.weight, gain=gain)
-        nn.init.constant_(self.review_agg_layer.bias, 0.0)
+        # represent pos items with mean of their reviews
+        cands = self.items_as_avg_reviews[pos.cpu()]
 
-        # linear combination of lightgcn and bert vectors
-        self.linear = nn.Linear(in_features=2, out_features=1, bias=True, device=self.device)
-        nn.init.xavier_normal_(self.linear.weight, gain=gain)
-        nn.init.constant_(self.linear.bias, 0.0)
+        # represent neg items with mean of their reviews
+        refs = self.items_as_avg_reviews[neg.cpu()]
 
-    def _init_embeddings(self, emb_size):
-        super()._init_embeddings(emb_size)
-
-        ''' load/calc embeddings of the reviews and setup the dicts '''
-
-        emb_file = f'{self.path}/embeddings/item_kg_repr_{self.bert_model.split("/")[-1]}.torch'
-        self.reviews['vector'] = embed_text(self.reviews['review'],
-                                            emb_file,
-                                            self.bert_model,
-                                            self.emb_batch_size,
-                                            self.device,
-                                            self.logger)
-
-        ''' pool embedded reviews for user and item to be represented '''
-        user_text_embs = {}
-        for user, group in self.reviews.groupby('user_id')['vector']:
-            # user_text_embs[user] = self._pad_reviews(group.values)
-            user_text_embs[user] = group.values.mean(axis=0)
-        self.user_text_embs = nn.Parameter(torch.stack(self.user_mapping['org_id'].map(user_text_embs).values.tolist()))
-
-        item_text_embs = {}
-        for item, group in self.reviews.groupby('asin')['vector']:
-            # item_text_embs[item] = self._pad_reviews(group.values)
-            item_text_embs[item] = group.values.mean(axis=0)
-        self.item_text_embs = nn.Parameter(torch.stack(self.item_mapping['org_id'].map(item_text_embs).values.tolist()))
-
-    def _pad_reviews(self, reviews):
-        ''' pad or cut existing reviews to have equal number per user/item '''
-        reviews = torch.tensor(np.stack(reviews)[:self.num_reviews]).float()
-        return F.pad(reviews, (0, 0, 0, self.num_reviews - reviews.shape[0]))
-
-    def layer_aggregation(self, norm_matrix, curent_lvl_emb_matrix):
-        return torch.sparse.mm(norm_matrix, curent_lvl_emb_matrix)
-
-    def layer_combination(self, vectors):
-        return torch.mean(torch.stack(vectors, dim=1), dim=1)
-
-    @property
-    def embedding_matrix(self):
-        ''' get the embedding matrix of 0th layer
-
-            for phase 1 (lightgcn):
-                take embs as is
-
-            for phase 2 (reviews):
-                get linear combination of top num_reviews reviews,
-                combine with LGCN vector using another linear layer
-        '''
-
-        if self.phase == 1:
-            return super().embedding_matrix
-
-        user_vectors = self.review_agg_layer(self.user_text_embs.transpose(-1, 1)).squeeze()
-        u_stacked = torch.stack((self.embedding_user.weight, user_vectors), axis=1)
-        emb_user = self.linear(u_stacked.transpose(-1, 1)).squeeze()
-
-        item_vectors = self.review_agg_layer(self.item_text_embs.transpose(-1, 1)).squeeze()
-        i_stacked = torch.stack((self.embedding_item.weight, item_vectors), axis=1)
-        emb_item = self.linear(i_stacked.transpose(-1, 1)).squeeze()
-
-        return torch.cat([emb_user, emb_item])
-
-    def forward(self, loader, optimizer, scheduler):
-        super().forward(loader, optimizer, scheduler)
-        self.phase = 2
-        super().forward(loader, optimizer, scheduler)
+        return self.sim_fn(cands, refs).to(self.device)

@@ -20,7 +20,6 @@ def parse_args(s=None):
                                  'graphsage',
                                  'kg',
                                  'reviews',
-                                 'reviews_loss',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
