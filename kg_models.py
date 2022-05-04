@@ -39,6 +39,7 @@ class TextModelKG(TextBaseModel):
         self.items_as_desc = dataset.items_as_desc
 
     def bert_sim(self, users, pos, neg):
+        # represent items with their description
         cands = self.items_as_desc[pos.cpu()]
         refs = self.items_as_desc[neg.cpu()]
         return self.sim_fn(cands, refs).to(self.device)
