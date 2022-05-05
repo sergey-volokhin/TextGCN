@@ -15,7 +15,7 @@ from utils import early_stop, hit, ndcg, precision, recall
 class BaseModel(nn.Module):
     '''
         meta class with model-agnostic utility functions
-        also works as custom lgcn (vs 'lightgcn' which uses torch_geometric layers)
+        also works as custom lgcn (vs 'lightgcn' with torch_geometric layer)
     '''
 
     def __init__(self, args, dataset):
@@ -77,7 +77,7 @@ class BaseModel(nn.Module):
     @property
     def _dropout_norm_matrix(self):
         '''
-            drop self.dropout elements from adj table
+            drop elements from adj table
             to help with overfitting
         '''
         index = self.norm_matrix.indices().t()
@@ -96,9 +96,8 @@ class BaseModel(nn.Module):
     @property
     def representation(self):
         '''
-            get the users' and items' final representations
-            aggregate embeddings from neighbors for each layer
-            combine layers at the end
+            aggregate embeddings from neighbors for each layer,
+            combine layers into users' and items' final representations
         '''
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         curent_lvl_emb_matrix = self.embedding_matrix
@@ -144,26 +143,33 @@ class BaseModel(nn.Module):
             self.checkpoint(self.epochs)
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-    def layer_aggregation(self, norm_matrix, emb_matrix, **kwargs):
+    def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
             aggregate the neighbor's representations
-            to get next layer node representation
+            to get next layer node representation.
+
+            default: normalized sum
         '''
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    def layer_combination(self, vectors, **kwargs):
+    def layer_combination(self, vectors):
         '''
             combine embeddings from all layers
-            into final representation matrix
+            into final representation matrix.
+
+            default: mean of all layers
         '''
         return torch.mean(torch.stack(vectors), axis=0)
 
-    def layer_combination_single(self, vectors, **kwargs):
+    def layer_combination_single(self, vectors):
         '''
             only return the last layer representation
             instead of combining all layers
         '''
         return vectors[-1]
+
+    def score(self, users, items, users_emb, item_emb):
+        return torch.sum(torch.mul(users_emb, item_emb[items]), dim=1)
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
@@ -176,9 +182,6 @@ class BaseModel(nn.Module):
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
         return loss / len(negs)
-
-    def score(self, users, items, users_emb, item_emb):
-        return torch.sum(torch.mul(users_emb, item_emb[items]), dim=1)
 
     def reg_loss(self, users, pos, negs):
         ''' regularization loss '''
@@ -240,7 +243,7 @@ class BaseModel(nn.Module):
             for batch_users in batches:
 
                 # get the estimated user-item scores with matmul embedding matrices
-                batch_user_emb = users_emb[torch.Tensor(batch_users).long().to(self.device)]
+                batch_user_emb = users_emb[torch.tensor(batch_users).long().to(self.device)]
                 rating = torch.sigmoid(torch.matmul(batch_user_emb, items_emb.t()))
 
                 # set scores for train items to be -inf so we don't recommend them
@@ -274,10 +277,7 @@ class BaseModel(nn.Module):
             result['ndcg'].append(ndcg(k_row, k))
             numerator = result['recall'][-1] * result['precision'][-1] * 2
             denominator = result['recall'][-1] + result['precision'][-1]
-            result['f1'].append(np.divide(numerator,
-                                          denominator,
-                                          out=np.zeros_like(numerator),
-                                          where=denominator != 0))
+            result['f1'].append(np.nan_to_num(numerator / denominator, posinf=0, neginf=0))
         return result
 
     def _save_code(self):

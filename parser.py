@@ -13,13 +13,14 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         required=True,
                         choices=['lgcn',
+                                 'kg',
+                                 'reviews',
+                                 'ltr',
                                  'lightgcn',
                                  'gat',
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
-                                 'kg',
-                                 'reviews',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
@@ -126,15 +127,15 @@ def parse_args(s=None):
                                      'roberta-large',
                                      ],
                             help='version of BERT to use')
-    text_hyper.add_argument('--separator', '--sep',
-                            default='[SEP]',
-                            type=str,
-                            dest='sep',
-                            help='separator for table comprehension')
     text_hyper.add_argument('--sim_fn',
                             default='cosine',
                             choices=['cosine', 'euclid_minus', 'euclid_ratio'],
                             help='similarity metric used in textual loss')
+    text_hyper.add_argument('--separator', '--sep',
+                            default='[SEP]',
+                            type=str,
+                            dest='sep',
+                            help='separator for table comprehension (KG model)')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
