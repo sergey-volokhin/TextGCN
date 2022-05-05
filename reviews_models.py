@@ -61,6 +61,7 @@ class DatasetReviews(BaseDataset):
         for item, group in top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
         self.items_as_avg_reviews = torch.stack(self.item_mapping['remap_id'].map(item_text_embs).values.tolist())
+
         del self.reviews
 
 

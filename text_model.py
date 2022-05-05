@@ -23,12 +23,10 @@ class TextBaseModel(BaseModel):
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_emb = item_emb[pos]
-        pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
+        pos_scores = self.score(users, pos, users_emb, item_emb)
         loss = 0
         for neg in negs:
-            neg_emb = item_emb[neg]
-            neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
+            neg_scores = self.score(users, neg, users_emb, item_emb)
             bpr_loss = F.softplus(neg_scores - pos_scores)
             semantic_regularization = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
             loss += torch.mean(bpr_loss + semantic_regularization)
@@ -41,11 +39,11 @@ class TextBaseModel(BaseModel):
         # weight = F.relu(pos_scores - neg_scores)
         # weight = torch.abs(pos_scores - neg_scores)
 
-        distance = self.bert_sim(users, pos, neg)
+        # distance = self.bert_sim(users, pos, neg)
         # distance = torch.abs(self.bert_sim(users, pos, neg) - self.gnn_sim(pos, neg))
         # distance = F.relu(self.bert_sim(users, pos, neg) - self.gnn_sim(pos, neg))
         # distance = F.relu(self.gnn_sim(pos, neg) - self.bert_sim(users, pos, neg))
-        # distance = F.relu(self.bert_sim(users, pos, neg))
+        distance = F.relu(self.bert_sim(users, pos, neg))
         # distance = torch.abs(self.bert_sim(users, pos, neg) * self.gnn_sim(pos, neg))
 
         semantic_regularization = weight * distance

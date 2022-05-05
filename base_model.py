@@ -47,6 +47,8 @@ class BaseModel(nn.Module):
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
         self.slurm = args.slurm
+        if args.single:
+            self.layer_combination = self.layer_combination_single
 
     def _copy_dataset_args(self, dataset):
         self.n_users = dataset.n_users
@@ -156,19 +158,27 @@ class BaseModel(nn.Module):
         '''
         return torch.mean(torch.stack(vectors), axis=0)
 
+    def layer_combination_single(self, vectors, **kwargs):
+        '''
+            only return the last layer representation
+            instead of combining all layers
+        '''
+        return vectors[-1]
+
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_emb = item_emb[pos]
-        pos_scores = torch.sum(torch.mul(users_emb, pos_emb), dim=1)
+        pos_scores = self.score(users, pos, users_emb, item_emb)
         loss = 0
         for neg in negs:
-            neg_emb = item_emb[neg]
-            neg_scores = torch.sum(torch.mul(users_emb, neg_emb), dim=1)
+            neg_scores = self.score(users, neg, users_emb, item_emb)
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
         return loss / len(negs)
+
+    def score(self, users, items, users_emb, item_emb):
+        return torch.sum(torch.mul(users_emb, item_emb[items]), dim=1)
 
     def reg_loss(self, users, pos, negs):
         ''' regularization loss '''
@@ -310,13 +320,3 @@ class BaseModel(nn.Module):
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
         open(self.progression_path, 'w').write('\n'.join(progression))
-
-
-class Single:
-    '''
-        only return the last layer representation
-        instead of combining all layers
-    '''
-
-    def layer_combination(self, vectors):
-        return vectors[-1]
