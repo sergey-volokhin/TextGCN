@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torch.optim as opt
 from torch.utils.data import DataLoader
 
 from base_model import BaseModel
@@ -12,7 +11,6 @@ from reviews_models import DatasetReviews, TextModelReviews
 
 
 def get_class(name):
-    ''' create a correct class based on the name of the model '''
     return {
         'lgcn': [BaseDataset, BaseModel],
         'reviews': [DatasetReviews, TextModelReviews],
@@ -34,13 +32,7 @@ if __name__ == '__main__':
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
 
-    optimizer = opt.Adam(model.parameters(), lr=args.lr)
-    scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                   verbose=(not args.quiet),
-                                                   patience=5,
-                                                   min_lr=1e-8)
-
-    model(loader, optimizer, scheduler)
+    model.fit(loader)
 
     if args.predict:
         model.predict(save=True)

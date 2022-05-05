@@ -4,6 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 import torch
+import torch.optim as opt
 from tensorboardX import SummaryWriter
 from torch import nn
 from torch.nn import functional as F
@@ -34,8 +35,10 @@ class BaseModel(nn.Module):
 
     def _copy_args(self, args):
         self.k = args.k
+        self.lr = args.lr
         self.uid = args.uid
         self.save = args.save
+        self.quiet = args.quiet
         self.epochs = args.epochs
         self.logger = args.logger
         self.device = args.device
@@ -88,6 +91,13 @@ class BaseModel(nn.Module):
         matrix = torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
         return matrix.coalesce().to(self.device)
 
+    def _get_optimizer(self):
+        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
+        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(self.optimizer,
+                                                            verbose=(not self.quiet),
+                                                            patience=5,
+                                                            min_lr=1e-8)
+
     @property
     def embedding_matrix(self):
         ''' get the embedding matrix of 0th layer '''
@@ -108,8 +118,10 @@ class BaseModel(nn.Module):
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
-    def forward(self, batches, optimizer, scheduler):
+    def fit(self, batches):
         ''' training function '''
+
+        self._get_optimizer()
 
         for epoch in trange(1, self.epochs + 1, desc='epochs'):
             self.train()
@@ -120,13 +132,13 @@ class BaseModel(nn.Module):
                              leave=False,
                              dynamic_ncols=True,
                              disable=self.slurm):
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss = self.get_loss(*data.t())
                 total_loss += loss
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
             self.w.add_scalar('Training_loss', total_loss, epoch)
-            scheduler.step(total_loss)
+            self.scheduler.step(total_loss)
 
             if epoch % self.evaluate_every:
                 continue
