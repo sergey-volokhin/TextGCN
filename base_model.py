@@ -71,7 +71,7 @@ class BaseModel(nn.Module):
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
     def _add_vars(self):
-        ''' adding all the remaining variables '''
+        ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)

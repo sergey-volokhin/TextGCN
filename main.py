@@ -1,5 +1,4 @@
-import numpy as np
-import torch
+from torch_geometric import seed_everything
 from torch.utils.data import DataLoader
 
 from base_model import BaseModel
@@ -22,8 +21,7 @@ if __name__ == '__main__':
 
     args = parse_args()
 
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    seed_everything(args.seed)
 
     Dataset, Model = get_class(args.model)
     args.logger.info(f'Class: {Model}')

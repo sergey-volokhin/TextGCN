@@ -8,10 +8,9 @@ class TorchGeometric(BaseModel):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-        self.aggr = args.aggr
-        self._build_layers(args.emb_size, args.model)
+        self._build_layers(args.emb_size, args.model, args.aggr)
 
-    def _build_layers(self, emb_size, model_name):
+    def _build_layers(self, emb_size, model_name, aggr):
         LayerClass = {'gat': GATConv,
                       'gatv2': GATv2Conv,
                       'gcn': GCNConv,
@@ -21,7 +20,7 @@ class TorchGeometric(BaseModel):
         if model_name == 'lightgcn':
             self.layers = [LayerClass().to(self.device) for i in range(self.n_layers)]
         else:
-            self.layers = [LayerClass(emb_size, emb_size, aggr=self.aggr).to(self.device) for _ in range(self.n_layers)]
+            self.layers = [LayerClass(emb_size, emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
 
     @property
     def representation(self):
