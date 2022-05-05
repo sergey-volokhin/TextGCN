@@ -3,7 +3,7 @@ import torch
 from tqdm import tqdm
 
 from dataset import BaseDataset
-from text_model import TextBaseModel
+from text_base_model import TextBaseModel
 from utils import embed_text
 
 
