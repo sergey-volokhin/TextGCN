@@ -6,6 +6,7 @@ from dataset import BaseDataset
 from non_text_models import TorchGeometric
 from parser import parse_args
 from kg_models import DatasetKG, TextModelKG
+from LTR_reviews_models import LTRDataset, LTR
 from reviews_models import DatasetReviews, TextModelReviews
 
 
@@ -14,6 +15,7 @@ def get_class(name):
         'lgcn': [BaseDataset, BaseModel],
         'reviews': [DatasetReviews, TextModelReviews],
         'kg': [DatasetKG, TextModelKG],
+        'ltr': [LTRDataset, LTR],
     }.get(name, [BaseDataset, TorchGeometric])
 
 

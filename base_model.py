@@ -289,7 +289,11 @@ class BaseModel(nn.Module):
             result['ndcg'].append(ndcg(k_row, k))
             numerator = result['recall'][-1] * result['precision'][-1] * 2
             denominator = result['recall'][-1] + result['precision'][-1]
-            result['f1'].append(np.nan_to_num(numerator / denominator, posinf=0, neginf=0))
+            # result['f1'].append(np.nan_to_num(numerator / denominator, posinf=0, neginf=0))
+            result['f1'].append(np.divide(numerator,
+                                          denominator,
+                                          out=np.zeros_like(numerator),
+                                          where=denominator != 0))
         return result
 
     def _save_code(self):
