@@ -1,4 +1,3 @@
-from collections import defaultdict
 import random
 
 import dgl

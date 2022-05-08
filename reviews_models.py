@@ -58,12 +58,11 @@ class DatasetReviews(BaseDataset):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
 
         item_text_embs = {}
-        top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
-        for item, group in top_med_reviews.groupby('asin')['vector']:
+        self.top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
+        for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.items_as_avg_reviews = torch.stack(self.item_mapping['remap_id'].map(item_text_embs).values.tolist())
-
-        del self.reviews
+        self.items_as_avg_reviews = torch.stack(self.item_mapping['remap_id'].map(
+            item_text_embs).values.tolist()).to(self.device)
 
 
 class TextModelReviews(TextBaseModel):
