@@ -4,6 +4,7 @@ from tqdm import tqdm
 
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
+from kg_models import DatasetKG
 from utils import embed_text
 
 
@@ -83,4 +84,21 @@ class TextModelReviews(TextBaseModel):
         # represent neg items with mean of their reviews
         refs = self.items_as_avg_reviews[neg.cpu()]
 
+        return self.sim_fn(cands, refs).to(self.device)
+
+
+class TextData(DatasetKG, DatasetReviews):
+    pass
+
+
+class TextModel(TextModelReviews):
+
+    def _copy_dataset_args(self, dataset):
+        super()._copy_dataset_args(dataset)
+        self.items_as_desc = dataset.items_as_desc
+
+    def bert_sim(self, users, pos, neg):
+        cands = torch.tensor(self.reviews_vector.loc[torch.stack([pos, users], axis=1).tolist()].values.tolist()).to(
+            self.device)
+        refs = self.items_as_desc[neg.cpu()]
         return self.sim_fn(cands, refs).to(self.device)

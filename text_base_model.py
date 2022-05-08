@@ -9,6 +9,7 @@ class TextBaseModel(BaseModel):
     def _copy_args(self, args):
         super()._copy_args(args)
         self.sim_fn = args.sim_fn
+        self.weight = args.weight
 
     def _add_vars(self):
         super()._add_vars()
@@ -35,16 +36,35 @@ class TextBaseModel(BaseModel):
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
-        weight = 1
-        # weight = F.relu(pos_scores - neg_scores)
-        # weight = torch.abs(pos_scores - neg_scores)
+        if 'max(p-n)' in self.weight:
+            weight = F.relu(pos_scores - neg_scores)
+        elif '|p-n|' in self.weight:
+            weight = torch.abs(pos_scores - neg_scores)
+        elif '_1_' in self.weight:
+            weight = 1
+        else:
+            raise AttributeError('incorrect weight')
 
-        # distance = self.bert_sim(users, pos, neg)
-        # distance = torch.abs(self.bert_sim(users, pos, neg) - self.gnn_sim(pos, neg))
-        # distance = F.relu(self.bert_sim(users, pos, neg) - self.gnn_sim(pos, neg))
-        # distance = F.relu(self.gnn_sim(pos, neg) - self.bert_sim(users, pos, neg))
-        distance = F.relu(self.bert_sim(users, pos, neg))
-        # distance = torch.abs(self.bert_sim(users, pos, neg) * self.gnn_sim(pos, neg))
+        b = self.bert_sim(users, pos, neg)
+        g = self.gnn_sim(pos, neg)
+        if 'max(b)' in self.weight:
+            distance = F.relu(b)
+        elif 'max(b-g)' in self.weight:
+            distance = F.relu(b - g)
+        elif '(b-g)' in self.weight:
+            distance = b - g
+        elif 'max(g-b)' in self.weight:
+            distance = F.relu(g - b)
+        elif '(g-b)' in self.weight:
+            distance = g - b
+        elif '|b-g|' in self.weight:
+            distance = torch.abs(b - g)
+        elif '|g-b|' in self.weight:
+            distance = torch.abs(g - b)
+        elif '_b' in self.weight:
+            distance = b
+        else:
+            raise AttributeError('incorrect weights')
 
         semantic_regularization = weight * distance
         self.sem_reg += semantic_regularization.mean()

@@ -21,6 +21,7 @@ def parse_args(s=None):
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
+                                 'pos_u_neg_kg',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
@@ -136,10 +137,13 @@ def parse_args(s=None):
                             type=str,
                             dest='sep',
                             help='separator for table comprehension (KG model)')
+    text_hyper.add_argument('--weight',
+                            help='weights for semantic loss')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
+    assert args.model not in ['reviews', 'kg', 'ltr', 'pos_u_neg_kg'] or args.weight is not None
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
