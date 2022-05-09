@@ -50,7 +50,8 @@ class TextBaseModel(BaseModel):
 
         weight = {'max(p-n)': F.relu(pos_scores - neg_scores),
                   '|p-n|': torch.abs(pos_scores - neg_scores),
-                  '1': 1
+                  '1': 1,
+                  '0': 0,  # in case we want to not have semantic loss
                   }[self.weight.split('_')[0]]
 
         semantic_loss = weight * distance

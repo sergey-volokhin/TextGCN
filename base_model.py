@@ -49,7 +49,7 @@ class BaseModel(nn.Module):
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
-        self.slurm = args.slurm
+        self.slurm = args.slurm or args.quiet
         if args.single:
             self.layer_combination = self.layer_combination_single
 
@@ -123,7 +123,7 @@ class BaseModel(nn.Module):
 
         self._get_optimizer()
 
-        for epoch in trange(1, self.epochs + 1, desc='epochs'):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.slurm):
             self.train()
             self.sem_reg = 0
             total_loss = 0

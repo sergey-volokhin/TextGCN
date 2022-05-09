@@ -1,7 +1,6 @@
 import pandas as pd
 from tqdm import tqdm
 
-import torch
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
 from utils import embed_text

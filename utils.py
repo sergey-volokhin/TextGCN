@@ -60,7 +60,7 @@ def old_embed_text(sentences, path, bert_model, batch_size, device, logger):
     logger.info('Getting embeddings')
 
     if os.path.exists(path):
-        return torch.load(path)
+        return torch.load(path, map_location=device)
 
     sentences_to_embed = sentences.unique().tolist()
     tokenization = tokenize_text(sentences_to_embed, bert_model, batch_size)
@@ -110,7 +110,7 @@ def embed_text(sentences, path, bert_model, batch_size, device, logger):
     logger.info('Getting embeddings')
 
     if os.path.exists(path):
-        return torch.load(path).to(device)
+        return torch.load(path, map_location=device)
 
     def dedup_and_sort(l):
         return sorted(l.unique().tolist(), key=lambda x: len(x.split(" ")), reverse=True)

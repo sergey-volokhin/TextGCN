@@ -15,12 +15,12 @@ def parse_args(s=None):
                         choices=['lgcn',
                                  'kg',
                                  'reviews',
-                                 'ltr',
                                  'lightgcn',
                                  'gat',
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
+                                 'ltr_kg', 'ltr_reviews',
                                  'pos_u_neg_kg', 'pos_u_neg_avg',
                                  'pos_avg_neg_kg', 'pos_avg_neg_avg',
                                  ],
@@ -146,12 +146,13 @@ def parse_args(s=None):
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
     assert args.model not in ['reviews',
                               'kg',
-                              'ltr',
+                              'ltr_kg',
+                              'ltr_reviews',
                               'pos_u_neg_kg',
                               'pos_u_neg_avg',
                               'pos_avg_neg_kg',
                               'pos_avg_neg_avg',
-                              ] or args.weight is not None
+                              ] or args.weight is not None, 'set the weights for a textual model'
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
