@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
-from kg_models import DatasetKG
+from kg_models import DatasetKG, TextModelKG
 from utils import embed_text
 
 
@@ -61,43 +61,73 @@ class DatasetReviews(BaseDataset):
         self.top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.items_as_avg_reviews = torch.stack(self.item_mapping['remap_id'].map(
-            item_text_embs).values.tolist()).to(self.device)
+        items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
+        self.items_as_avg_reviews = torch.stack(items_as_avg_reviews).to(self.device)
 
 
 class TextModelReviews(TextBaseModel):
+
+    def __init__(self, args, dataset):
+        super().__init__(args, dataset)
+
+        ''' represent negative items with average of their reviews '''
+        self.neg_item_reprs = self.get_item_reviews_mean
+
+        ''' represent positive item:
+                with user review about it (if model starts with pos_u*)
+                with average of its reviews (if model starts with pos_avg*)
+        '''
+        if 'pos_u_' in args.model:
+            self.pos_item_reprs = self.get_item_reviews_user
+        elif 'pos_avg_' in args.model:
+            self.pos_item_reprs = self.get_item_reviews_mean
+        elif args.model == 'reviews':
+            self.pos_item_reprs = self.get_item_reviews_mean
+        else:
+            raise AttributeError(f'incorrect model name "{args.model}"')
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.reviews_vector = dataset.reviews_vector
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
-    def bert_sim(self, users, pos, neg):
+    def get_item_reviews_mean(self, users, items):
+        ''' represent pos items with mean of their reviews '''
+        return self.items_as_avg_reviews[items.cpu()]
 
-        # # represent pos items with respective user's review
-        # cands = torch.tensor(self.reviews_vector.loc[torch.stack([pos, users], axis=1).tolist()].values.tolist())
-
-        # represent pos items with mean of their reviews
-        cands = self.items_as_avg_reviews[pos.cpu()]
-
-        # represent neg items with mean of their reviews
-        refs = self.items_as_avg_reviews[neg.cpu()]
-
-        return self.sim_fn(cands, refs).to(self.device)
+    def get_item_reviews_user(self, users, items):
+        ''' represent pos items with the review of corresponding user '''
+        df = self.reviews_vector.loc[torch.stack([items, users], axis=1).tolist()]
+        return torch.tensor(df.values.tolist()).to(self.device)
 
 
 class TextData(DatasetKG, DatasetReviews):
     pass
 
 
-class TextModel(TextModelReviews):
+class TextModel(TextModelReviews, TextModelKG):
 
-    def _copy_dataset_args(self, dataset):
-        super()._copy_dataset_args(dataset)
-        self.items_as_desc = dataset.items_as_desc
+    def __init__(self, args, dataset):
+        super().__init__(args, dataset)
 
-    def bert_sim(self, users, pos, neg):
-        cands = torch.tensor(self.reviews_vector.loc[torch.stack([pos, users], axis=1).tolist()].values.tolist()).to(
-            self.device)
-        refs = self.items_as_desc[neg.cpu()]
-        return self.sim_fn(cands, refs).to(self.device)
+        ''' represent positive item:
+                with user review about it (if model starts with pos_u*)
+                with average of its reviews (if mdoel starts with pos_avg*)
+        '''
+        if 'pos_u_' in args.model:
+            self.pos_item_reprs = self.get_item_reviews_user
+        elif 'pos_avg_' in args.model:
+            self.pos_item_reprs = self.get_item_reviews_mean
+        else:
+            raise AttributeError('wrong model specified')
+
+        ''' represent negative item:
+                with its description (if model ends with *_neg_kg)
+                with average of its reviews (if model ends with *neg_mean)
+        '''
+        if 'neg_avg' in args.model:
+            self.neg_item_reprs = self.get_item_reviews_mean
+        elif 'neg_kg' in args.model:
+            self.neg_item_reprs = self.get_item_desc
+        else:
+            raise AttributeError('wrong model specified')

@@ -36,44 +36,43 @@ class TextBaseModel(BaseModel):
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
-        if 'max(p-n)' in self.weight:
-            weight = F.relu(pos_scores - neg_scores)
-        elif '|p-n|' in self.weight:
-            weight = torch.abs(pos_scores - neg_scores)
-        elif '_1_' in self.weight:
-            weight = 1
-        else:
-            raise AttributeError('incorrect weight')
-
         b = self.bert_sim(users, pos, neg)
         g = self.gnn_sim(pos, neg)
-        if 'max(b)' in self.weight:
-            distance = F.relu(b)
-        elif 'max(b-g)' in self.weight:
-            distance = F.relu(b - g)
-        elif '(b-g)' in self.weight:
-            distance = b - g
-        elif 'max(g-b)' in self.weight:
-            distance = F.relu(g - b)
-        elif '(g-b)' in self.weight:
-            distance = g - b
-        elif '|b-g|' in self.weight:
-            distance = torch.abs(b - g)
-        elif '|g-b|' in self.weight:
-            distance = torch.abs(g - b)
-        elif '_b' in self.weight:
-            distance = b
-        else:
-            raise AttributeError('incorrect weights')
+        distance = {'b': b,
+                    'max(b)': F.relu(b),
+                    'max(b-g)': F.relu(b - g),
+                    'max(g-b)': F.relu(g - b),
+                    '(b-g)': b - g,
+                    '(g-b)': g - b,
+                    '|b-g|': torch.abs(b - g),
+                    '|g-b|': torch.abs(g - b),
+                    }[self.weight.split('_')[1]]
 
-        semantic_regularization = weight * distance
-        self.sem_reg += semantic_regularization.mean()
-        return semantic_regularization
+        weight = {'max(p-n)': F.relu(pos_scores - neg_scores),
+                  '|p-n|': torch.abs(pos_scores - neg_scores),
+                  '1': 1
+                  }[self.weight.split('_')[0]]
+
+        semantic_loss = weight * distance
+        self.sem_reg += semantic_loss.mean()
+        return semantic_loss
 
     def gnn_sim(self, pos, neg):
+        ''' calculate similarity between gnn representations of the sampled items '''
         cands = self.embedding_item(pos)
         refs = self.embedding_item(neg)
         return self.sim_fn(cands, refs).to(self.device)
 
-    def bert_sim(self, *args):
+    def bert_sim(self, users, pos, neg):
+        ''' calculate similarity between textual representations of the sampled items '''
+        cands = self.pos_item_reprs(users, pos)
+        refs = self.neg_item_reprs(users, neg)
+        return self.sim_fn(cands, refs).to(self.device)
+
+    def pos_item_reprs(self, users, items):
+        ''' how do we represent positive items from sampled triplets '''
+        raise NotImplementedError
+
+    def neg_item_reprs(self, users, items):
+        ''' how do we represent negative items from sampled triplets '''
         raise NotImplementedError

@@ -21,7 +21,8 @@ def parse_args(s=None):
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
-                                 'pos_u_neg_kg',
+                                 'pos_u_neg_kg', 'pos_u_neg_avg',
+                                 'pos_avg_neg_kg', 'pos_avg_neg_avg',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
@@ -138,12 +139,19 @@ def parse_args(s=None):
                             dest='sep',
                             help='separator for table comprehension (KG model)')
     text_hyper.add_argument('--weight',
-                            help='weights for semantic loss')
+                            help='formula for semantic loss')
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
-    assert args.model not in ['reviews', 'kg', 'ltr', 'pos_u_neg_kg'] or args.weight is not None
+    assert args.model not in ['reviews',
+                              'kg',
+                              'ltr',
+                              'pos_u_neg_kg',
+                              'pos_u_neg_avg',
+                              'pos_avg_neg_kg',
+                              'pos_avg_neg_avg',
+                              ] or args.weight is not None
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
@@ -153,6 +161,7 @@ def parse_args(s=None):
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
+            # args.uid = f'{args.sim_fn}_{args.model}_{args.weight}'
         args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
         os.makedirs(args.save_path, exist_ok=True)
 

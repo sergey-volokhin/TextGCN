@@ -15,8 +15,11 @@ def get_class(name):
         'lgcn': [BaseDataset, BaseModel],
         'reviews': [DatasetReviews, TextModelReviews],
         'kg': [DatasetKG, TextModelKG],
-        'pos_u_neg_kg': [TextData, TextModel],
         'ltr': [LTRDataset, LTR],
+        'pos_u_neg_kg': [TextData, TextModel],
+        'pos_u_neg_avg': [TextData, TextModel],
+        'pos_avg_neg_kg': [TextData, TextModel],
+        'pos_avg_neg_avg': [TextData, TextModel],
     }.get(name, [BaseDataset, TorchGeometric])
 
 

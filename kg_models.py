@@ -1,6 +1,7 @@
 import pandas as pd
 from tqdm import tqdm
 
+import torch
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
 from utils import embed_text
@@ -34,12 +35,16 @@ class DatasetKG(BaseDataset):
 
 class TextModelKG(TextBaseModel):
 
+    def __init__(self, args, dataset):
+        super().__init__(args, dataset)
+
+        ''' all items are represented with their descriptions '''
+        self.pos_item_reprs = self.get_item_desc
+        self.neg_item_reprs = self.get_item_desc
+
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.items_as_desc = dataset.items_as_desc
 
-    def bert_sim(self, users, pos, neg):
-        # represent items with their description
-        cands = self.items_as_desc[pos.cpu()]
-        refs = self.items_as_desc[neg.cpu()]
-        return self.sim_fn(cands, refs).to(self.device)
+    def get_item_desc(self, users, items):
+        return self.items_as_desc[items.cpu()]
