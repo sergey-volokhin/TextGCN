@@ -58,6 +58,7 @@ class DatasetReviews(BaseDataset):
             cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
 
         item_text_embs = {}
+        # saving top_med_reviews to model so we could extend LTR
         self.top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
@@ -70,21 +71,9 @@ class TextModelReviews(TextBaseModel):
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
 
-        ''' represent negative items with average of their reviews '''
+        ''' represent items with average of their reviews '''
+        self.pos_item_reprs = self.get_item_reviews_mean
         self.neg_item_reprs = self.get_item_reviews_mean
-
-        ''' represent positive item:
-                with user review about it (if model starts with pos_u*)
-                with average of its reviews (if model starts with pos_avg*)
-        '''
-        if 'pos_u_' in args.model:
-            self.pos_item_reprs = self.get_item_reviews_user
-        elif 'pos_avg_' in args.model:
-            self.pos_item_reprs = self.get_item_reviews_mean
-        elif args.model == 'reviews':
-            self.pos_item_reprs = self.get_item_reviews_mean
-        else:
-            raise AttributeError(f'incorrect model name "{args.model}"')
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)

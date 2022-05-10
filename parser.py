@@ -20,7 +20,7 @@ def parse_args(s=None):
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
-                                 'ltr_kg', 'ltr_reviews',
+                                 'ltr_kg', 'ltr_reviews', 'ltr_simple',
                                  'pos_u_neg_kg', 'pos_u_neg_avg',
                                  'pos_avg_neg_kg', 'pos_avg_neg_avg',
                                  ],

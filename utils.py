@@ -2,12 +2,20 @@ import cProfile
 import logging
 import os
 import pstats
+import random
 
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
+
+
+def seed_everything(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def hit(row):
@@ -41,7 +49,7 @@ def get_logger(args):
     logging.basicConfig(level=(logging.ERROR if args.quiet else args.logging_level),
                         format='%(asctime)-10s - %(levelname)s: %(message)s',
                         datefmt='%d/%m/%y %H:%M',
-                        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log')),
+                        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log'), mode='w'),
                                   logging.StreamHandler()])
     return logging.getLogger()
 

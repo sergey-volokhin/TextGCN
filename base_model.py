@@ -123,9 +123,11 @@ class BaseModel(nn.Module):
 
         self._get_optimizer()
 
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.slurm):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
             self.train()
-            self.sem_reg = 0
+            self._sem_loss = 0
+            self._reg_loss = 0
+            self._bpr_loss = 0
             total_loss = 0
             for data in tqdm(batches,
                              desc='batches',
@@ -143,7 +145,8 @@ class BaseModel(nn.Module):
             if epoch % self.evaluate_every:
                 continue
 
-            self.logger.info(f'Epoch {epoch}: bpr_loss = {total_loss-self.sem_reg:.4f}, sem_reg = {self.sem_reg:.4f}')
+            self.logger.info(f'Epoch {epoch}: bpr = {self._bpr_loss:.4f} '
+                             f'sem = {self._sem_loss:.4f}, reg = {self._reg_loss:.4f}')
             self.evaluate(epoch)
             self.training = True
             self.checkpoint(epoch)
@@ -193,14 +196,18 @@ class BaseModel(nn.Module):
             neg_scores = self.score(users, neg, users_emb, item_emb)
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
-        return loss / len(negs)
+        res = loss / len(negs)
+        self._bpr_loss += res
+        return res
 
     def reg_loss(self, users, pos, negs):
         ''' regularization loss '''
         loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
         for neg in negs:
             loss += self.embedding_item(neg).norm(2).pow(2) / len(negs)
-        return self.reg_lambda * loss / len(users) / 2
+        res = self.reg_lambda * loss / len(users) / 2
+        self._reg_loss += res
+        return res
 
     def get_loss(self, users, pos, *negs):
         ''' get total loss per batch of users '''

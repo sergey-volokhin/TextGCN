@@ -29,8 +29,9 @@ class TextBaseModel(BaseModel):
         for neg in negs:
             neg_scores = self.score(users, neg, users_emb, item_emb)
             bpr_loss = F.softplus(neg_scores - pos_scores)
-            semantic_regularization = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
-            loss += torch.mean(bpr_loss + semantic_regularization)
+            sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
+            self._bpr_loss += torch.mean(bpr_loss) / len(negs)
+            loss += torch.mean(bpr_loss + sem_loss)
         return loss / len(negs)
 
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
@@ -55,7 +56,7 @@ class TextBaseModel(BaseModel):
                   }[self.weight.split('_')[0]]
 
         semantic_loss = weight * distance
-        self.sem_reg += semantic_loss.mean()
+        self._sem_loss += semantic_loss.mean()
         return semantic_loss
 
     def gnn_sim(self, pos, neg):

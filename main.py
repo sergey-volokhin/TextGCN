@@ -1,4 +1,3 @@
-from torch_geometric import seed_everything
 from torch.utils.data import DataLoader
 
 from base_model import BaseModel
@@ -7,7 +6,8 @@ from non_text_models import TorchGeometric
 from parser import parse_args
 from kg_models import DatasetKG, TextModelKG
 from reviews_models import DatasetReviews, TextModelReviews, TextData, TextModel
-from LTR_reviews_models import LTRDataset, LTR
+from LTR_reviews_models import LTRDataset, LTR, LTRSimple
+from utils import seed_everything
 
 
 def get_class(name):
@@ -21,6 +21,7 @@ def get_class(name):
         'pos_u_neg_avg': [TextData, TextModel],
         'pos_avg_neg_kg': [TextData, TextModel],
         'pos_avg_neg_avg': [TextData, TextModel],
+        'ltr_simple': [LTRDataset, LTRSimple]
     }.get(name, [BaseDataset, TorchGeometric])
 
 
