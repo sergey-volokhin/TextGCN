@@ -8,7 +8,7 @@ import torch.optim as opt
 from tensorboardX import SummaryWriter
 from torch import nn
 from torch.nn import functional as F
-from tqdm import tqdm, trange
+from tqdm.auto import tqdm, trange
 
 from utils import early_stop, hit, ndcg, precision, recall
 
@@ -270,7 +270,7 @@ class BaseModel(nn.Module):
 
                 # get the estimated user-item scores with matmul embedding matrices
                 batch_user_emb = users_emb[torch.tensor(batch_users).long().to(self.device)]
-                rating = torch.sigmoid(torch.matmul(batch_user_emb, items_emb.t()))
+                rating = torch.matmul(batch_user_emb, items_emb.t())
 
                 # set scores for train items to be -inf so we don't recommend them
                 exclude_index, exclude_items = [], []

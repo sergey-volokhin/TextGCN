@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
@@ -37,8 +37,7 @@ class DatasetKG(BaseDataset):
                                         emb_file,
                                         bert_model,
                                         emb_batch_size,
-                                        self.device,
-                                        self.logger)
+                                        self.device)
 
 
 class TextModelKG(TextBaseModel):

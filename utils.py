@@ -7,7 +7,7 @@ import random
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from transformers import AutoModel, AutoTokenizer
 
 
@@ -113,9 +113,8 @@ def profile(func):
     return wrapper
 
 
-def embed_text(sentences, path, bert_model, batch_size, device, logger):
+def embed_text(sentences, path, bert_model, batch_size, device):
     ''' calculate SentenceBERT embeddings'''
-    logger.info('Getting embeddings')
 
     if os.path.exists(path):
         return torch.load(path, map_location=device)
@@ -132,6 +131,5 @@ def embed_text(sentences, path, bert_model, batch_size, device, logger):
 
     mapping = {i: emb for i, emb in zip(sentences_to_embed, embeddings)}
     result = torch.from_numpy(np.stack(sentences.map(mapping).values)).to(device=device)
-    logger.info('Saving calculated embeddings')
     torch.save(result, path)
     return result

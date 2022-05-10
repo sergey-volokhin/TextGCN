@@ -19,7 +19,7 @@ class TextBaseModel(BaseModel):
             'cosine_ratio': lambda x, y: torch.nan_to_num(1 / F.cosine_similarity(x, y),
                                                           posinf=0,
                                                           neginf=0),
-        }[self.distance]
+        }[self.dist_fn]
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -61,8 +61,8 @@ class TextBaseModel(BaseModel):
 
     def gnn_dist(self, pos, neg):
         ''' calculate similarity between gnn representations of the sampled items '''
-        cands = self.embedding_item(pos)
-        refs = self.embedding_item(neg)
+        cands = F.normalize(self.embedding_item(pos))
+        refs = F.normalize(self.embedding_item(neg))
         return self.dist_fn(cands, refs).to(self.device)
 
     def bert_dist(self, users, pos, neg):

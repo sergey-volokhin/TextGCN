@@ -1,6 +1,6 @@
 import pandas as pd
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from dataset import BaseDataset
 from text_base_model import TextBaseModel
@@ -29,8 +29,7 @@ class DatasetReviews(BaseDataset):
                                             emb_file,
                                             bert_model,
                                             emb_batch_size,
-                                            self.device,
-                                            self.logger).cpu().numpy().tolist()
+                                            self.device).cpu().numpy().tolist()
         self.reviews_vector = self.reviews.set_index(['asin', 'user_id'])['vector']
 
     def _get_items_as_avg_reviews(self):

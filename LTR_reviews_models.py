@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from kg_models import DatasetKG
-from reviews_models import DatasetReviews, TextModelReviews
+from reviews_models import DatasetReviews
 from base_model import BaseModel
 
 
@@ -23,7 +23,7 @@ class LTRDataset(DatasetKG, DatasetReviews):
             user_text_embs).values.tolist()).to(self.device)
 
 
-class LTR(TextModelReviews):
+class LTR(BaseModel):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
@@ -38,16 +38,17 @@ class LTR(TextModelReviews):
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
+        self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
 
     def score_reviews(self, users, items, users_emb, item_emb):
         user_part = torch.cat([users_emb, self.users_as_avg_reviews[users]], axis=1)
-        item_part = torch.cat([item_emb[items], self.items_as_avg_reviews[items]], axis=1)
+        item_part = torch.cat([item_emb, self.items_as_avg_reviews[items]], axis=1)
         return torch.sum(torch.mul(user_part, item_part), dim=1)
 
     def score_kg(self, users, items, users_emb, item_emb):
         user_part = torch.cat([users_emb, self.users_as_avg_reviews[users]], axis=1)
-        item_part = torch.cat([item_emb[items], self.items_as_desc[items]], axis=1)
+        item_part = torch.cat([item_emb, self.items_as_desc[items]], axis=1)
         return torch.sum(torch.mul(user_part, item_part), dim=1)
 
 
