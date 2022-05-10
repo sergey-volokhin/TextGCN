@@ -24,10 +24,10 @@ class TextBaseModel(BaseModel):
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users, pos, users_emb, item_emb)
+        pos_scores = self.score(users, pos, users_emb, item_emb[pos])
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users, neg, users_emb, item_emb)
+            neg_scores = self.score(users, neg, users_emb, item_emb[neg])
             bpr_loss = F.softplus(neg_scores - pos_scores)
             sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
             self._bpr_loss += torch.mean(bpr_loss) / len(negs)

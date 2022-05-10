@@ -184,16 +184,20 @@ class BaseModel(nn.Module):
         return vectors[-1]
 
     def score(self, users, items, users_emb, item_emb):
-        return torch.sum(torch.mul(users_emb, item_emb[items]), dim=1)
+        '''
+            calculating score per pair:
+            users_emb.shape === item_emb.shape
+        '''
+        return torch.sum(torch.mul(users_emb, item_emb), dim=1)
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users, pos, users_emb, item_emb)
+        pos_scores = self.score(users, pos, users_emb, item_emb[pos])
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users, neg, users_emb, item_emb)
+            neg_scores = self.score(users, neg, users_emb, item_emb[neg])
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
         res = loss / len(negs)
@@ -250,6 +254,9 @@ class BaseModel(nn.Module):
         '''
             returns a dataframe with predicted and true items for each test user:
             pd.DataFrame(columns=['y_pred', 'y_true'])
+
+            using formula:
+            ..math::`\sigma(\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}).
         '''
 
         users = list(self.test_user_dict)
