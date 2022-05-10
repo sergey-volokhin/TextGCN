@@ -260,7 +260,7 @@ class BaseModel(nn.Module):
         '''
 
         users = list(self.test_user_dict)
-        y_pred, y_true = [], []
+        y_probs, y_pred, y_true = [], [], []
         with torch.no_grad():  # don't calculate gradient since we only predict
             users_emb, items_emb = self.representation
 
@@ -281,11 +281,12 @@ class BaseModel(nn.Module):
                 rating[exclude_index, exclude_items] = np.NINF
 
                 # select top-k items with highest ratings
-                _, rank_indices = torch.topk(rating, k=max(self.k))
+                probs, rank_indices = torch.topk(rating, k=max(self.k))
                 y_pred += list(rank_indices.cpu().numpy().tolist())
+                y_probs += list(probs.cpu().numpy().tolist())
                 y_true += [self.test_user_dict[u] for u in batch_users]
 
-        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true})
+        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true, 'scores': y_probs})
         if save:
             predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
@@ -322,7 +323,7 @@ class BaseModel(nn.Module):
     def load_model(self, load_path):
         ''' load torch weights from file '''
         if load_path:
-            self.load_state_dict(torch.load(load_path))
+            self.load_state_dict(torch.load(load_path, map_location=self.device))
             self.logger.info(f'Loaded model {load_path}')
         else:
             self.logger.info(f'Created model {self.uid}')

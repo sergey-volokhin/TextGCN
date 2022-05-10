@@ -18,6 +18,7 @@ class DatasetKG(BaseDataset):
         for asin, group in tqdm(self.kg_df_text.groupby('asin'),
                                 desc='kg text repr',
                                 dynamic_ncols=True,
+                                leave=False,
                                 disable=self.slurm):
             vals = group[['relation', 'attribute']].values
             item_text_dict[asin] = f' {sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
