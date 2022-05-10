@@ -129,10 +129,10 @@ def parse_args(s=None):
                                      'roberta-large',
                                      ],
                             help='version of BERT to use')
-    text_hyper.add_argument('--sim_fn',
-                            default='cosine',
-                            choices=['cosine', 'euclid_minus', 'euclid_ratio'],
-                            help='similarity metric used in textual loss')
+    text_hyper.add_argument('--dist_fn',
+                            default='euclid',
+                            choices=['euclid', 'cosine_minus', 'cosine_ratio'],
+                            help='distance metric used in textual loss')
     text_hyper.add_argument('--separator', '--sep',
                             default='[SEP]',
                             type=str,

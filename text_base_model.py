@@ -8,18 +8,18 @@ class TextBaseModel(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-        self.sim_fn = args.sim_fn
+        self.dist_fn = args.dist_fn
         self.weight = args.weight
 
     def _add_vars(self):
         super()._add_vars()
-        self.sim_fn = {
-            'cosine': F.cosine_similarity,
-            'euclid_minus': lambda x, y: -F.pairwise_distance(x, y),
-            'euclid_ratio': lambda x, y: torch.nan_to_num(1 / F.pairwise_distance(x, y),
+        self.dist_fn = {
+            'euclid': F.pairwise_distance,
+            'cosine_minus': lambda x, y: -F.cosine_similarity(x, y),
+            'cosine_ratio': lambda x, y: torch.nan_to_num(1 / F.cosine_similarity(x, y),
                                                           posinf=0,
                                                           neginf=0),
-        }[self.sim_fn]
+        }[self.distance]
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -37,8 +37,8 @@ class TextBaseModel(BaseModel):
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
-        b = self.bert_sim(users, pos, neg)
-        g = self.gnn_sim(pos, neg)
+        b = self.bert_dist(users, pos, neg)
+        g = self.gnn_dist(pos, neg)
         distance = {'b': b,
                     'max(b)': F.relu(b),
                     'max(b-g)': F.relu(b - g),
@@ -59,17 +59,17 @@ class TextBaseModel(BaseModel):
         self._sem_loss += semantic_loss.mean()
         return semantic_loss
 
-    def gnn_sim(self, pos, neg):
+    def gnn_dist(self, pos, neg):
         ''' calculate similarity between gnn representations of the sampled items '''
         cands = self.embedding_item(pos)
         refs = self.embedding_item(neg)
-        return self.sim_fn(cands, refs).to(self.device)
+        return self.dist_fn(cands, refs).to(self.device)
 
-    def bert_sim(self, users, pos, neg):
+    def bert_dist(self, users, pos, neg):
         ''' calculate similarity between textual representations of the sampled items '''
         cands = self.pos_item_reprs(users, pos)
         refs = self.neg_item_reprs(users, neg)
-        return self.sim_fn(cands, refs).to(self.device)
+        return self.dist_fn(cands, refs).to(self.device)
 
     def pos_item_reprs(self, users, items):
         ''' how do we represent positive items from sampled triplets '''

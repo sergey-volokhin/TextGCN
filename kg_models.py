@@ -1,4 +1,7 @@
+import os
+
 import pandas as pd
+import torch
 from tqdm import tqdm
 
 from dataset import BaseDataset
@@ -13,6 +16,12 @@ class DatasetKG(BaseDataset):
         self._load_kg(args.sep, args.emb_batch_size, args.bert_model)
 
     def _load_kg(self, sep, emb_batch_size, bert_model):
+
+        emb_file = f'{self.path}/embeddings/item_kg_repr_{bert_model.split("/")[-1]}.torch'
+        if os.path.exists(emb_file):
+            self.items_as_desc = torch.load(emb_file, map_location=self.device)
+            return
+
         self.kg_df_text = pd.read_table(self.path + 'kg_readable.tsv', dtype=str)[['asin', 'relation', 'attribute']]
         item_text_dict = {}
         for asin, group in tqdm(self.kg_df_text.groupby('asin'),
@@ -24,7 +33,6 @@ class DatasetKG(BaseDataset):
             item_text_dict[asin] = f' {sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
         self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
 
-        emb_file = f'{self.path}/embeddings/item_kg_repr_{bert_model.split("/")[-1]}.torch'
         self.items_as_desc = embed_text(self.item_mapping['text'],
                                         emb_file,
                                         bert_model,
