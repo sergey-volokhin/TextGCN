@@ -20,7 +20,7 @@ def parse_args(s=None):
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
-                                 'ltr_kg', 'ltr_reviews', 'ltr_simple',
+                                 'ltr_kg', 'ltr_reviews', 'ltr_simple', 'ltr_linear',
                                  'pos_u_neg_kg', 'pos_u_neg_avg',
                                  'pos_avg_neg_kg', 'pos_avg_neg_avg',
                                  ],
@@ -146,8 +146,6 @@ def parse_args(s=None):
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
     assert args.model not in ['reviews',
                               'kg',
-                              'ltr_kg',
-                              'ltr_reviews',
                               'pos_u_neg_kg',
                               'pos_u_neg_avg',
                               'pos_avg_neg_kg',
@@ -157,14 +155,17 @@ def parse_args(s=None):
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
     if args.load:
-        args.save_path = os.path.dirname(args.load)
-        args.uid = os.path.basename(args.save_path)
+        if not args.uid:
+            args.save_path = os.path.dirname(args.load)
+            args.uid = os.path.basename(args.save_path)
+        else:
+            args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
             # args.uid = f'{args.sim_fn}_{args.model}_{args.weight}'
         args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
-        os.makedirs(args.save_path, exist_ok=True)
+    os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu

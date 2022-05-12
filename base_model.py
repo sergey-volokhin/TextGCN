@@ -281,8 +281,8 @@ class BaseModel(nn.Module):
 
                 # select top-k items with highest ratings
                 probs, rank_indices = torch.topk(rating, k=max(self.k))
-                y_pred += list(rank_indices.cpu().numpy().tolist())
-                y_probs += list(probs.round(decimals=4).tolist())  # TODO: rounding doesn't work for some reason
+                y_pred += rank_indices.tolist()
+                y_probs += probs.round(decimals=4).tolist()  # TODO: rounding doesn't work for some reason
 
         predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
                                               'y_pred': y_pred,
