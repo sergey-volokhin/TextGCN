@@ -1,3 +1,5 @@
+from itertools import repeat
+from collections import defaultdict, deque
 import random
 
 import dgl
@@ -37,9 +39,18 @@ class BaseDataset(Dataset):
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping.values))
 
     def _build_dicts(self):
-        self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list).to_dict()
-        self.test_user_dict = self.test_df.groupby('user_id')['asin'].aggregate(list).to_dict()
-        self.positive_lists = [self.train_user_dict[u] for u in range(self.n_users)]
+        self.cached_samplings = defaultdict(list)
+        self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
+        self.positive_lists = [{'list': self.train_user_dict[u],  # for faster sampling keep both list and set
+                                'set': set(self.train_user_dict[u])} for u in range(self.n_users)]
+
+        # split test into batches once at init instead of at every predict
+        test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
+        users = test_user_agg.index.to_list()
+        self.test_batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
+
+        # list of lists with test samples (per user)
+        self.true_test_lil = test_user_agg.values.tolist()
 
     def _precalculate_normalization(self):
         '''
@@ -57,7 +68,6 @@ class BaseDataset(Dataset):
         d_inv[np.isinf(d_inv)] = 0
         d_mat = sp.diags(d_inv)
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float)
-        self.neighbors = [torch.tensor(i) for i in norm_adj.tolil().rows]
         self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
 
     def _adjacency_matrix(self):
@@ -86,8 +96,8 @@ class BaseDataset(Dataset):
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
         self.n_batches = (self.n_train - 1) // self.batch_size + 1
-        self.bucket_len = self.n_train // self.n_users
-        self.iterable_len = self.bucket_len * self.n_users
+        self.bucket_len = self.n_train // self.n_users      # number of samples per user
+        self.iterable_len = self.bucket_len * self.n_users  # length of torch Dataset we convert into
 
         self.logger.info(f"n_train:    {self.n_train:-7}")
         self.logger.info(f"n_test:     {self.test_df.shape[0]:-7}")
@@ -95,30 +105,25 @@ class BaseDataset(Dataset):
         self.logger.info(f"n_items:    {self.n_items:-7}")
         self.logger.info(f"n_batches:  {self.n_batches:-7}")
 
-    def get_user_pos_items(self, users):
-        ''' returns positive items per batch of users '''
-        return [self.train_user_dict[user] for user in users]
-
     ''' this is done for compatibility w torch Dataset class '''
-
     def __len__(self):
         return self.iterable_len
 
     def __getitem__(self, idx):
-        '''
-            each user has a continuous 'bucket'
-            user_id depends on the bucket number
-        '''
+        ''' each user has a continuous 'bucket', user_id depends on the bucket number '''
         idx //= self.bucket_len
-        pos = random.choice(self.positive_lists[idx])
-        pos_set = set(self.positive_lists[idx])
 
-        if len(pos_set) + self.neg_samples > self.n_items:
-            self.logger.warn(f"user {idx} doesn't have enough items for negative sampling")
+        '''
+            precaching pos and neg samples for users to save time during iteration
+            sample exactly as many examples at the beginning of each epoch as we'll need per item
+        '''
+        if not self.cached_samplings[idx]:
+            positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
+            while True:
+                negatives = random.choices(range(self.n_items), k=self.bucket_len * self.neg_samples)
+                if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
+                    break
+            negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]
+            self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
 
-        neg_set = set()
-        while len(neg_set) < self.neg_samples:
-            neg = random.choice(range(self.n_items))
-            if neg not in pos_set:
-                neg_set.add(neg)
-        return torch.tensor([idx, pos] + list(neg_set)).to(self.device)
+        return self.cached_samplings[idx].pop()

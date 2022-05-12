@@ -30,7 +30,7 @@ class TextBaseModel(BaseModel):
             neg_scores = self.score(users, neg, users_emb, item_emb[neg])
             bpr_loss = F.softplus(neg_scores - pos_scores)
             sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
-            self._bpr_loss += torch.mean(bpr_loss) / len(negs)
+            self._loss_values['bpr'] += torch.mean(bpr_loss) / len(negs)
             loss += torch.mean(bpr_loss + sem_loss)
         return loss / len(negs)
 
@@ -47,16 +47,19 @@ class TextBaseModel(BaseModel):
                     '(g-b)': g - b,
                     '|b-g|': torch.abs(b - g),
                     '|g-b|': torch.abs(g - b),
+                    'selu(g-b)': F.selu(g - b),
+                    'selu(b-g)': F.selu(b - g),
                     }[self.weight.split('_')[1]]
 
         weight = {'max(p-n)': F.relu(pos_scores - neg_scores),
                   '|p-n|': torch.abs(pos_scores - neg_scores),
+                  '(p-n)': pos_scores - neg_scores,
                   '1': 1,
                   '0': 0,  # in case we want to not have semantic loss
                   }[self.weight.split('_')[0]]
 
         semantic_loss = weight * distance
-        self._sem_loss += semantic_loss.mean()
+        self._loss_values['sem'] += semantic_loss.mean()
         return semantic_loss
 
     def gnn_dist(self, pos, neg):

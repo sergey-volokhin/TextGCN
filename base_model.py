@@ -1,3 +1,4 @@
+from collections import defaultdict
 import os
 import shutil
 
@@ -58,8 +59,9 @@ class BaseModel(nn.Module):
         self.n_items = dataset.n_items
         self.n_batches = dataset.n_batches
         self.norm_matrix = dataset.norm_matrix
-        self.test_user_dict = dataset.test_user_dict
-        self.get_user_pos_items = dataset.get_user_pos_items
+        self.train_user_dict = dataset.train_user_dict
+        self.true_test_lil = dataset.true_test_lil
+        self.test_batches = dataset.test_batches
 
     def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
@@ -75,7 +77,7 @@ class BaseModel(nn.Module):
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.w = SummaryWriter(self.save_path)
-        self.training = True
+        self.training = False
 
     @property
     def _dropout_norm_matrix(self):
@@ -125,9 +127,8 @@ class BaseModel(nn.Module):
 
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
             self.train()
-            self._sem_loss = 0
-            self._reg_loss = 0
-            self._bpr_loss = 0
+            self.training = True
+            self._loss_values = defaultdict(float)
             total_loss = 0
             for data in tqdm(batches,
                              desc='batches',
@@ -135,7 +136,7 @@ class BaseModel(nn.Module):
                              dynamic_ncols=True,
                              disable=self.slurm):
                 self.optimizer.zero_grad()
-                loss = self.get_loss(*data.t())
+                loss = self.get_loss(*data.to(self.device).t())
                 total_loss += loss
                 loss.backward()
                 self.optimizer.step()
@@ -145,10 +146,9 @@ class BaseModel(nn.Module):
             if epoch % self.evaluate_every:
                 continue
 
-            self.logger.info(f'Epoch {epoch}: bpr = {self._bpr_loss:.4f} '
-                             f'sem = {self._sem_loss:.4f}, reg = {self._reg_loss:.4f}')
+            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
+
             self.evaluate(epoch)
-            self.training = True
             self.checkpoint(epoch)
 
             if early_stop(self.metrics_logger):
@@ -201,16 +201,16 @@ class BaseModel(nn.Module):
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
         res = loss / len(negs)
-        self._bpr_loss += res
+        self._loss_values['bpr'] += res
         return res
 
     def reg_loss(self, users, pos, negs):
-        ''' regularization loss '''
+        ''' regularization L2 loss '''
         loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
         for neg in negs:
             loss += self.embedding_item(neg).norm(2).pow(2) / len(negs)
         res = self.reg_lambda * loss / len(users) / 2
-        self._reg_loss += res
+        self._loss_values['reg'] += res
         return res
 
     def get_loss(self, users, pos, *negs):
@@ -230,7 +230,7 @@ class BaseModel(nn.Module):
                 lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
 
         ''' get metrics per user & aggregates '''
-        n_users = len(self.test_user_dict)
+        n_users = len(self.true_test_lil)
         for row in predictions.itertuples(index=False):
             r = self.test_one_user(row)
             for metric in r:
@@ -259,34 +259,34 @@ class BaseModel(nn.Module):
             ..math::`\sigma(\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}).
         '''
 
-        users = list(self.test_user_dict)
-        y_probs, y_pred, y_true = [], [], []
-        with torch.no_grad():  # don't calculate gradient since we only predict
+        y_probs, y_pred = [], []
+
+        with torch.no_grad():
             users_emb, items_emb = self.representation
+            for batch_users in tqdm(self.test_batches,
+                                    desc='batches',
+                                    leave=False,
+                                    dynamic_ncols=True,
+                                    disable=self.slurm):
 
-            batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
-            batches = tqdm(batches, desc='batches', leave=False, dynamic_ncols=True, disable=self.slurm)
-            for batch_users in batches:
+                rating = torch.matmul(users_emb[batch_users], items_emb.t())
 
-                # get the estimated user-item scores with matmul embedding matrices
-                batch_user_emb = users_emb[torch.tensor(batch_users).long().to(self.device)]
-                rating = torch.matmul(batch_user_emb, items_emb.t())
-
-                # set scores for train items to be -inf so we don't recommend them
-                exclude_index, exclude_items = [], []
-                for ind, items in enumerate(self.get_user_pos_items(batch_users)):
-                    exclude_index += [ind] * len(items)
-                    exclude_items.append(items)
-                exclude_items = np.concatenate(exclude_items)
-                rating[exclude_index, exclude_items] = np.NINF
+                '''
+                    set scores for train items to be -inf so we don't recommend them.
+                    we subtract exploded.index.min because rating matrix only has
+                    batch_size users, so it starts with 0, while index has users' real indices
+                '''
+                exploded = self.train_user_dict[batch_users].explode()
+                rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF
 
                 # select top-k items with highest ratings
                 probs, rank_indices = torch.topk(rating, k=max(self.k))
                 y_pred += list(rank_indices.cpu().numpy().tolist())
-                y_probs += list(probs.cpu().numpy().tolist())
-                y_true += [self.test_user_dict[u] for u in batch_users]
+                y_probs += list(probs.round(decimals=4).tolist())  # TODO: rounding doesn't work for some reason
 
-        predictions = pd.DataFrame.from_dict({'y_pred': y_pred, 'y_true': y_true, 'scores': y_probs})
+        predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
+                                              'y_pred': y_pred,
+                                              'scores': y_probs})
         if save:
             predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
@@ -304,7 +304,6 @@ class BaseModel(nn.Module):
             result['ndcg'].append(ndcg(k_row, k))
             numerator = result['recall'][-1] * result['precision'][-1] * 2
             denominator = result['recall'][-1] + result['precision'][-1]
-            # result['f1'].append(np.nan_to_num(numerator / denominator, posinf=0, neginf=0))
             result['f1'].append(np.divide(numerator,
                                           denominator,
                                           out=np.zeros_like(numerator),

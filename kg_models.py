@@ -54,4 +54,4 @@ class TextModelKG(TextBaseModel):
         self.items_as_desc = dataset.items_as_desc
 
     def get_item_desc(self, users, items):
-        return self.items_as_desc[items.cpu()]
+        return self.items_as_desc[items]
