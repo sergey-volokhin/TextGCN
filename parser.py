@@ -33,7 +33,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=500,
+                        default=750,
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
@@ -72,6 +72,9 @@ def parse_args(s=None):
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')
+    parser.add_argument('--evaluate',
+                        action='store_true',
+                        help='whether to evaluate the model (when loading)')
     parser.add_argument('--gpu',
                         default='0',
                         type=str,

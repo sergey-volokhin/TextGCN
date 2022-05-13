@@ -42,3 +42,6 @@ if __name__ == '__main__':
 
     if args.predict:
         model.predict(save=True)
+
+    if args.evaluate:
+        model.evaluate(-1)
