@@ -16,9 +16,9 @@ class TextBaseModel(BaseModel):
         self.dist_fn = {
             'euclid': F.pairwise_distance,
             'cosine_minus': lambda x, y: -F.cosine_similarity(x, y),
-            'cosine_ratio': lambda x, y: torch.nan_to_num(1 / F.cosine_similarity(x, y),
-                                                          posinf=0,
-                                                          neginf=0),
+            'cosine_inv': lambda x, y: torch.nan_to_num(1 / F.cosine_similarity(x, y),
+                                                        posinf=0,
+                                                        neginf=0),
         }[self.dist_fn]
 
     def bpr_loss(self, users, pos, negs):

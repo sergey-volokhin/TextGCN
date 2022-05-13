@@ -134,7 +134,7 @@ def parse_args(s=None):
                             help='version of BERT to use')
     text_hyper.add_argument('--dist_fn',
                             default='euclid',
-                            choices=['euclid', 'cosine_minus', 'cosine_ratio'],
+                            choices=['euclid', 'cosine_minus', 'cosine_inv'],
                             help='distance metric used in textual loss')
     text_hyper.add_argument('--separator', '--sep',
                             default='[SEP]',
