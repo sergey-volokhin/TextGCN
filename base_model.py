@@ -137,6 +137,9 @@ class BaseModel(nn.Module):
                              disable=self.slurm):
                 self.optimizer.zero_grad()
                 loss = self.get_loss(*data.to(self.device).t())
+                if loss.isnan():
+                    self.logger.error(f'loss is NA at epoch {epoch}')
+                    exit()
                 total_loss += loss
                 loss.backward()
                 self.optimizer.step()
