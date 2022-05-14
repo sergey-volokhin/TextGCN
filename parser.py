@@ -85,7 +85,7 @@ def parse_args(s=None):
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
     parser.add_argument('--seed',
-                        default=1234,
+                        default=0,
                         type=int,
                         help='the random seed')
 
@@ -160,7 +160,7 @@ def parse_args(s=None):
             args.save_path = os.path.dirname(args.load)
             args.uid = os.path.basename(args.save_path)
         else:
-            args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+            args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
