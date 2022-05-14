@@ -28,11 +28,12 @@ class TextBaseModel(BaseModel):
         loss = 0
         for neg in negs:
             neg_scores = self.score(users, neg, users_emb, item_emb[neg])
-            bpr_loss = F.softplus(neg_scores - pos_scores)
-            sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores)
-            self._loss_values['bpr'] += torch.mean(bpr_loss) / len(negs)
-            loss += torch.mean(bpr_loss + sem_loss)
-        return loss / len(negs)
+            bpr_loss = torch.mean(F.selu(neg_scores - pos_scores)) / len(negs)
+            sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores) / len(negs)
+            self._loss_values['bpr'] += bpr_loss
+            self._loss_values['sem'] += sem_loss
+            loss += bpr_loss + sem_loss
+        return loss
 
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
@@ -58,9 +59,7 @@ class TextBaseModel(BaseModel):
                   '0': 0,  # in case we want to not have semantic loss
                   }[self.weight.split('_')[0]]
 
-        semantic_loss = weight * distance
-        self._loss_values['sem'] += semantic_loss.mean()
-        return semantic_loss
+        return (weight * distance).mean()
 
     def gnn_dist(self, pos, neg):
         ''' calculate similarity between gnn representations of the sampled items '''

@@ -191,8 +191,7 @@ class BaseModel(nn.Module):
         loss = 0
         for neg in negs:
             neg_scores = self.score(users, neg, users_emb, item_emb[neg])
-            loss += torch.mean(F.softplus(neg_scores - pos_scores))
-            # loss += torch.mean(F.selu(neg_scores - pos_scores))
+            loss += torch.mean(F.selu(neg_scores - pos_scores))
         loss /= len(negs)
         self._loss_values['bpr'] += loss
         return loss

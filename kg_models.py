@@ -46,8 +46,11 @@ class TextModelKG(TextBaseModel):
         super().__init__(args, dataset)
 
         ''' all items are represented with their descriptions '''
-        self.pos_item_reprs = self.get_item_desc
-        self.neg_item_reprs = self.get_item_desc
+
+        if args.pos == 'kg' or args.model == 'kg':
+            self.pos_item_reprs = self.get_item_desc
+        if args.neg == 'kg' or args.model == 'kg':
+            self.neg_item_reprs = self.get_item_desc
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)

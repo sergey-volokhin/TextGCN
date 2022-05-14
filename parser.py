@@ -13,16 +13,13 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         required=True,
                         choices=['lgcn',
-                                 'kg',
-                                 'reviews',
                                  'lightgcn',
                                  'gat',
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
                                  'ltr_kg', 'ltr_reviews', 'ltr_simple', 'ltr_linear',
-                                 'pos_u_neg_kg', 'pos_u_neg_avg',
-                                 'pos_avg_neg_kg', 'pos_avg_neg_avg',
+                                 'text', 'reviews', 'kg',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
@@ -33,7 +30,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=750,
+                        default=1000,
                         type=int,
                         help='number of epochs')
     parser.add_argument('--emb_size',
@@ -63,8 +60,8 @@ def parse_args(s=None):
                         nargs='*',
                         help='list of k-s for metrics @k')
     parser.add_argument('--save',
-                        action='store_true',
-                        help='whether to save the model')
+                        action='store_false',
+                        help='whether to save the model (yes by default)')
     parser.add_argument('--load',
                         default=False,
                         type=str,
@@ -143,17 +140,18 @@ def parse_args(s=None):
                             help='separator for table comprehension (KG model)')
     text_hyper.add_argument('--weight',
                             help='formula for semantic loss')
-
+    text_hyper.add_argument('--pos',
+                            default='avg',
+                            choices=['user', 'avg', 'kg'],
+                            help='how to represent the positive items from the sampled triplets')
+    text_hyper.add_argument('--neg',
+                            default='avg',
+                            choices=['avg', 'kg'],
+                            help='how to represent the negative items from the sampled triplets')
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
-    assert args.model not in ['reviews',
-                              'kg',
-                              'pos_u_neg_kg',
-                              'pos_u_neg_avg',
-                              'pos_avg_neg_kg',
-                              'pos_avg_neg_avg',
-                              ] or args.weight is not None, 'set the weights for a textual model'
+    assert args.model not in ['text', 'reviews', 'kg'] or args.weight is not None, 'set the weights for a textual model'
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
