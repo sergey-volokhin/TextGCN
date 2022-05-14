@@ -29,8 +29,8 @@ class BaseModel(nn.Module):
         self._init_embeddings(args.emb_size)
         self.to(args.device)
 
-        self.load_model(args.load)
         self._save_code()
+        self.load_model(args.load)
         self.logger.info(args)
         self.logger.info(self)
 
@@ -93,13 +93,6 @@ class BaseModel(nn.Module):
         matrix = torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
         return matrix.coalesce().to(self.device)
 
-    def _get_optimizer(self):
-        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
-        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(self.optimizer,
-                                                            verbose=(not self.quiet),
-                                                            patience=5,
-                                                            min_lr=1e-8)
-
     @property
     def embedding_matrix(self):
         ''' get the embedding matrix of 0th layer '''
@@ -123,8 +116,7 @@ class BaseModel(nn.Module):
     def fit(self, batches):
         ''' training function '''
 
-        self._get_optimizer()
-
+        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
             self.train()
             self.training = True
@@ -143,14 +135,12 @@ class BaseModel(nn.Module):
                 total_loss += loss
                 loss.backward()
                 self.optimizer.step()
-            self.w.add_scalar('Training_loss', total_loss, epoch)
-            self.scheduler.step(total_loss)
+            # self.w.add_scalar('Training_loss', total_loss, epoch)
 
             if epoch % self.evaluate_every:
                 continue
 
             self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
-
             self.evaluate(epoch)
             self.checkpoint(epoch)
 
@@ -188,7 +178,7 @@ class BaseModel(nn.Module):
 
     def score(self, users, items, users_emb, item_emb):
         '''
-            calculating score per pair:
+            calculating score for list of pairs (u, i):
             users_emb.shape === item_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, item_emb), dim=1)
@@ -203,9 +193,9 @@ class BaseModel(nn.Module):
             neg_scores = self.score(users, neg, users_emb, item_emb[neg])
             loss += torch.mean(F.softplus(neg_scores - pos_scores))
             # loss += torch.mean(F.selu(neg_scores - pos_scores))
-        res = loss / len(negs)
-        self._loss_values['bpr'] += res
-        return res
+        loss /= len(negs)
+        self._loss_values['bpr'] += loss
+        return loss
 
     def reg_loss(self, users, pos, negs):
         ''' regularization L2 loss '''
@@ -220,7 +210,7 @@ class BaseModel(nn.Module):
         ''' get total loss per batch of users '''
         return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
-    def evaluate(self, epoch):
+    def evaluate(self, epoch=-1):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
@@ -240,9 +230,11 @@ class BaseModel(nn.Module):
                 results[metric] += r[metric]
         for metric in results:
             results[metric] /= n_users
-            self.w.add_scalars(f'Test/{metric}',
-                               {str(self.k[i]): results[metric][i] for i in range(len(self.k))},
-                               epoch)
+            if epoch == -1:
+                continue
+            # self.w.add_scalars(f'Test/{metric}',
+            #                    {str(self.k[i]): results[metric][i] for i in range(len(self.k))},
+            #                    epoch)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -261,9 +253,8 @@ class BaseModel(nn.Module):
             using formula:
             ..math::`\sigma(\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}).
         '''
-
+        self.training = False
         y_probs, y_pred = [], []
-
         with torch.no_grad():
             users_emb, items_emb = self.representation
             for batch_users in tqdm(self.test_batches,
@@ -325,8 +316,8 @@ class BaseModel(nn.Module):
     def load_model(self, load_path):
         ''' load torch weights from file '''
         if load_path:
+            self.logger.info(f'Loading model {load_path}')
             self.load_state_dict(torch.load(load_path, map_location=self.device))
-            self.logger.info(f'Loaded model {load_path}')
         else:
             self.logger.info(f'Created model {self.uid}')
         self.progression_path = f'{self.save_path}/progression.txt'
