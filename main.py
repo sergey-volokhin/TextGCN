@@ -2,12 +2,12 @@ from torch.utils.data import DataLoader
 
 from base_model import BaseModel
 from dataset import BaseDataset
+from kg_models import DatasetKG, TextModelKG
+from LTR_reviews_models import LTR, LTRDataset, LTRLinear, LTRSimple
 from non_text_models import TorchGeometric
 from parser import parse_args
-from kg_models import DatasetKG, TextModelKG
 from reviews_models import DatasetReviews, TextModelReviews
 from text_joint_model import TextData, TextModel
-from LTR_reviews_models import LTRDataset, LTR, LTRLinear, LTRSimple
 from utils import seed_everything
 
 
@@ -32,6 +32,7 @@ if __name__ == '__main__':
 
     Dataset, Model = get_class(args.model)
     args.logger.info(f'Class: {Model}')
+    args.logger.info(args)
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)

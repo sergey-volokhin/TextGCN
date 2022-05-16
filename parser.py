@@ -88,6 +88,9 @@ def parse_args(s=None):
                         default=0,
                         type=int,
                         help='the random seed')
+    parser.add_argument('--reshuffle',
+                        action='store_true',
+                        help='whether to reshuffle the train-test split or use the existing one')
 
     parser.add_argument('--slurm',
                         action='store_true',
@@ -131,7 +134,7 @@ def parse_args(s=None):
                             help='version of BERT to use')
     text_hyper.add_argument('--dist_fn',
                             default='euclid',
-                            choices=['euclid', 'cosine_minus', 'cosine_inv'],
+                            choices=['euclid', 'cosine_minus'],
                             help='distance metric used in textual loss')
     text_hyper.add_argument('--separator', '--sep',
                             default='[SEP]',
@@ -160,7 +163,7 @@ def parse_args(s=None):
             args.save_path = os.path.dirname(args.load)
             args.uid = os.path.basename(args.save_path)
         else:
-            args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+            args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     else:
         if not args.uid:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")

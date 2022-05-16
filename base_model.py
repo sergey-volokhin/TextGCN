@@ -31,7 +31,6 @@ class BaseModel(nn.Module):
 
         self._save_code()
         self.load_model(args.load)
-        self.logger.info(args)
         self.logger.info(self)
 
     def _copy_args(self, args):
