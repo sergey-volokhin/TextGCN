@@ -29,7 +29,7 @@ class DatasetReviews(BaseDataset):
                                             bert_model,
                                             emb_batch_size,
                                             self.device).cpu().numpy().tolist()
-        self.reviews_vector = self.reviews.set_index(['asin', 'user_id'])['vector']
+        self.reviews_df = self.reviews.set_index(['asin', 'user_id'])['vector']
 
     def _get_items_as_avg_reviews(self):
         ''' use average of reviews to represent items '''
@@ -71,16 +71,16 @@ class TextModelReviews(TextBaseModel):
 
         ''' how do we represent items in sampled triplets '''
         if args.pos == 'avg' or args.model == 'reviews':
-            self.pos_item_reprs = self.get_item_reviews_mean
+            self.pos_items_reprs = self.get_item_reviews_mean
         elif args.pos == 'user':
-            self.pos_item_reprs = self.get_item_reviews_user
+            self.pos_items_reprs = self.get_item_reviews_user
 
         if args.neg == 'avg' or args.model == 'reviews':
-            self.neg_item_reprs = self.get_item_reviews_mean
+            self.neg_items_reprs = self.get_item_reviews_mean
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
-        self.reviews_vector = dataset.reviews_vector
+        self.reviews_df = dataset.reviews_df
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
     def get_item_reviews_mean(self, users, items):
@@ -89,5 +89,5 @@ class TextModelReviews(TextBaseModel):
 
     def get_item_reviews_user(self, users, items):
         ''' represent items with the review of corresponding user '''
-        df = self.reviews_vector.loc[torch.stack([items, users], axis=1).tolist()]
+        df = self.reviews_df.loc[torch.stack([items, users], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)

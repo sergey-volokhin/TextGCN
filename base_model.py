@@ -25,7 +25,7 @@ class BaseModel(nn.Module):
 
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._add_vars()
+        self._add_vars(args)
         self._init_embeddings(args.emb_size)
         self.to(args.device)
 
@@ -71,7 +71,7 @@ class BaseModel(nn.Module):
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
-    def _add_vars(self):
+    def _add_vars(self, args):
         ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
@@ -175,21 +175,21 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score(self, users, items, users_emb, item_emb):
+    def score(self, users, items, users_emb, items_emb):
         '''
             calculating score for list of pairs (u, i):
-            users_emb.shape === item_emb.shape
+            users_emb.shape === items_emb.shape
         '''
-        return torch.sum(torch.mul(users_emb, item_emb), dim=1)
+        return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
-        users_emb, item_emb = self.representation
+        users_emb, items_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users, pos, users_emb, item_emb[pos])
+        pos_scores = self.score(users, pos, users_emb, items_emb[pos])
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users, neg, users_emb, item_emb[neg])
+            neg_scores = self.score(users, neg, users_emb, items_emb[neg])
             loss += torch.mean(F.selu(neg_scores - pos_scores))
         loss /= len(negs)
         self._loss_values['bpr'] += loss
@@ -230,9 +230,6 @@ class BaseModel(nn.Module):
             results[metric] /= n_users
             if epoch == -1:
                 continue
-            # self.w.add_scalars(f'Test/{metric}',
-            #                    {str(self.k[i]): results[metric][i] for i in range(len(self.k))},
-            #                    epoch)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -240,8 +237,10 @@ class BaseModel(nn.Module):
             self.metrics_logger[i] = np.append(self.metrics_logger[i], [results[i]], axis=0)
             self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in results[i]]))
         self.save_progression()
-
         return results
+
+    def get_rating(self, users_emb, batch_users, items_emb):
+        return torch.matmul(users_emb, items_emb.t())
 
     def predict(self, save=False):
         '''
@@ -261,7 +260,7 @@ class BaseModel(nn.Module):
                                     dynamic_ncols=True,
                                     disable=self.slurm):
 
-                rating = torch.matmul(users_emb[batch_users], items_emb.t())
+                rating = self.get_rating(users_emb[batch_users], batch_users, items_emb)
 
                 '''
                     set scores for train items to be -inf so we don't recommend them.

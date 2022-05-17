@@ -8,15 +8,14 @@ class TextBaseModel(BaseModel):
 
     def _copy_args(self, args):
         super()._copy_args(args)
-        self.dist_fn = args.dist_fn
         self.weight = args.weight
 
-    def _add_vars(self):
-        super()._add_vars()
+    def _add_vars(self, args):
+        super()._add_vars(args)
         self.dist_fn = {
             'euclid': F.pairwise_distance,
             'cosine_minus': lambda x, y: -F.cosine_similarity(x, y),
-        }[self.dist_fn]
+        }[args.dist_fn]
 
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
@@ -66,14 +65,14 @@ class TextBaseModel(BaseModel):
 
     def bert_dist(self, users, pos, neg):
         ''' calculate similarity between textual representations of the sampled items '''
-        cands = self.pos_item_reprs(users, pos)
-        refs = self.neg_item_reprs(users, neg)
+        cands = self.pos_items_reprs(users, pos)
+        refs = self.neg_items_reprs(users, neg)
         return self.dist_fn(cands, refs).to(self.device)
 
-    def pos_item_reprs(self, users, items):
+    def pos_items_reprs(self, users, items):
         ''' how do we represent positive items from sampled triplets '''
         raise NotImplementedError
 
-    def neg_item_reprs(self, users, items):
+    def neg_items_reprs(self, users, items):
         ''' how do we represent negative items from sampled triplets '''
         raise NotImplementedError
