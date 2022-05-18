@@ -14,6 +14,7 @@ class DatasetReviews(BaseDataset):
         self._load_reviews()
         self._calc_review_embs(args.emb_batch_size, args.bert_model)
         self._get_items_as_avg_reviews()
+        self._calc_popularity()
 
     def _load_reviews(self):
         self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)
@@ -63,6 +64,12 @@ class DatasetReviews(BaseDataset):
         items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
         self.items_as_avg_reviews = torch.stack(items_as_avg_reviews).to(self.device)
 
+    def _calc_popularity(self):
+        lengths = self.reviews.groupby('user_id')[['asin']].agg(len).sort_values('asin', ascending=False)
+        self.popularity_users = torch.tensor(lengths.reset_index()['user_id'].values).to(self.device)
+        lengths = self.reviews.groupby('asin')[['user_id']].agg(len).sort_values('user_id', ascending=False)
+        self.popularity_items = torch.tensor(lengths.reset_index()['asin'].values).to(self.device)
+
 
 class TextModelReviews(TextBaseModel):
 
@@ -71,23 +78,23 @@ class TextModelReviews(TextBaseModel):
 
         ''' how do we represent items in sampled triplets '''
         if args.pos == 'avg' or args.model == 'reviews':
-            self.pos_items_reprs = self.get_item_reviews_mean
+            self.get_pos_items_reprs = self.get_item_reviews_mean
         elif args.pos == 'user':
-            self.pos_items_reprs = self.get_item_reviews_user
+            self.get_pos_items_reprs = self.get_item_reviews_user
 
         if args.neg == 'avg' or args.model == 'reviews':
-            self.neg_items_reprs = self.get_item_reviews_mean
+            self.get_neg_items_reprs = self.get_item_reviews_mean
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.reviews_df = dataset.reviews_df
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
-    def get_item_reviews_mean(self, users, items):
+    def get_item_reviews_mean(self, items, users=None):
         ''' represent items with mean of their reviews '''
         return self.items_as_avg_reviews[items]
 
-    def get_item_reviews_user(self, users, items):
+    def get_item_reviews_user(self, items, users=None):
         ''' represent items with the review of corresponding user '''
         df = self.reviews_df.loc[torch.stack([items, users], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)

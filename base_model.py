@@ -75,7 +75,6 @@ class BaseModel(nn.Module):
         ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
-        self.w = SummaryWriter(self.save_path)
         self.training = False
 
     @property
@@ -134,7 +133,6 @@ class BaseModel(nn.Module):
                 total_loss += loss
                 loss.backward()
                 self.optimizer.step()
-            # self.w.add_scalar('Training_loss', total_loss, epoch)
 
             if epoch % self.evaluate_every:
                 continue
@@ -175,7 +173,7 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score(self, users, items, users_emb, items_emb):
+    def score(self, users_emb, items_emb, users, items, pos_or_neg):
         '''
             calculating score for list of pairs (u, i):
             users_emb.shape === items_emb.shape
@@ -186,10 +184,10 @@ class BaseModel(nn.Module):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users, pos, users_emb, items_emb[pos])
+        pos_scores = self.score(users_emb, items_emb[pos], users, pos, 'pos')
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users, neg, users_emb, items_emb[neg])
+            neg_scores = self.score(users_emb, items_emb[neg], users, neg, 'neg')
             loss += torch.mean(F.selu(neg_scores - pos_scores))
         loss /= len(negs)
         self._loss_values['bpr'] += loss
@@ -239,7 +237,8 @@ class BaseModel(nn.Module):
         self.save_progression()
         return results
 
-    def get_rating(self, users_emb, batch_users, items_emb):
+    def rank_items_for_batch(self, users_emb, items_emb, batch_users):
+        ''' calculate scores for all items for users in the batch '''
         return torch.matmul(users_emb, items_emb.t())
 
     def predict(self, save=False):
@@ -260,12 +259,12 @@ class BaseModel(nn.Module):
                                     dynamic_ncols=True,
                                     disable=self.slurm):
 
-                rating = self.get_rating(users_emb[batch_users], batch_users, items_emb)
+                rating = self.rank_items_for_batch(users_emb[batch_users], items_emb, batch_users)
 
                 '''
                     set scores for train items to be -inf so we don't recommend them.
-                    we subtract exploded.index.min because rating matrix only has
-                    batch_size users, so it starts with 0, while index has users' real indices
+                    subtract exploded.index.min since rating matrix only has
+                    batch_size users, so starts with 0, while index has users' real indices
                 '''
                 exploded = self.train_user_dict[batch_users].explode()
                 rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF

@@ -20,10 +20,10 @@ class TextBaseModel(BaseModel):
     def bpr_loss(self, users, pos, negs):
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users, pos, users_emb, item_emb[pos])
+        pos_scores = self.score(users_emb, item_emb[pos], users, pos, 'pos')
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users, neg, users_emb, item_emb[neg])
+            neg_scores = self.score(users_emb, item_emb[neg], users, neg, 'neg')
             bpr_loss = torch.mean(F.selu(neg_scores - pos_scores)) / len(negs)
             sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores) / len(negs)
             self._loss_values['bpr'] += bpr_loss
@@ -34,7 +34,7 @@ class TextBaseModel(BaseModel):
     def semantic_loss(self, users, pos, neg, pos_scores, neg_scores):
         ''' get semantic regularization using textual embeddings '''
 
-        b = self.bert_dist(users, pos, neg)
+        b = self.bert_dist(pos, neg, users)
         g = self.gnn_dist(pos, neg)
         distance = {'b': b,
                     'max(b)': F.relu(b),
@@ -63,16 +63,16 @@ class TextBaseModel(BaseModel):
         refs = F.normalize(self.embedding_item(neg))
         return self.dist_fn(cands, refs).to(self.device)
 
-    def bert_dist(self, users, pos, neg):
+    def bert_dist(self, pos, neg, users):
         ''' calculate similarity between textual representations of the sampled items '''
-        cands = self.pos_items_reprs(users, pos)
-        refs = self.neg_items_reprs(users, neg)
+        cands = self.get_pos_items_reprs(pos, users)
+        refs = self.get_neg_items_reprs(neg, users)
         return self.dist_fn(cands, refs).to(self.device)
 
-    def pos_items_reprs(self, users, items):
+    def get_pos_items_reprs(self, items, users=None):
         ''' how do we represent positive items from sampled triplets '''
         raise NotImplementedError
 
-    def neg_items_reprs(self, users, items):
+    def get_neg_items_reprs(self, items):
         ''' how do we represent negative items from sampled triplets '''
         raise NotImplementedError

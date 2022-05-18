@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from base_model import BaseModel
 from dataset import BaseDataset
 from kg_models import DatasetKG, TextModelKG
-from LTR_reviews_models import LTR, LTRDataset, LTRLinear, LTRSimple
+from ltr_models import LTRCosine, LTRDataset, LTRLinear, LTRLinearFeatures, LTRSimple
 from non_text_models import TorchGeometric
 from parser import parse_args
 from reviews_models import DatasetReviews, TextModelReviews
@@ -17,10 +17,11 @@ def get_class(name):
         'reviews': [DatasetReviews, TextModelReviews],
         'kg': [DatasetKG, TextModelKG],
         'text': [TextData, TextModel],
-        'ltr_kg': [LTRDataset, LTR],
-        'ltr_reviews': [LTRDataset, LTR],
+        'ltr_kg': [LTRDataset, LTRCosine],
+        'ltr_reviews': [LTRDataset, LTRCosine],
         'ltr_simple': [LTRDataset, LTRSimple],
         'ltr_linear': [LTRDataset, LTRLinear],
+        'ltr_linear_features': [LTRDataset, LTRLinearFeatures],
     }.get(name, [BaseDataset, TorchGeometric])
 
 
