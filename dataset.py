@@ -69,7 +69,8 @@ class BaseDataset(Dataset):
         self.cached_samplings = defaultdict(list)
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
         self.positive_lists = [{'list': self.train_user_dict[u],  # for faster sampling keep both list and set
-                                'set': set(self.train_user_dict[u])} for u in range(self.n_users)]
+                                'set': set(self.train_user_dict[u]),
+                                'tensor': torch.tensor(self.train_user_dict[u])} for u in range(self.n_users)]
 
         # split test into batches once at init instead of at every predict
         test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
@@ -125,6 +126,7 @@ class BaseDataset(Dataset):
         self.n_batches = (self.n_train - 1) // self.batch_size + 1
         self.bucket_len = self.n_train // self.n_users      # number of samples per user
         self.iterable_len = self.bucket_len * self.n_users  # length of torch Dataset we convert into
+        self.range_items = range(self.n_items)
 
         self.logger.info(f"n_train:    {self.n_train:-7}")
         self.logger.info(f"n_test:     {self.test_df.shape[0]:-7}")
@@ -148,7 +150,7 @@ class BaseDataset(Dataset):
         if not self.cached_samplings[idx]:
             positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
             while True:
-                negatives = random.choices(range(self.n_items), k=self.bucket_len * self.neg_samples)
+                negatives = random.choices(self.range_items, k=self.bucket_len * self.neg_samples)
                 if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
                     break
             negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]

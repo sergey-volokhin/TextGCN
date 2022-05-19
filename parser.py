@@ -18,8 +18,10 @@ def parse_args(s=None):
                                  'gatv2',
                                  'gcn',
                                  'graphsage',
-                                 'ltr_kg', 'ltr_reviews', 'ltr_simple', 'ltr_linear', 'ltr_linear_features',
+                                 'ltr_kg', 'ltr_reviews', 'ltr_simple',
+                                 'ltr_linear', 'ltr_linear_pop',
                                  'text', 'reviews', 'kg',
+                                 'adv_sampling',
                                  ],
                         help='which model to use')
     parser.add_argument('--aggr', '--aggregator',
@@ -46,11 +48,10 @@ def parse_args(s=None):
                         type=int,
                         help='batch size for training and prediction')
     parser.add_argument('--uid',
-                        default=False,
                         type=str,
                         help="optional name for the model instead of generated uid")
 
-    parser.add_argument('--evaluate_every',
+    parser.add_argument('--evaluate_every', '--eval_every',
                         default=25,
                         type=int,
                         help='how often evaluation is performed during training (default: every 100 epochs)')
@@ -154,18 +155,19 @@ def parse_args(s=None):
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     assert args.model not in ['gat', 'gatv2', 'gcn', 'graphsage'] or args.aggr is not None
-    assert args.model not in ['text', 'reviews', 'kg'] or args.weight is not None, 'set the weights for a textual model'
+    assert args.model not in ['text', 'reviews', 'kg'] or args.weight is not None, 'set the weights for textual model'
+    assert 'ltr' not in args.model or args.uid is not None, 'set uid for ltr model to avoid overwriting existing model'
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
     if args.load:
-        if not args.uid:
+        if args.uid is None:
             args.save_path = os.path.dirname(args.load)
             args.uid = os.path.basename(args.save_path)
         else:
             args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     else:
-        if not args.uid:
+        if args.uid is None:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
             # args.uid = f'{args.model}_{args.weight}_{args.dist_fn}'
         args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
@@ -174,11 +176,9 @@ def parse_args(s=None):
     ''' cuda '''
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu else "cpu")
-    # args.device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() and args.gpu else "cpu")
 
     args.k = sorted(args.k)
     args.logger = get_logger(args)
-
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
 
     return args

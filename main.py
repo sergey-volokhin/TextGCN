@@ -1,9 +1,10 @@
 from torch.utils.data import DataLoader
 
+from advanced_sampling import AdvSamplDataset, AdvSamplModel
 from base_model import BaseModel
 from dataset import BaseDataset
 from kg_models import DatasetKG, TextModelKG
-from ltr_models import LTRCosine, LTRDataset, LTRLinear, LTRLinearFeatures, LTRSimple
+from ltr_models import LTRCosine, LTRDataset, LTRLinear, LTRLinearWPop, LTRSimple
 from non_text_models import TorchGeometric
 from parser import parse_args
 from reviews_models import DatasetReviews, TextModelReviews
@@ -21,7 +22,8 @@ def get_class(name):
         'ltr_reviews': [LTRDataset, LTRCosine],
         'ltr_simple': [LTRDataset, LTRSimple],
         'ltr_linear': [LTRDataset, LTRLinear],
-        'ltr_linear_features': [LTRDataset, LTRLinearFeatures],
+        'ltr_linear_pop': [LTRDataset, LTRLinearWPop],
+        'adv_sampling': [AdvSamplDataset, AdvSamplModel],
     }.get(name, [BaseDataset, TorchGeometric])
 
 

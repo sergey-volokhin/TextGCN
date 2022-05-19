@@ -22,6 +22,11 @@ class DatasetReviews(BaseDataset):
         self.reviews['asin'] = self.reviews['asin'].map(dict(self.item_mapping.values)).astype(int)
         self.reviews['user_id'] = self.reviews['user_id'].map(dict(self.user_mapping.values)).astype(int)
 
+        # dropping testset reviews
+        reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
+        test_indexed = self.test_df.set_index(['asin', 'user_id'])
+        self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
+
     def _calc_review_embs(self, emb_batch_size, bert_model):
         ''' load/calc embeddings of the reviews and setup the dicts '''
         emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch'
@@ -65,10 +70,13 @@ class DatasetReviews(BaseDataset):
         self.items_as_avg_reviews = torch.stack(items_as_avg_reviews).to(self.device)
 
     def _calc_popularity(self):
+        ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
         lengths = self.reviews.groupby('user_id')[['asin']].agg(len).sort_values('asin', ascending=False)
-        self.popularity_users = torch.tensor(lengths.reset_index()['user_id'].values).to(self.device)
+        self.popularity_users = torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0],
+                                             dtype=torch.float).to(self.device)
         lengths = self.reviews.groupby('asin')[['user_id']].agg(len).sort_values('user_id', ascending=False)
-        self.popularity_items = torch.tensor(lengths.reset_index()['asin'].values).to(self.device)
+        self.popularity_items = torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0],
+                                             dtype=torch.float).to(self.device)
 
 
 class TextModelReviews(TextBaseModel):

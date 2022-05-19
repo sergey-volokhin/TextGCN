@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.optim as opt
-from tensorboardX import SummaryWriter
 from torch import nn
 from torch.nn import functional as F
 from tqdm.auto import tqdm, trange
@@ -126,7 +125,7 @@ class BaseModel(nn.Module):
                              dynamic_ncols=True,
                              disable=self.slurm):
                 self.optimizer.zero_grad()
-                loss = self.get_loss(*data.to(self.device).t())
+                loss = self.get_loss(data)
                 if loss.isnan():
                     self.logger.error(f'loss is NA at epoch {epoch}')
                     exit()
@@ -138,7 +137,7 @@ class BaseModel(nn.Module):
                 continue
 
             self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
-            self.evaluate(epoch)
+            self.evaluate()
             self.checkpoint(epoch)
 
             if early_stop(self.metrics_logger):
@@ -202,11 +201,13 @@ class BaseModel(nn.Module):
         self._loss_values['reg'] += res
         return res
 
-    def get_loss(self, users, pos, *negs):
+    def get_loss(self, data):
         ''' get total loss per batch of users '''
+        data = data.to(self.device).t()
+        users, pos, negs = data[0], data[1], data[2:]
         return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
-    def evaluate(self, epoch=-1):
+    def evaluate(self):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
@@ -226,8 +227,6 @@ class BaseModel(nn.Module):
                 results[metric] += r[metric]
         for metric in results:
             results[metric] /= n_users
-            if epoch == -1:
-                continue
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -311,12 +310,15 @@ class BaseModel(nn.Module):
 
     def load_model(self, load_path):
         ''' load torch weights from file '''
+        self.progression_path = f'{self.save_path}/progression.txt'
         if load_path:
             self.logger.info(f'Loading model {load_path}')
             self.load_state_dict(torch.load(load_path, map_location=self.device))
+            self.logger.info('Performance of the loaded model:')
+            self.evaluate()
+            self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         else:
             self.logger.info(f'Created model {self.uid}')
-        self.progression_path = f'{self.save_path}/progression.txt'
 
     def checkpoint(self, epoch):
         ''' save current model and update the best one '''
