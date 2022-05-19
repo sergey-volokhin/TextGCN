@@ -22,11 +22,6 @@ class DatasetReviews(BaseDataset):
         self.reviews['asin'] = self.reviews['asin'].map(dict(self.item_mapping.values)).astype(int)
         self.reviews['user_id'] = self.reviews['user_id'].map(dict(self.user_mapping.values)).astype(int)
 
-        # dropping testset reviews
-        reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
-        test_indexed = self.test_df.set_index(['asin', 'user_id'])
-        self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
-
     def _calc_review_embs(self, emb_batch_size, bert_model):
         ''' load/calc embeddings of the reviews and setup the dicts '''
         emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch'
@@ -35,6 +30,15 @@ class DatasetReviews(BaseDataset):
                                             bert_model,
                                             emb_batch_size,
                                             self.device).cpu().numpy().tolist()
+
+        '''
+            dropping testset reviews.
+            doing it here, not at loading, to not recalc embs when resplitting train-test
+        '''
+        reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
+        test_indexed = self.test_df.set_index(['asin', 'user_id'])
+        self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
+
         self.reviews_df = self.reviews.set_index(['asin', 'user_id'])['vector']
 
     def _get_items_as_avg_reviews(self):
