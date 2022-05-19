@@ -36,16 +36,12 @@ class AdvSamplModel(BaseModel):
         batch = []
         for user, item, rank in zip(users, items, rankings):
 
-            top_items = rank.argsort(descending=True)[:max(self.k)]
+            top_items = rank.argsort(descending=True)
             item = item[top_items]
 
             positives = self.positive_lists[user]['list']
             positives = torch.tensor(random.sample(positives, min(5, len(positives))))
-            negatives = self.subtract_tensor_as_set(item, self.positive_lists[user]['tensor'])
-
-            if not negatives.nelement():
-                self.logger.warn(f"batch user {user} doesn't have enough negative elements")
-                continue
+            negatives = self.subtract_tensor_as_set(item, self.positive_lists[user]['tensor'])[:max(self.k)]
 
             prod = torch.cartesian_prod(positives, negatives)
             batch.append(torch.cat([user.expand(prod.shape[0], 1), prod], dim=1))
