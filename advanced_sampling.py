@@ -12,13 +12,15 @@ class AdvSamplDataset(BaseDataset):
 
 
 class AdvSamplModel(BaseModel):
+    '''
+        dynamic negative sampling
+        ranks 1000 random items, removes positives, and returns top k negatives
+    '''
+    # TODO: rank all positives and return those which have the lowest scores, instead of taking random positives?
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
         self.positive_lists = dataset.positive_lists
-
-    def old_loss(self, *args, **kwargs):
-        return super().get_loss(*args, **kwargs)
 
     def rank_items_for_batch_pairwise(self, users_emb, items_emb, batch_users):
         ''' calculate scores for all items for users in the batch '''
@@ -46,8 +48,7 @@ class AdvSamplModel(BaseModel):
             prod = torch.cartesian_prod(positives, negatives)
             batch.append(torch.cat([user.expand(prod.shape[0], 1), prod], dim=1))
 
-        new_data = torch.cat(batch)
-        return self.old_loss(new_data)
+        return super().get_loss(torch.cat(batch))
 
     def subtract_tensor_as_set(self, t1, t2):
         return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1]

@@ -20,7 +20,7 @@ def parse_args(s=None):
                                  'graphsage',
                                  'ltr_kg', 'ltr_reviews', 'ltr_simple',
                                  'ltr_linear', 'ltr_linear_pop',
-                                 'text', 'reviews', 'kg',
+                                 'text', 'reviews', 'kg', 'test',
                                  'adv_sampling',
                                  ],
                         help='which model to use')
@@ -92,6 +92,9 @@ def parse_args(s=None):
     parser.add_argument('--reshuffle',
                         action='store_true',
                         help='whether to reshuffle the train-test split or use the existing one')
+
+    parser.add_argument('--freeze_embeddings',
+                        action='store_true')
 
     parser.add_argument('--slurm',
                         action='store_true',

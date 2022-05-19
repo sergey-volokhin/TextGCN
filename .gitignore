@@ -6,6 +6,7 @@ progression.txt
 template.sh
 data/
 runs/
+backup_code/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -92,6 +92,10 @@ class LTRLinear(LTRBase):
             self.logger.error('you need to load pretrained LightGCN model')
             exit()
 
+        if args.freeze_embeddings:
+            self.embedding_item.requires_grad_ = False
+            self.embedding_user.requires_grad_ = False
+
         self._setup_representations(args.pos, args.neg)
         self._setup_layers()
         self.score = self.score_ltr
