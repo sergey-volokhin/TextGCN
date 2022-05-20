@@ -157,12 +157,12 @@ def parse_args(s=None):
             args.save_path = os.path.dirname(args.load)
             args.uid = os.path.basename(args.save_path)
         else:
-            args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+            args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     else:
         if args.uid is None:
             args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
             # args.uid = f'{args.model}_{args.weight}_{args.dist_fn}'
-        args.save_path = f'runs/no_scheduler/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
     os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''

@@ -5,6 +5,7 @@ from torch.nn import functional as F
 from base_model import BaseModel
 from kg_models import DatasetKG
 from reviews_models import DatasetReviews
+from sklearn.ensemble import GradientBoostingRegressor as GBRT
 
 
 class LTRDataset(DatasetKG, DatasetReviews):
@@ -105,14 +106,14 @@ class LTRLinear(LTRBase):
         user_gnn_desc = torch.cat([users_emb, users_desc], axis=1)
         item_gnn_desc = torch.cat([items_emb, items_desc], axis=1)
 
-        return torch.cat([
-            F.cosine_similarity(users_emb, items_emb).unsqueeze(1),          # gnn-gnn
-            F.cosine_similarity(users_reviews, items_reviews).unsqueeze(1),  # reviews - reviews
-            F.cosine_similarity(users_desc, items_desc).unsqueeze(1),        # description - description
-            F.cosine_similarity(users_reviews, items_desc).unsqueeze(1),     # reviews - description
-            F.cosine_similarity(users_desc, items_reviews).unsqueeze(1),     # description - reviews
-            F.cosine_similarity(user_gnn_rev, item_gnn_rev).unsqueeze(1),    # gnn||reviews - gnn||reviews
-            F.cosine_similarity(user_gnn_desc, item_gnn_desc).unsqueeze(1),  # gnn||description - gnn||description
+        return torch.cat([  # todo find a shorthand replacement? this is non-normalized cos sim
+            torch.sum(torch.mul(users_emb, items_emb), dim=1).unsqueeze(1),          # gnn-gnn
+            torch.sum(torch.mul(users_reviews, items_reviews), dim=1).unsqueeze(1),  # reviews - reviews
+            torch.sum(torch.mul(users_desc, items_desc), dim=1).unsqueeze(1),        # desc - desc
+            torch.sum(torch.mul(users_reviews, items_desc), dim=1).unsqueeze(1),     # reviews - desc
+            torch.sum(torch.mul(users_desc, items_reviews), dim=1).unsqueeze(1),     # desc - reviews
+            torch.sum(torch.mul(user_gnn_rev, item_gnn_rev), dim=1).unsqueeze(1),    # gnn||reviews - gnn||reviews
+            torch.sum(torch.mul(user_gnn_desc, item_gnn_desc), dim=1).unsqueeze(1),  # gnn||desc - gnn||desc
         ], axis=1)
 
     def score_pairwise_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
