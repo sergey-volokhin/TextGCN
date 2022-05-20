@@ -30,7 +30,6 @@ def get_class(name):
 if __name__ == '__main__':
 
     args = parse_args()
-
     seed_everything(args.seed)
 
     Dataset, Model = get_class(args.model)
@@ -41,9 +40,5 @@ if __name__ == '__main__':
     model = Model(args, dataset)
 
     model.fit(loader)
-
-    if args.evaluate:
-        model.evaluate(-1)
-
     if args.predict:
         model.predict(save=True)

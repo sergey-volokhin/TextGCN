@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from base_model import BaseModel
 from kg_models import DatasetKG
@@ -11,7 +12,7 @@ class LTRDataset(DatasetKG, DatasetReviews):
     def __init__(self, args):
         super().__init__(args)
         self._get_users_as_avg_reviews()
-        self._get_users_as_avg_descr()
+        self._get_users_as_avg_desc()
 
     def _get_users_as_avg_reviews(self):
         ''' use average of reviews to represent users '''
@@ -21,7 +22,7 @@ class LTRDataset(DatasetKG, DatasetReviews):
         self.users_as_avg_reviews = torch.stack(self.user_mapping['remap_id'].map(
             user_text_embs).values.tolist()).to(self.device)
 
-    def _get_users_as_avg_descr(self):
+    def _get_users_as_avg_desc(self):
         ''' use mean of descriptions to represent users '''
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['asin']:
@@ -43,18 +44,7 @@ class LTRBase(BaseModel):
         self.users_as_avg_desc = dataset.users_as_avg_desc
         self.items_as_desc = dataset.items_as_desc
 
-    def _add_vars(self, args):
-        super()._add_vars(args)
-
-        ''' set up the representation functions for items and users'''
-        if args.pos == 'avg':
-            self.items_repr = self.items_as_avg_reviews
-        elif args.pos == 'kg':
-            self.items_repr = self.items_as_desc
-
-        self.text_user_repr = self.users_as_avg_reviews
-
-    def rank_items_for_batch_ltr(self):
+    def score_batchwise_ltr(self):
         ''' how do we predict the score using text data? '''
         raise NotImplementedError
 
@@ -87,43 +77,21 @@ class LTRLinear(LTRBase):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-
-        if not args.load:
-            self.logger.error('you need to load pretrained LightGCN model')
-            exit()
-
-        if args.freeze_embeddings:
-            self.embedding_item.requires_grad_ = False
-            self.embedding_user.requires_grad_ = False
-
-        self._setup_representations(args.pos, args.neg)
         self._setup_layers()
-        self.score = self.score_ltr
-        self.rank_items_for_batch = self.rank_items_for_batch_ltr
+        self.score_pairwise = self.score_pairwise_ltr
+        self.score_batchwise = self.score_batchwise_ltr
         self.evaluate = self.evaluate_ltr
 
     def _add_vars(self, args):
         super()._add_vars(args)
         self.dense_features = ['gnn', 'reviews', 'desc', 'rev_desc', 'desc_rev', 'gnn_rev', 'gnn_desc']
-        self.num_features = 7
-
-    def _setup_representations(self, pos, neg):
-        self.get_pos_items_reprs = {'avg': self.get_item_reviews_mean,
-                                    'kg': self.get_item_desc,
-                                    'user': self.get_item_reviews_user
-                                    }[pos]
-        self.get_neg_items_reprs = {'avg': self.get_item_reviews_mean,
-                                    'kg': self.get_item_desc
-                                    }[neg]
-        ''' currently the only one way to represent users is with mean of their reviews '''
-        self.get_text_users_reprs = self.get_user_reviews_mean
+        if args.freeze_embeddings:
+            self.embedding_user.requires_grad_(False)
+            self.embedding_item.requires_grad_(False)
 
     def _setup_layers(self):
         ''' dense layer that combines all the scores from different node representations '''
-        self.linear = nn.Linear(self.num_features, 1).to(self.device)
-
-    def calculator(self, u, i):
-        return torch.sum(torch.mul(u, i), dim=1).unsqueeze(1)
+        self.linear = nn.Linear(len(self.dense_features), 1).to(self.device)
 
     def get_scores(self, users_emb, items_emb, users, items):
         users_reviews = self.get_user_reviews_mean(users)
@@ -137,26 +105,20 @@ class LTRLinear(LTRBase):
         user_gnn_desc = torch.cat([users_emb, users_desc], axis=1)
         item_gnn_desc = torch.cat([items_emb, items_desc], axis=1)
 
-        gnn_score = self.calculator(users_emb, items_emb)
-        reviews_score = self.calculator(users_reviews, items_reviews)
-        desc_score = self.calculator(users_desc, items_desc)
-        rev_desc_score = self.calculator(users_reviews, items_desc)
-        desc_rev_score = self.calculator(users_desc, items_reviews)
-        gnn_rev_score = self.calculator(user_gnn_rev, item_gnn_rev)
-        gnn_desc_score = self.calculator(user_gnn_desc, item_gnn_desc)
+        return torch.cat([
+            F.cosine_similarity(users_emb, items_emb).unsqueeze(1),          # gnn-gnn
+            F.cosine_similarity(users_reviews, items_reviews).unsqueeze(1),  # reviews - reviews
+            F.cosine_similarity(users_desc, items_desc).unsqueeze(1),        # description - description
+            F.cosine_similarity(users_reviews, items_desc).unsqueeze(1),     # reviews - description
+            F.cosine_similarity(users_desc, items_reviews).unsqueeze(1),     # description - reviews
+            F.cosine_similarity(user_gnn_rev, item_gnn_rev).unsqueeze(1),    # gnn||reviews - gnn||reviews
+            F.cosine_similarity(user_gnn_desc, item_gnn_desc).unsqueeze(1),  # gnn||description - gnn||description
+        ], axis=1)
 
-        return torch.cat([gnn_score,
-                          reviews_score,
-                          desc_score,
-                          rev_desc_score,
-                          desc_rev_score,
-                          gnn_rev_score,
-                          gnn_desc_score], axis=1)
-
-    def score_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
         return self.linear(self.get_scores(users_emb, items_emb, users, items))
 
-    def rank_items_for_batch_ltr(self, users_emb, items_emb, users):
+    def score_batchwise_ltr(self, users_emb, items_emb, users):
         rating = []
         for user, user_emb in zip(users, users_emb):
             user_emb = user_emb.expand((items_emb.shape[0], user_emb.shape[0]))
@@ -182,10 +144,9 @@ class LTRLinearWPop(LTRLinear):
 
     def _add_vars(self, args):
         super()._add_vars(args)
-        self.num_features += 2
         self.dense_features += ['pop_u', 'pop_i']
 
-    def rank_items_for_batch_ltr(self, users_emb, items_emb, users):
+    def score_batchwise_ltr(self, users_emb, items_emb, users):
         rating = []
         for user, user_emb in zip(users, users_emb):
             user_emb = user_emb.expand((items_emb.shape[0], user_emb.shape[0]))
@@ -196,54 +157,50 @@ class LTRLinearWPop(LTRLinear):
             rating.append(self.linear(torch.cat([scores, pop_u.unsqueeze(1), pop_i.unsqueeze(1)], axis=1)).squeeze())
         return torch.stack(rating)
 
-    def score_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
-        scores = self.get_scores(users_emb, items_emb, users, items)
-        pop_u = self.popularity_users[users]
-        pop_i = self.popularity_items[items]
-        return self.linear(torch.cat([scores, pop_u.unsqueeze(1), pop_i.unsqueeze(1)], axis=1))
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
+        return self.linear(torch.cat([
+            self.get_scores(users_emb, items_emb, users, items),
+            self.popularity_users[users].unsqueeze(1),
+            self.popularity_items[items].unsqueeze(1)
+        ], axis=1))
 
 
 class LTRCosine(BaseModel):
-    ''' train the LightGCN model from scratch, concatenating text to GNN vectors '''
+    ''' train the LightGCN model from scratch, concatenating GNN vectors with text '''
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-
-        if args.model == 'ltr_reviews':
-            self.items_repr = self.items_as_avg_reviews
-        elif args.model == 'ltr_kg':
-            self.items_repr = self.items_as_desc
-        else:
-            raise AttributeError(f'wrong LTR model name: "{args.model}"')
-
-        self.text_user_repr = self.users_as_avg_reviews
+        self.users_text_repr = self.users_as_avg_reviews
+        self.items_text_repr = {'ltr_reviews': self.items_as_avg_reviews,
+                                'ltr_kg': self.items_as_desc,
+                                }[args.model]
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
-        self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
+        self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
 
-    def score(self, users_emb, item_emb, users, items, pos_or_neg=None):
-        user_part = torch.cat([users_emb, self.users_as_avg_reviews[users]], axis=1)
-        item_part = torch.cat([item_emb, self.items_repr[items]], axis=1)
-        return torch.sum(torch.mul(user_part, item_part), dim=1)
+    def score_pairwise(self, users_emb, item_emb, users, items, pos_or_neg=None):
+        user_part = torch.cat([users_emb, self.users_text_repr[users]], axis=1)
+        item_part = torch.cat([item_emb, self.items_text_repr[items]], axis=1)
+        return F.cosine_similarity(user_part, item_part)
 
-    def rank_items_for_batch(self, users_emb, items_emb, users):
-        items_emb = torch.cat([items_emb, self.items_repr[range(self.n_items)]], axis=1)
-        batch_users_emb = torch.cat([users_emb, self.text_user_repr[users]], axis=1)
-        return torch.matmul(batch_users_emb, items_emb.t())
+    def score_batchwise(self, users_emb, items_emb, users):
+        user_part = torch.cat([users_emb, self.users_text_repr[users]], axis=1)
+        item_part = torch.cat([items_emb, self.items_text_repr], axis=1)
+        return torch.matmul(user_part, item_part.t())
 
 
 class LTRSimple(BaseModel):
-    ''' concatenate textual vector to item/user representation, only during inference '''
+    '''
+        uses pretrained LightGCN model:
+        concatenates textual repr to LightGCN vectors during inference
+    '''
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-        if not args.load:
-            self.logger.error('you need to load pretrained LightGCN model')
-            exit()
-        self.text_user_repr = self.users_as_avg_reviews
+        self.users_text_repr = self.users_as_avg_reviews
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
@@ -252,18 +209,19 @@ class LTRSimple(BaseModel):
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
 
-    def rank_items_for_batch_ltr(self, users_emb, items_emb, users):
-        items_emb = torch.cat([items_emb, self.items_repr[range(self.n_items)]], axis=1)
-        batch_users_emb = torch.cat([users_emb, self.text_user_repr[users]], axis=1)
-        return torch.matmul(batch_users_emb, items_emb.t())
+    def score_batchwise_ltr(self, users_emb, items_emb, users):
+        user_part = torch.cat([users_emb, self.users_text_repr[users]], axis=1)
+        item_part = torch.cat([items_emb, self.items_text_repr[range(self.n_items)]], axis=1)
+        return torch.matmul(user_part, item_part.t())
 
     def fit(self, batches):
-        self.rank_items_for_batch = self.rank_items_for_batch_ltr
+        ''' no actual training happens, we use pretrained model '''
+        self.score_batchwise = self.score_batchwise_ltr
 
         self.logger.info('Performance when using pos=avg:')
-        self.items_repr = self.items_as_avg_reviews
+        self.items_text_repr = self.items_as_avg_reviews
         self.evaluate()
 
         self.logger.info('Performance when using pos=kg:')
-        self.items_repr = self.items_as_desc
+        self.items_text_repr = self.items_as_desc
         self.evaluate()

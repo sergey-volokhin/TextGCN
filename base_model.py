@@ -1,6 +1,6 @@
-from collections import defaultdict
 import os
 import shutil
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -16,20 +16,19 @@ from utils import early_stop, hit, ndcg, precision, recall
 class BaseModel(nn.Module):
     '''
         meta class with model-agnostic utility functions
-        also works as custom lgcn (vs 'lightgcn' with torch_geometric layer)
+        also works as custom lgcn (vs 'lightgcn' from torch_geometric)
     '''
 
     def __init__(self, args, dataset):
         super().__init__()
-
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._add_vars(args)
-        self._init_embeddings(args.emb_size)
-        self.to(args.device)
-
         self._save_code()
+        self._init_embeddings(args.emb_size)
+        self._add_vars(args)
+
         self.load_model(args.load)
+        self.to(args.device)
         self.logger.info(self)
 
     def _copy_args(self, args):
@@ -57,9 +56,9 @@ class BaseModel(nn.Module):
         self.n_items = dataset.n_items
         self.n_batches = dataset.n_batches
         self.norm_matrix = dataset.norm_matrix
-        self.train_user_dict = dataset.train_user_dict
-        self.true_test_lil = dataset.true_test_lil
         self.test_batches = dataset.test_batches
+        self.true_test_lil = dataset.true_test_lil
+        self.train_user_dict = dataset.train_user_dict
 
     def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
@@ -92,14 +91,14 @@ class BaseModel(nn.Module):
 
     @property
     def embedding_matrix(self):
-        ''' get the embedding matrix of 0th layer '''
+        ''' 0th layer embedding matrix '''
         return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
 
     @property
     def representation(self):
         '''
             aggregate embeddings from neighbors for each layer,
-            combine layers into users' and items' final representations
+            combine layers into final representations
         '''
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         curent_lvl_emb_matrix = self.embedding_matrix
@@ -108,7 +107,7 @@ class BaseModel(nn.Module):
             curent_lvl_emb_matrix = self.layer_aggregation(norm_matrix, curent_lvl_emb_matrix)
             node_embed_cache.append(curent_lvl_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
-        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+        return torch.split(F.normalize(aggregated_embeddings, dim=1), [self.n_users, self.n_items])
 
     def fit(self, batches):
         ''' training function '''
@@ -172,22 +171,34 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score(self, users_emb, items_emb, users, items, pos_or_neg):
+    def score_pairwise(self, users_emb, items_emb, users, items, pos_or_neg):
+        #todo remove 'pos_or_neg' variable
         '''
-            calculating score for list of pairs (u, i):
+            calculate scores for list of pairs (u, i):
             users_emb.shape === items_emb.shape
         '''
-        return torch.sum(torch.mul(users_emb, items_emb), dim=1)
+        return torch.cosine_similarity(users_emb, items_emb)
+
+    def score_batchwise(self, users_emb, items_emb, batch_users):
+        ''' calculate scores for all items, for all users in the batch '''
+        return torch.matmul(users_emb, items_emb.t())
+
+    def get_loss(self, data):
+        ''' get total loss per batch of users '''
+        data = data.to(self.device).t()
+        users, pos, negs = data[0], data[1], data[2:]
+        return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score(users_emb, items_emb[pos], users, pos, 'pos')
+        pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos, 'pos')
         loss = 0
         for neg in negs:
-            neg_scores = self.score(users_emb, items_emb[neg], users, neg, 'neg')
+            neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg, 'neg')
             loss += torch.mean(F.selu(neg_scores - pos_scores))
+            # loss += torch.mean(F.softmax(neg_scores - pos_scores))
         loss /= len(negs)
         self._loss_values['bpr'] += loss
         return loss
@@ -201,25 +212,21 @@ class BaseModel(nn.Module):
         self._loss_values['reg'] += res
         return res
 
-    def get_loss(self, data):
-        ''' get total loss per batch of users '''
-        data = data.to(self.device).t()
-        users, pos, negs = data[0], data[1], data[2:]
-        return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
-
     def evaluate(self):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
         predictions = self.predict()
         results = {i: np.zeros(len(self.k)) for i in self.metrics}
+
+        ''' calculate intersections of y_pred and y_test '''
         for col in predictions.columns:
             predictions[col] = predictions[col].apply(np.array)
         for k in self.k:
             predictions[f'intersection_{k}'] = predictions.apply(
                 lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
 
-        ''' get metrics per user & aggregates '''
+        ''' get metrics per user & aggregate '''
         n_users = len(self.true_test_lil)
         for row in predictions.itertuples(index=False):
             r = self.test_one_user(row)
@@ -236,17 +243,13 @@ class BaseModel(nn.Module):
         self.save_progression()
         return results
 
-    def rank_items_for_batch(self, users_emb, items_emb, batch_users):
-        ''' calculate scores for all items for users in the batch '''
-        return torch.matmul(users_emb, items_emb.t())
-
     def predict(self, save=False):
         '''
             returns a dataframe with predicted and true items for each test user:
             pd.DataFrame(columns=['y_pred', 'y_true'])
 
             using formula:
-            ..math::`\sigma(\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}).
+            ..math::`\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}`.
         '''
         self.training = False
         y_probs, y_pred = [], []
@@ -258,17 +261,15 @@ class BaseModel(nn.Module):
                                     dynamic_ncols=True,
                                     disable=self.slurm):
 
-                rating = self.rank_items_for_batch(users_emb[batch_users], items_emb, batch_users)
+                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
 
-                '''
-                    set scores for train items to be -inf so we don't recommend them.
-                    subtract exploded.index.min since rating matrix only has
-                    batch_size users, so starts with 0, while index has users' real indices
-                '''
+                ''' set scores for train items to be -inf so we don't recommend them. '''
+                # subtract exploded.index.min since rating matrix only has
+                # batch_size users, so starts with 0, while index has users' real indices
                 exploded = self.train_user_dict[batch_users].explode()
                 rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF
 
-                # select top-k items with highest ratings
+                ''' select top-k items with highest ratings '''
                 probs, rank_indices = torch.topk(rating, k=max(self.k))
                 y_pred += rank_indices.tolist()
                 y_probs += probs.round(decimals=4).tolist()  # TODO: rounding doesn't work for some reason
@@ -282,6 +283,10 @@ class BaseModel(nn.Module):
         return predictions
 
     def test_one_user(self, row):
+        '''
+            computes all metrics for predictions for one user
+            row: {'y_true': ..., 'y_pred': ...}
+        '''
         result = {i: [] for i in self.metrics}
         for k in self.k:
             k_row = {'intersecting_items': getattr(row, f'intersection_{k}'),
@@ -300,7 +305,7 @@ class BaseModel(nn.Module):
         return result
 
     def _save_code(self):
-        ''' saving the code to the folder with the model (for debugging) '''
+        ''' saving all code to the folder with the model '''
         folder = os.path.dirname(os.path.abspath(__file__))
         os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
         for file in os.listdir(folder):
@@ -309,9 +314,9 @@ class BaseModel(nn.Module):
                                 os.path.join(self.save_path, 'code', file + '_'))
 
     def load_model(self, load_path):
-        ''' load torch weights from file '''
+        ''' load and eval model from file '''
         self.progression_path = f'{self.save_path}/progression.txt'
-        if load_path:
+        if load_path is not None:
             self.logger.info(f'Loading model {load_path}')
             self.load_state_dict(torch.load(load_path, map_location=self.device))
             self.logger.info('Performance of the loaded model:')

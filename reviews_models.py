@@ -31,14 +31,11 @@ class DatasetReviews(BaseDataset):
                                             emb_batch_size,
                                             self.device).cpu().numpy().tolist()
 
-        '''
-            dropping testset reviews.
-            doing it here, not at loading, to not recalc embs when resplitting train-test
-        '''
+        ''' dropping testset reviews '''
+        # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
         reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
         test_indexed = self.test_df.set_index(['asin', 'user_id'])
         self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
-
         self.reviews_df = self.reviews.set_index(['asin', 'user_id'])['vector']
 
     def _get_items_as_avg_reviews(self):
@@ -88,7 +85,7 @@ class TextModelReviews(TextBaseModel):
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
 
-        ''' how do we represent items in sampled triplets '''
+        ''' how do we textually represent items in sampled triplets '''
         if args.pos == 'avg' or args.model == 'reviews':
             self.get_pos_items_reprs = self.get_item_reviews_mean
         elif args.pos == 'user':
