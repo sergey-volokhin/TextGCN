@@ -16,7 +16,7 @@ class BaseDataset(Dataset):
 
     def __init__(self, args):
         self._copy_args(args)
-        self._load_files(args.reshuffle)
+        self._load_files(args.reshuffle, args.seed)
         self._print_info()
         self._build_dicts()
         self._precalculate_normalization()
@@ -29,28 +29,29 @@ class BaseDataset(Dataset):
         self.batch_size = args.batch_size
         self.neg_samples = args.neg_samples
 
-    def _load_files(self, reshuffle):
+    def _load_files(self, reshuffle, seed):
         self.logger.info('loading data')
         self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
         self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
         self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
         self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
         if reshuffle:
-            self._reshuffle_train_test()
+            self._reshuffle_train_test(seed)
         self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping.values))
         self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping.values))
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping.values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping.values))
 
-    def _reshuffle_train_test(self):
+    def _reshuffle_train_test(self, seed):
         train, test = [], []
         for _, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
                              desc='reshuffling',
-                             dynamic_ncol=True,
-                             leave=False):
+                             dynamic_ncols=True,
+                             leave=False,
+                             disable=self.slurm):
             if len(group) < 3:
                 continue
-            s_train, s_test = tts(group, test_size=0.25, random_state=self.seed)
+            s_train, s_test = tts(group, test_size=0.25, random_state=seed)
             train.append(s_train)
             test.append(s_test)
         self.train_df = pd.concat(train)
@@ -60,9 +61,9 @@ class BaseDataset(Dataset):
             set(self.test_df['asin'].unique().tolist()) == \
             set(self.test_df['asin'].unique().tolist()), "item from test set doesn't appear in train set"
 
-        self.user_mapping = pd.DataFrame(enumerate(train['user_id'].unique()), columns=[
+        self.user_mapping = pd.DataFrame(enumerate(self.train_df['user_id'].unique()), columns=[
                                          'remap_id', 'org_id'])[['org_id', 'remap_id']]
-        self.item_mapping = pd.DataFrame(enumerate(train['asin'].unique()), columns=[
+        self.item_mapping = pd.DataFrame(enumerate(self.train_df['asin'].unique()), columns=[
                                          'remap_id', 'org_id'])[['org_id', 'remap_id']]
 
     def _build_dicts(self):
