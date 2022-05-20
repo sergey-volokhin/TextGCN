@@ -4,11 +4,12 @@ from advanced_sampling import AdvSamplDataset, AdvSamplModel
 from base_model import BaseModel
 from dataset import BaseDataset
 from kg_models import DatasetKG, TextModelKG
-from ltr_models import LTRCosine, LTRDataset, LTRLinear, LTRLinearWPop, LTRSimple
+from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop
 from non_text_models import TorchGeometric
-from parser import parse_args
 from reviews_models import DatasetReviews, TextModelReviews
 from text_joint_model import TextData, TextModel
+
+from parser import parse_args
 from utils import seed_everything
 
 
@@ -18,9 +19,6 @@ def get_class(name):
         'reviews': [DatasetReviews, TextModelReviews],
         'kg': [DatasetKG, TextModelKG],
         'text': [TextData, TextModel],
-        'ltr_kg': [LTRDataset, LTRCosine],
-        'ltr_reviews': [LTRDataset, LTRCosine],
-        'ltr_simple': [LTRDataset, LTRSimple],
         'ltr_linear': [LTRDataset, LTRLinear],
         'ltr_linear_pop': [LTRDataset, LTRLinearWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],

@@ -180,7 +180,11 @@ class BaseModel(nn.Module):
         # return torch.cosine_similarity(users_emb, items_emb)
 
     def score_batchwise(self, users_emb, items_emb, users):
-        ''' calculate scores for all items, for all users in the batch '''
+        '''
+            calculate scores for all items, for users in the batch
+            users_emb.shape = (batch_size, emb_size)
+            items_emb.shape = (n_items, emb_size)
+        '''
         return torch.matmul(users_emb, items_emb.t())
 
     def get_loss(self, data):
