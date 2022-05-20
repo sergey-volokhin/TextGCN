@@ -107,7 +107,8 @@ class BaseModel(nn.Module):
             curent_lvl_emb_matrix = self.layer_aggregation(norm_matrix, curent_lvl_emb_matrix)
             node_embed_cache.append(curent_lvl_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
-        return torch.split(F.normalize(aggregated_embeddings, dim=1), [self.n_users, self.n_items])
+        # return torch.split(F.normalize(aggregated_embeddings, dim=1), [self.n_users, self.n_items])
+        return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
     def fit(self, batches):
         ''' training function '''
@@ -125,9 +126,7 @@ class BaseModel(nn.Module):
                              disable=self.slurm):
                 self.optimizer.zero_grad()
                 loss = self.get_loss(data)
-                if loss.isnan():
-                    self.logger.error(f'loss is NA at epoch {epoch}')
-                    exit()
+                assert not loss.isnan(), f'loss is NA at epoch {epoch}'
                 total_loss += loss
                 loss.backward()
                 self.optimizer.step()
@@ -177,9 +176,10 @@ class BaseModel(nn.Module):
             calculate scores for list of pairs (u, i):
             users_emb.shape === items_emb.shape
         '''
-        return torch.cosine_similarity(users_emb, items_emb)
+        return torch.sum(torch.mul(users_emb, items_emb), dim=1)
+        # return torch.cosine_similarity(users_emb, items_emb)
 
-    def score_batchwise(self, users_emb, items_emb, batch_users):
+    def score_batchwise(self, users_emb, items_emb, users):
         ''' calculate scores for all items, for all users in the batch '''
         return torch.matmul(users_emb, items_emb.t())
 
