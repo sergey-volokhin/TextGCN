@@ -168,15 +168,15 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score_pairwise(self, users_emb, items_emb):
-        #todo remove 'pos_or_neg' variable
+    def score_pairwise(self, users_emb, items_emb, *args):
+        # todo remove 'pos_or_neg' variable
         '''
             calculate scores for list of pairs (u, i):
             users_emb.shape === items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
-    def score_batchwise(self, users_emb, items_emb):
+    def score_batchwise(self, users_emb, items_emb, *args):
         '''
             calculate scores for all items, for users in the batch
             users_emb.shape = (batch_size, emb_size)
@@ -194,10 +194,10 @@ class BaseModel(nn.Module):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score_pairwise(users_emb, items_emb[pos])
+        pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos)
         loss = 0
         for neg in negs:
-            neg_scores = self.score_pairwise(users_emb, items_emb[neg])
+            neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg)
             loss += torch.mean(F.selu(neg_scores - pos_scores))
             # loss += torch.mean(F.softmax(neg_scores - pos_scores))
         loss /= len(negs)
@@ -255,7 +255,7 @@ class BaseModel(nn.Module):
                                     dynamic_ncols=True,
                                     disable=self.slurm):
 
-                rating = self.score_batchwise(users_emb[batch_users], items_emb)
+                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
 
                 ''' set scores for train items to be -inf so we don't recommend them. '''
                 # subtract exploded.index.min since rating matrix only has
