@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoTokenizer
 
 
 def seed_everything(seed: int):
@@ -19,27 +19,28 @@ def seed_everything(seed: int):
 
 
 def hit(row):
-    return row['intersecting_items'].shape[0] > 0
+    return row['intersecting_len'] > 0
 
 
 def recall(row):
-    return row['intersecting_items'].shape[0] / row['y_true'].shape[0]
+    return row['intersecting_len'] / row['y_true_len']
 
 
 def precision(row, k):
-    return row['intersecting_items'].shape[0] / k
+    return row['intersecting_len'] / k
 
 
-def dcg(rel):
-    return np.sum((2 ** rel - 1) / np.log2(np.arange(2, rel.size + 2)))
+def dcg(rel, k):
+    return np.sum((2 ** rel - 1) / np.log2(np.arange(2, k + 2)), axis=1)
 
 
 def ndcg(row, k):
-    idcg = dcg(np.concatenate([np.ones(min(k, row['y_true'].shape[0])),
-                               np.zeros(max(0, k - row['y_true'].shape[0]))]))
-    rel = np.zeros(k)
-    rel[np.where(np.isin(row['y_pred'][:k], row['intersecting_items']))] = 1
-    return dcg(rel) / idcg
+    row['ones'] = row['y_true_len'].apply(lambda r: np.ones(min(r, k)))
+    row['zeros'] = row['y_true_len'].apply(lambda r: np.zeros(max(0, k - r)))
+    arr = np.apply_along_axis(np.concatenate, 1, row[['ones', 'zeros']].values)
+    idcg = dcg(arr, k)
+    rel = np.apply_along_axis(lambda x: np.isin(x[0], x[1]), 1, row[[f'y_pred_{k}', f'intersection_{k}']].values)
+    return dcg(rel, k) / idcg
 
 
 def get_logger(args):
@@ -64,27 +65,6 @@ def early_stop(res):
         all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
 
 
-def old_embed_text(sentences, path, bert_model, batch_size, device, logger):
-    logger.info('Getting embeddings')
-
-    if os.path.exists(path):
-        return torch.load(path, map_location=device)
-
-    sentences_to_embed = sentences.unique().tolist()
-    tokenization = tokenize_text(sentences_to_embed, bert_model, batch_size)
-    bert = torch.nn.DataParallel(AutoModel.from_pretrained(bert_model)).to(device)
-    embs = []
-    with torch.no_grad():
-        for batch in tqdm(tokenization, desc='embedding', dynamic_ncols=True):
-            embs.append(bert(**batch).last_hidden_state[:, 0].detach().cpu().numpy())
-    embeddings = np.concatenate(embs)
-    mapping = {i: emb.tolist() for i, emb in zip(sentences_to_embed, embeddings)}
-    result = sentences.map(mapping)
-    logger.info('Saving calculated embeddings')
-    torch.save(result, path)
-    return result
-
-
 def tokenize_text(sentences, bert_model, batch_size):
     tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
     token_batches = [sentences[j:j + batch_size] for j in range(0, len(sentences), batch_size)]
@@ -99,18 +79,6 @@ def tokenize_text(sentences, bert_model, batch_size):
                                       truncation=True,
                                       max_length=512))
     return tokenization
-
-
-def profile(func):
-    ''' function profiler to monitor time it takes for each call '''
-    def wrapper(*args, **kwargs):
-        profiler = cProfile.Profile()
-        profiler.enable()
-        func(*args, **kwargs)
-        profiler.disable()
-        stats = pstats.Stats(profiler).sort_stats('cumtime')
-        stats.print_stats()
-    return wrapper
 
 
 def embed_text(sentences, path, bert_model, batch_size, device):
@@ -133,3 +101,15 @@ def embed_text(sentences, path, bert_model, batch_size, device):
     result = torch.from_numpy(np.stack(sentences.map(mapping).values)).to(device=device)
     torch.save(result, path)
     return result
+
+
+def profile(func):
+    ''' function profiler to monitor time it takes for each call '''
+    def wrapper(*args, **kwargs):
+        profiler = cProfile.Profile()
+        profiler.enable()
+        func(*args, **kwargs)
+        profiler.disable()
+        stats = pstats.Stats(profiler).sort_stats('cumtime')
+        stats.print_stats()
+    return wrapper

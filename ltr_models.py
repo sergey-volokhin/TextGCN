@@ -1,11 +1,11 @@
 import torch
+from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from torch import nn
-from torch.nn import functional as F
+from tqdm.auto import tqdm
 
 from base_model import BaseModel
 from kg_models import DatasetKG
 from reviews_models import DatasetReviews
-from sklearn.ensemble import GradientBoostingRegressor as GBRT
 
 
 class LTRDataset(DatasetKG, DatasetReviews):
@@ -78,10 +78,9 @@ class LTRLinear(LTRBase):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-        self._setup_layers()
+        self._setup_layers(args)
         self.score_pairwise = self.score_pairwise_ltr
         self.score_batchwise = self.score_batchwise_ltr
-        self.evaluate = self.evaluate_ltr
 
     def _add_vars(self, args):
         super()._add_vars(args)
@@ -90,50 +89,82 @@ class LTRLinear(LTRBase):
             self.embedding_user.requires_grad_(False)
             self.embedding_item.requires_grad_(False)
 
-    def _setup_layers(self):
+    def _setup_layers(self, args):
         ''' dense layer that combines all the scores from different node representations '''
-        self.linear = nn.Linear(len(self.dense_features), 1).to(self.device)
+        args.ltr_layers = [len(self.dense_features)] + args.ltr_layers + [1]
+        layers = []
+        for i, j in zip(args.ltr_layers, args.ltr_layers[1:]):
+            layers.append(nn.Linear(i, j))
+        self.layers = nn.Sequential(*layers).to(self.device)
 
-    def get_scores(self, users_emb, items_emb, users, items):
+    def get_vectors(self, users_emb, items_emb, users, items):
         users_reviews = self.get_user_reviews_mean(users)
         items_reviews = self.get_item_reviews_mean(items)
         users_desc = self.get_user_desc(users)
         items_desc = self.get_item_desc(items)
-
         user_gnn_rev = torch.cat([users_emb, users_reviews], axis=1)
         item_gnn_rev = torch.cat([items_emb, items_reviews], axis=1)
-
         user_gnn_desc = torch.cat([users_emb, users_desc], axis=1)
         item_gnn_desc = torch.cat([items_emb, items_desc], axis=1)
+        return [users_reviews,
+                items_reviews,
+                user_gnn_rev,
+                items_desc,
+                users_desc,
+                item_gnn_rev,
+                user_gnn_desc,
+                item_gnn_desc]
 
-        return torch.cat([  # todo find a shorthand replacement? this is non-normalized cos sim
-            torch.sum(torch.mul(users_emb, items_emb), dim=1).unsqueeze(1),          # gnn-gnn
-            torch.sum(torch.mul(users_reviews, items_reviews), dim=1).unsqueeze(1),  # reviews - reviews
-            torch.sum(torch.mul(users_desc, items_desc), dim=1).unsqueeze(1),        # desc - desc
-            torch.sum(torch.mul(users_reviews, items_desc), dim=1).unsqueeze(1),     # reviews - desc
-            torch.sum(torch.mul(users_desc, items_reviews), dim=1).unsqueeze(1),     # desc - reviews
+    # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
+    def get_scores_batchwise(self,
+                             users_emb,
+                             items_emb,
+                             users_reviews,
+                             items_reviews,
+                             user_gnn_rev,
+                             items_desc,
+                             users_desc,
+                             item_gnn_rev,
+                             user_gnn_desc,
+                             item_gnn_desc):
+        return torch.cat([
+            (users_emb @ items_emb.T).unsqueeze(-1),          # gnn          - gnn
+            (users_reviews @ items_reviews.T).unsqueeze(-1),  # reviews      - reviews
+            (users_desc @ items_desc.T).unsqueeze(-1),        # desc         - desc
+            (users_reviews @ items_desc.T).unsqueeze(-1),     # reviews      - desc
+            (users_desc @ items_reviews.T).unsqueeze(-1),     # desc         - reviews
+            (user_gnn_rev @ item_gnn_rev.T).unsqueeze(-1),    # gnn||reviews - gnn||reviews
+            (user_gnn_desc @ item_gnn_desc.T).unsqueeze(-1),  # gnn||desc    - gnn||desc
+        ], axis=-1)
+
+    def get_scores_pairwise(self,
+                            users_emb,
+                            items_emb,
+                            users_reviews,
+                            items_reviews,
+                            user_gnn_rev,
+                            items_desc,
+                            users_desc,
+                            item_gnn_rev,
+                            user_gnn_desc,
+                            item_gnn_desc):
+        return torch.cat([
+            torch.sum(torch.mul(users_emb, items_emb), dim=1).unsqueeze(1),          # gnn          - gnn
+            torch.sum(torch.mul(users_reviews, items_reviews), dim=1).unsqueeze(1),  # reviews      - reviews
+            torch.sum(torch.mul(users_desc, items_desc), dim=1).unsqueeze(1),        # desc         - desc
+            torch.sum(torch.mul(users_reviews, items_desc), dim=1).unsqueeze(1),     # reviews      - desc
+            torch.sum(torch.mul(users_desc, items_reviews), dim=1).unsqueeze(1),     # desc         - reviews
             torch.sum(torch.mul(user_gnn_rev, item_gnn_rev), dim=1).unsqueeze(1),    # gnn||reviews - gnn||reviews
-            torch.sum(torch.mul(user_gnn_desc, item_gnn_desc), dim=1).unsqueeze(1),  # gnn||desc - gnn||desc
+            torch.sum(torch.mul(user_gnn_desc, item_gnn_desc), dim=1).unsqueeze(1),  # gnn||desc    - gnn||desc
         ], axis=1)
 
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
-        return self.linear(self.get_scores(users_emb, items_emb, users, items))
-
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        rating = []
-        for user, user_emb in zip(users, users_emb):
-            user_emb = user_emb.expand((items_emb.shape[0], user_emb.shape[0]))
-            user = torch.tensor(user).expand((items_emb.shape[0]))
-            scores = self.get_scores(user_emb, items_emb, user, list(range(self.n_items)))
-            rating.append(self.linear(scores).squeeze())
-        return torch.stack(rating)
+        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        return self.layers(self.get_scores_batchwise(users_emb, items_emb, *vectors)).squeeze()
 
-    def evaluate_ltr(self):
-        res = super().evaluate()
-        self.logger.info('Feature weights:')
-        for num, feat in zip(self.linear.weight.round(decimals=4).tolist()[0], self.dense_features):
-            self.logger.info(f'{feat:<8} {num}')
-        return res
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+        vectors = self.get_vectors(users_emb, items_emb, users, items)
+        return self.layers(self.get_scores_pairwise(users_emb, items_emb, *vectors))
 
 
 class LTRLinearWPop(LTRLinear):
@@ -148,19 +179,22 @@ class LTRLinearWPop(LTRLinear):
         self.dense_features += ['pop_u', 'pop_i']
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        rating = []
-        for user, user_emb in zip(users, users_emb):
-            user_emb = user_emb.expand((items_emb.shape[0], user_emb.shape[0]))
-            user = torch.tensor(user).expand((items_emb.shape[0]))
-            scores = self.get_scores(user_emb, items_emb, user, list(range(self.n_items)))
-            pop_u = self.popularity_users[user].expand((items_emb.shape[0],))
-            pop_i = self.popularity_items
-            rating.append(self.linear(torch.cat([scores, pop_u.unsqueeze(1), pop_i.unsqueeze(1)], axis=1)).squeeze())
-        return torch.stack(rating)
+        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        features = self.get_scores_batchwise(users_emb, items_emb, *vectors)
 
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items, pos_or_neg):
-        return self.linear(torch.cat([
-            self.get_scores(users_emb, items_emb, users, items),
-            self.popularity_users[users].unsqueeze(1),
-            self.popularity_items[items].unsqueeze(1)
-        ], axis=1))
+        pop_u = self.popularity_users[users].unsqueeze(1)
+        pop_u = pop_u.expand(self.n_items, pop_u.shape[0], pop_u.shape[1]).T.unsqueeze(-1).squeeze(0)
+
+        pop_i = self.popularity_items
+        pop_i = pop_i.unsqueeze(1).expand(len(users), pop_i.shape[0], 1)
+
+        cat = torch.cat([features, pop_u, pop_i], axis=-1)
+        return self.layers(cat).squeeze()
+
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+        vectors = self.get_vectors(users_emb, items_emb, users, items)
+        features = self.get_scores_pairwise(users_emb, items_emb, *vectors)
+        pop_u = self.popularity_users[users].unsqueeze(1)
+        pop_i = self.popularity_items[items].unsqueeze(1)
+        cat = torch.cat([features, pop_u, pop_i], axis=-1)
+        return self.layers(cat)

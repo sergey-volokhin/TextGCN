@@ -29,7 +29,6 @@ class BaseModel(nn.Module):
 
         self.load_model(args.load)
         self.to(args.device)
-        self.logger.info(self)
 
     def _copy_args(self, args):
         self.k = args.k
@@ -107,7 +106,6 @@ class BaseModel(nn.Module):
             curent_lvl_emb_matrix = self.layer_aggregation(norm_matrix, curent_lvl_emb_matrix)
             node_embed_cache.append(curent_lvl_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
-        # return torch.split(F.normalize(aggregated_embeddings, dim=1), [self.n_users, self.n_items])
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
     def fit(self, batches):
@@ -170,16 +168,15 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score_pairwise(self, users_emb, items_emb, users, items, pos_or_neg):
+    def score_pairwise(self, users_emb, items_emb):
         #todo remove 'pos_or_neg' variable
         '''
             calculate scores for list of pairs (u, i):
             users_emb.shape === items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
-        # return torch.cosine_similarity(users_emb, items_emb)
 
-    def score_batchwise(self, users_emb, items_emb, users):
+    def score_batchwise(self, users_emb, items_emb):
         '''
             calculate scores for all items, for users in the batch
             users_emb.shape = (batch_size, emb_size)
@@ -197,10 +194,10 @@ class BaseModel(nn.Module):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos, 'pos')
+        pos_scores = self.score_pairwise(users_emb, items_emb[pos])
         loss = 0
         for neg in negs:
-            neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg, 'neg')
+            neg_scores = self.score_pairwise(users_emb, items_emb[neg])
             loss += torch.mean(F.selu(neg_scores - pos_scores))
             # loss += torch.mean(F.softmax(neg_scores - pos_scores))
         loss /= len(negs)
@@ -230,14 +227,7 @@ class BaseModel(nn.Module):
             predictions[f'intersection_{k}'] = predictions.apply(
                 lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
 
-        ''' get metrics per user & aggregate '''
-        n_users = len(self.true_test_lil)
-        for row in predictions.itertuples(index=False):
-            r = self.test_one_user(row)
-            for metric in r:
-                results[metric] += r[metric]
-        for metric in results:
-            results[metric] /= n_users
+        results = self.calculate_metrics(predictions)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -265,7 +255,7 @@ class BaseModel(nn.Module):
                                     dynamic_ncols=True,
                                     disable=self.slurm):
 
-                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
+                rating = self.score_batchwise(users_emb[batch_users], items_emb)
 
                 ''' set scores for train items to be -inf so we don't recommend them. '''
                 # subtract exploded.index.min since rating matrix only has
@@ -275,37 +265,36 @@ class BaseModel(nn.Module):
 
                 ''' select top-k items with highest ratings '''
                 probs, rank_indices = torch.topk(rating, k=max(self.k))
-                y_pred += rank_indices.tolist()
-                y_probs += probs.round(decimals=4).tolist()  # TODO: rounding doesn't work for some reason
+                y_pred.append(rank_indices)
+                y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
 
         predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
-                                              'y_pred': y_pred,
-                                              'scores': y_probs})
+                                              'y_pred': torch.cat(y_pred).tolist(),
+                                              'scores': torch.cat(y_probs).tolist()})
         if save:
             predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
         return predictions
 
-    def test_one_user(self, row):
-        '''
-            computes all metrics for predictions for one user
-            row: {'y_true': ..., 'y_pred': ...}
-        '''
+    def calculate_metrics(self, df):
+        ''' computes all metrics for predictions for all users '''
         result = {i: [] for i in self.metrics}
-        for k in self.k:
-            k_row = {'intersecting_items': getattr(row, f'intersection_{k}'),
-                     'y_pred': row.y_pred,
-                     'y_true': row.y_true}
-            result['recall'].append(recall(k_row))
-            result['precision'].append(precision(k_row, k))
-            result['hit'].append(hit(k_row))
-            result['ndcg'].append(ndcg(k_row, k))
-            numerator = result['recall'][-1] * result['precision'][-1] * 2
-            denominator = result['recall'][-1] + result['precision'][-1]
+        df['y_true_len'] = df['y_true'].apply(len)
+        for k in sorted(self.k):
+            df[f'y_pred_{k}'] = df['y_pred'].apply(lambda x: x[:k])
+            df['intersecting_len'] = df[f'intersection_{k}'].apply(len)
+            rec = recall(df)
+            prec = precision(df, k)
+            result['recall'].append(rec.mean())
+            result['precision'].append(prec.mean())
+            result['hit'].append(hit(df).mean())
+            result['ndcg'].append(ndcg(df, k).mean())
+            numerator = rec * prec * 2
+            denominator = rec + prec
             result['f1'].append(np.divide(numerator,
                                           denominator,
                                           out=np.zeros_like(numerator),
-                                          where=denominator != 0))
+                                          where=denominator != 0).mean())
         return result
 
     def _save_code(self):

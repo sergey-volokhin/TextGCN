@@ -14,14 +14,15 @@ def parse_args(s=None):
                         required=True,
                         choices=['lgcn',  # BaseModel, custom LightGCN
                                  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
-                                 'ltr_linear', 'ltr_linear_pop',
+                                 'ltr_linear', 'ltr_linear_pop', 'gbdt',
                                  'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
                                  ],
                         help='which model to use')
-    parser.add_argument('--aggr', '--aggregator',
-                        choices=['mean', 'max', 'add'],
-                        help='neighbor node aggregation function used in torch_geometric models')
+    parser.add_argument('--ltr_layers',
+                        type=int,
+                        nargs='*',
+                        default=[]),
     parser.add_argument('--data',
                         default='data/subsampled/',
                         type=str,
@@ -83,10 +84,11 @@ def parse_args(s=None):
     parser.add_argument('--reshuffle',
                         action='store_true',
                         help='whether to reshuffle the train-test split or use the existing one')
-
+    parser.add_argument('--aggr', '--aggregator',
+                        choices=['mean', 'max', 'add'],
+                        help='neighbor node aggregation function used in torch_geometric models')
     parser.add_argument('--freeze_embeddings',
                         action='store_true')
-
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')
@@ -120,13 +122,13 @@ def parse_args(s=None):
     text_hyper.add_argument('--bert_model',
                             default='all-MiniLM-L6-v2',
                             type=str,
-                            choices=['google/bert_uncased_L-2_H-128_A-2',
-                                     'all-MiniLM-L6-v2',
-                                     'microsoft/deberta-v3-base',
-                                     'microsoft/deberta-v3-xsmall',
-                                     'roberta-large',
-                                     ],
-                            help='version of BERT to use')
+                            help='version of BERT to use. for example: '
+                                 'google/bert_uncased_L-2_H-128_A-2 '
+                                 'all-MiniLM-L6-v2 '
+                                 'microsoft/deberta-v3-base '
+                                 'microsoft/deberta-v3-xsmall '
+                                 'roberta-large',
+                            )
     text_hyper.add_argument('--dist_fn',
                             default='euclid',
                             choices=['euclid', 'cosine_minus'],
@@ -152,17 +154,11 @@ def parse_args(s=None):
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
-    if args.load is not None:
-        if args.uid is None:
-            args.save_path = os.path.dirname(args.load)
-            args.uid = os.path.basename(args.save_path)
-        else:
-            args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
-    else:
-        if args.uid is None:
-            args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-            # args.uid = f'{args.model}_{args.weight}_{args.dist_fn}'
-        args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+
+    if args.uid is None:
+        args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
+    args.save_path = f'runs/ltr_faster/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+
     os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''
@@ -183,5 +179,3 @@ def asserts(args):
         assert args.weight is not None, 'set the weight for model taht uses semantic loss'
     elif args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
         assert args.load is not None, 'you need to load a pretrained LightGCN model'
-    if 'ltr' in args.model:
-        assert args.uid is not None, 'set uid for LTR model to avoid overwriting pretrained model'

@@ -19,7 +19,7 @@ class LTRCosine(BaseModel):
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
 
-    def score_pairwise(self, users_emb, item_emb, users, items, pos_or_neg=None):
+    def score_pairwise(self, users_emb, item_emb, users, items):
         user_part = torch.cat([users_emb, self.users_text_repr[users]], axis=1)
         item_part = torch.cat([item_emb, self.items_text_repr[items]], axis=1)
         # return F.cosine_similarity(user_part, item_part)

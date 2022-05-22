@@ -23,10 +23,10 @@ class TextBaseModel(BaseModel):
         # todo: could probably disjoin the bpr loss from semantic loss to be cleaner
         users_emb, item_emb = self.representation
         users_emb = users_emb[users]
-        pos_scores = self.score_pairwise(users_emb, item_emb[pos], users, pos, 'pos')
+        pos_scores = self.score_pairwise(users_emb, item_emb[pos])
         loss = 0
         for neg in negs:
-            neg_scores = self.score_pairwise(users_emb, item_emb[neg], users, neg, 'neg')
+            neg_scores = self.score_pairwise(users_emb, item_emb[neg])
             bpr_loss = torch.mean(F.selu(neg_scores - pos_scores)) / len(negs)
             sem_loss = self.semantic_loss(users, pos, neg, pos_scores, neg_scores) / len(negs)
             self._loss_values['bpr'] += bpr_loss
@@ -61,10 +61,6 @@ class TextBaseModel(BaseModel):
 
     def gnn_dist(self, pos, neg):
         ''' calculate similarity between gnn representations of the sampled items '''
-        # TODO should there be a normalization here?
-        # return self.dist_fn(F.normalize(self.embedding_item(pos)),
-        #                     F.normalize(self.embedding_item(neg))
-        #                     ).to(self.device)
         return self.dist_fn(self.embedding_item(pos),
                             self.embedding_item(neg)
                             ).to(self.device)

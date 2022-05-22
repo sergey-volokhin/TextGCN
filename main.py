@@ -33,9 +33,11 @@ if __name__ == '__main__':
     Dataset, Model = get_class(args.model)
     args.logger.info(f'Class: {Model}')
     args.logger.info(args)
+
     dataset = Dataset(args)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
+    model.logger.info(model)
 
     model.fit(loader)
     if args.predict:
