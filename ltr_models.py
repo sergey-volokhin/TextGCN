@@ -184,46 +184,43 @@ class LTRGBDT(LTRLinear):
     ''' trains a dense layer on top of GNN '''
 
     def _setup_layers(self, args):
-        self.tree = GBRT(n_estimators=10, max_depth=3)
+        self.tree = GBRT(verbose=True)  # n_estimators=10, max_depth=3)
 
     def fit(self, batches):
-
-        vectors_pos, vectors_neg = [], []
         users_emb, items_emb = self.representation
-        for data in tqdm(batches,
-                         desc='batches',
-                         leave=False,
-                         dynamic_ncols=True,
-                         disable=self.slurm):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
+            vectors_pos, vectors_neg = [], []
+            self.train()
+            self.training = True
+            for data in tqdm(batches,
+                             desc='batches',
+                             leave=False,
+                             dynamic_ncols=True,
+                             disable=self.slurm):
 
-            data = data.t()
-            users, pos, negs = data[0], data[1], data[2:]
-            users_emb = users_emb[users]
-            pos_features = self.score_pairwise(users_emb, items_emb[pos], users, pos)
-            vectors_pos.append(pos_features)
-            for neg in negs:
-                neg_features = self.score_pairwise(users_emb, items_emb[neg], users, neg)
-                vectors_neg.append(neg_features)
+                data = data.t()
+                users, pos, negs = data[0], data[1], data[2:]
+                pos_features = self.score_pairwise(users_emb[users], items_emb[pos], users, pos)
+                vectors_pos.append(pos_features)
+                for neg in negs:
+                    neg_features = self.score_pairwise(users_emb[users], items_emb[neg], users, neg)
+                    vectors_neg.append(neg_features)
 
-        vectors_pos = torch.stack(vectors_pos, dim=1)
-        vectors_neg = torch.stack(vectors_neg, dim=1)
-
-        features = torch.cat([vectors_pos, vectors_neg]).squeeze()
-        y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
-
-        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
-        self.evaluate()
-        self.checkpoint()
+            features = torch.cat([torch.cat(vectors_pos), torch.cat(vectors_neg)]).squeeze()
+            y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
+            self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+            self.evaluate()
+            self.checkpoint(epoch)
 
     def score_pairwise_ltr(self, users_emb, items_emb, users, items):
         vectors = self.get_vectors(users_emb, items_emb, users, items)
-        return self.get_scores_pairwise(users_emb, items_emb, *vectors)
+        return self.get_scores_pairwise(vectors)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
-        x = self.get_scores_batchwise(users_emb, items_emb, *vectors).detach()
+        x = self.get_scores_batchwise(vectors).detach()
         x = x.reshape(x.shape[0] * x.shape[1], x.shape[-1]).cpu().numpy()
-        return self.tree.predict(x)
+        return torch.from_numpy(self.tree.predict(x).reshape(len(users), self.n_items))
 
     def predict(self, save=False):
         self.training = False
@@ -237,8 +234,6 @@ class LTRGBDT(LTRLinear):
                                     disable=self.slurm):
 
                 rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
-
-                print('rating', rating)
 
                 ''' set scores for train items to be -inf so we don't recommend them. '''
                 # subtract exploded.index.min since rating matrix only has
