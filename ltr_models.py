@@ -205,12 +205,12 @@ class LTRGBDT(LTRBase):
     ''' train a Gradient Boosted Decision Tree (sklearn) on top of LightGCN '''
 
     def _setup_layers(self, args):
-        # self.tree = GBRT(verbose=not args.quiet)  # n_estimators=10, max_depth=3)
-        self.tree = GBRT(verbose=2, n_estimators=20)  # n_estimators=10)
+        self.tree = GBRT(verbose=not args.quiet)  # n_estimators=10, max_depth=3)
+        # self.tree = GBRT()  # n_estimators=10, max_depth=3)
 
     def fit(self, batches):
-        vectors_pos, vectors_neg = [], []
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
+            vectors_pos, vectors_neg = [], []
             self.training = True
             for data in tqdm(batches,
                              desc='batches',
@@ -225,18 +225,24 @@ class LTRGBDT(LTRBase):
                 pos_features = self.get_features_pairwise(pos_vectors)
 
                 vectors_pos.append(pos_features)
-                print('vectors_pos', vectors_pos)
                 for neg in negs:
                     neg_vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
                     neg_features = self.get_features_pairwise(neg_vectors)
                     vectors_neg.append(neg_features)
 
-        features = torch.cat([torch.cat(vectors_pos), torch.cat(vectors_neg)]).squeeze()
-        y_true = torch.cat([torch.ones(len(features) // 2), torch.zeros(len(features) // 2)])
-        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+            features = torch.cat([torch.cat(vectors_pos), torch.cat(vectors_neg)]).squeeze()
+            y_true = torch.cat([torch.ones(len(features) // 2), torch.zeros(len(features) // 2)])
+            self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
 
-        self.evaluate()
-        self.checkpoint(epoch)
+            if epoch % self.evaluate_every:
+                continue
+
+            self.evaluate()
+            self.checkpoint(epoch)
+
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
