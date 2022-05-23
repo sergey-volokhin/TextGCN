@@ -169,16 +169,15 @@ class BaseModel(nn.Module):
         return vectors[-1]
 
     def score_pairwise(self, users_emb, items_emb, *args):
-        # todo remove 'pos_or_neg' variable
         '''
             calculate scores for list of pairs (u, i):
-            users_emb.shape === items_emb.shape
+            users_emb.shape == items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
     def score_batchwise(self, users_emb, items_emb, *args):
         '''
-            calculate scores for all items, for users in the batch
+            calculate scores batchwise (all-to-all):
             users_emb.shape = (batch_size, emb_size)
             items_emb.shape = (n_items, emb_size)
         '''
@@ -302,7 +301,7 @@ class BaseModel(nn.Module):
         folder = os.path.dirname(os.path.abspath(__file__))
         os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
         for file in os.listdir(folder):
-            if file.endswith('.py'):
+            if file.endswith('.py') or file.endswith('.sh'):
                 shutil.copyfile(os.path.join(folder, file),
                                 os.path.join(self.save_path, 'code', file + '_'))
 
