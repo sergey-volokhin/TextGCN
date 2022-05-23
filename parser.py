@@ -87,8 +87,9 @@ def parse_args(s=None):
     parser.add_argument('--aggr', '--aggregator',
                         choices=['mean', 'max', 'add'],
                         help='neighbor node aggregation function used in torch_geometric models')
-    parser.add_argument('--freeze_embeddings',
-                        action='store_true')
+    parser.add_argument('--freeze',
+                        action='store_true',
+                        help='whether to freeze GNN embeddings when learning linear model on top or not')
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')

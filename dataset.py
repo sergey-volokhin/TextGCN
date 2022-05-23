@@ -1,3 +1,4 @@
+import os
 import random
 from collections import defaultdict, deque
 from itertools import repeat
@@ -29,14 +30,22 @@ class BaseDataset(Dataset):
         self.batch_size = args.batch_size
         self.neg_samples = args.neg_samples
 
-    def _load_files(self, reshuffle, seed):
+    def _load_files(self, reshuffle, seed):  # todo simplify loading
         self.logger.info('loading data')
-        self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
-        self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
-        self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
-        self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
-        if reshuffle:
-            self._reshuffle_train_test(seed)
+
+        if reshuffle and os.path.isdir(self.path + f'reshuffle_{seed}'):
+            self.train_df = pd.read_table(self.path + f'reshuffle_{seed}/train.tsv', header=0, names=['user_id', 'asin'])
+            self.test_df = pd.read_table(self.path + f'reshuffle_{seed}/test.tsv', header=0, names=['user_id', 'asin'])
+            self.item_mapping = pd.read_csv(self.path + f'reshuffle_{seed}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
+            self.user_mapping = pd.read_csv(self.path + f'reshuffle_{seed}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
+        else:
+            self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
+            self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
+            self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
+            self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
+            if reshuffle:
+                self._reshuffle_train_test(seed)
+
         self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping.values))
         self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping.values))
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping.values))
@@ -51,7 +60,7 @@ class BaseDataset(Dataset):
                              disable=self.slurm):
             if len(group) < 3:
                 continue
-            s_train, s_test = tts(group, test_size=0.25, random_state=seed)
+            s_train, s_test = tts(group, test_size=0.2, random_state=seed)
             train.append(s_train)
             test.append(s_test)
         self.train_df = pd.concat(train)
@@ -65,6 +74,12 @@ class BaseDataset(Dataset):
                                          'remap_id', 'org_id'])[['org_id', 'remap_id']]
         self.item_mapping = pd.DataFrame(enumerate(self.train_df['asin'].unique()), columns=[
                                          'remap_id', 'org_id'])[['org_id', 'remap_id']]
+
+        os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
+        self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
+        self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
+        self.item_mapping.to_csv(self.path + f'reshuffle_{seed}/item_list.txt', sep=' ', index=False)
+        self.user_mapping.to_csv(self.path + f'reshuffle_{seed}/user_list.txt', sep=' ', index=False)
 
     def _build_dicts(self):
         self.cached_samplings = defaultdict(list)

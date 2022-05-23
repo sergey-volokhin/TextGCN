@@ -60,9 +60,12 @@ def early_stop(res):
         returns True if the difference between metrics
         from current and 2 previous epochs is less than 1e-4
     '''
-    return len(res['recall']) > 2 and \
-        all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values()) and \
-        all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
+    if len(res['recall']) < 3:
+        return False
+    declining = all(np.less(m[-1], m[-2]).all() and np.less(m[-2], m[-3]).all() for m in res.values())
+    converged = all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values()) and \
+                all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
+    return converged or declining
 
 
 def tokenize_text(sentences, bert_model, batch_size):
