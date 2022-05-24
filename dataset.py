@@ -34,10 +34,11 @@ class BaseDataset(Dataset):
         self.logger.info('loading data')
 
         if reshuffle and os.path.isdir(self.path + f'reshuffle_{seed}'):
-            self.train_df = pd.read_table(self.path + f'reshuffle_{seed}/train.tsv', header=0, names=['user_id', 'asin'])
-            self.test_df = pd.read_table(self.path + f'reshuffle_{seed}/test.tsv', header=0, names=['user_id', 'asin'])
-            self.item_mapping = pd.read_csv(self.path + f'reshuffle_{seed}/item_list.txt', sep=' ')[['org_id', 'remap_id']]
-            self.user_mapping = pd.read_csv(self.path + f'reshuffle_{seed}/user_list.txt', sep=' ')[['org_id', 'remap_id']]
+            path = self.path + f'reshuffle_{seed}/'
+            self.train_df = pd.read_table(path + 'train.tsv', header=0, names=['user_id', 'asin'])
+            self.test_df = pd.read_table(path + 'test.tsv', header=0, names=['user_id', 'asin'])
+            self.item_mapping = pd.read_csv(path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
+            self.user_mapping = pd.read_csv(path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
         else:
             self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
             self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
@@ -84,9 +85,11 @@ class BaseDataset(Dataset):
     def _build_dicts(self):
         self.cached_samplings = defaultdict(list)
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
-        self.positive_lists = [{'list': self.train_user_dict[u],  # for faster sampling keep both list and set
-                                'set': set(self.train_user_dict[u]),
-                                'tensor': torch.tensor(self.train_user_dict[u])} for u in range(self.n_users)]
+        self.positive_lists = [{
+            'list': self.train_user_dict[u],                                 # list for faster random.choice
+            'set': set(self.train_user_dict[u]),                             # set for faster "x in y" check
+            'tensor': torch.tensor(self.train_user_dict[u]).to(self.device)  # tensor for faster set difference
+        } for u in range(self.n_users)]
 
         # split test into batches once at init instead of at every predict
         test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)

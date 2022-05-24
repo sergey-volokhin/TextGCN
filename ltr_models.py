@@ -42,6 +42,8 @@ class LTRBase(BaseModel):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
+        self.score_pairwise = self.score_pairwise_ltr
+        self.score_batchwise = self.score_batchwise_ltr
         self._setup_layers(args)
         if args.freeze:
             self.embedding_user.requires_grad_(False)
@@ -56,8 +58,8 @@ class LTRBase(BaseModel):
 
     def _add_vars(self, args):
         super()._add_vars(args)
-        self.dense_features = ['gnn', 'reviews', 'desc', 'reviews-description',
-                               'description-reviews', 'gnn-reviews', 'gnn-description']
+        self.feature_names = ['gnn', 'reviews', 'desc', 'reviews-description',
+                              'description-reviews', 'gnn-reviews', 'gnn-description']
 
     def _setup_layers(self, args):
         ''' build the top predictive layer that takes features from LightGCN '''
@@ -65,6 +67,10 @@ class LTRBase(BaseModel):
 
     def score_batchwise_ltr(self):
         ''' analogue of score_batchwise in BaseModel that uses textual data '''
+        raise NotImplementedError
+
+    def score_pairwise_ltr(self):
+        ''' analogue of score_pairwise in BaseModel that uses textual data '''
         raise NotImplementedError
 
     ''' utilities: representation functions '''
@@ -151,15 +157,14 @@ class LTRLinear(LTRBase):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
-        self.score_pairwise = self.score_pairwise_ltr
-        self.score_batchwise = self.score_batchwise_ltr
+        self.evaluate = self.evaluate_ltr
 
     def _setup_layers(self, args):
         '''
             dense layers that combine all the scores from different node representations
             layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
         '''
-        layer_sizes = [len(self.dense_features)] + args.ltr_layers + [1]
+        layer_sizes = [len(self.feature_names)] + args.ltr_layers + [1]
         layers = []
         for i, j in zip(layer_sizes, layer_sizes[1:]):
             layers.append(nn.Linear(i, j))
@@ -173,6 +178,14 @@ class LTRLinear(LTRBase):
         vectors = self.get_vectors(users_emb, items_emb, users, items)
         return self.layers(self.get_features_pairwise(vectors))
 
+    def evaluate_ltr(self):
+        ''' print weights (i.e. feature importances) if the model consists of single layer '''
+        res = super().evaluate()
+        if len(self.layers) == 1:
+            for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
+                self.logger.info(f'{f:<20} {w:.4}')
+        return res
+
 
 class LTRLinearWPop(LTRLinear):
     ''' extends LTRLinear by adding popularity features '''
@@ -184,7 +197,7 @@ class LTRLinearWPop(LTRLinear):
 
     def _add_vars(self, args):
         super()._add_vars(args)
-        self.dense_features += ['user popularity', 'item popularity']
+        self.feature_names += ['user popularity', 'item popularity']
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
@@ -205,47 +218,77 @@ class LTRGBDT(LTRBase):
     ''' train a Gradient Boosted Decision Tree (sklearn) on top of LightGCN '''
 
     def _setup_layers(self, args):
-        self.tree = GBRT(verbose=not args.quiet)  # n_estimators=10, max_depth=3)
-        # self.tree = GBRT()  # n_estimators=10, max_depth=3)
+        self.tree = GBRT(n_estimators=10, max_depth=3)
 
     def fit(self, batches):
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
-            vectors_pos, vectors_neg = [], []
-            self.training = True
-            for data in tqdm(batches,
-                             desc='batches',
-                             leave=False,
-                             dynamic_ncols=True,
-                             disable=self.slurm):
-                data = data.t()
-                users, pos, negs = data[0], data[1], data[2:]
-                users_emb, items_emb = self.representation
 
-                pos_vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
-                pos_features = self.get_features_pairwise(pos_vectors)
+        vectors_pos, vectors_neg = [], []
+        users_emb, items_emb = self.representation
+        for data in tqdm(batches,
+                         desc='batches',
+                         leave=False,
+                         dynamic_ncols=True,
+                         disable=self.slurm):
 
-                vectors_pos.append(pos_features)
-                for neg in negs:
-                    neg_vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
-                    neg_features = self.get_features_pairwise(neg_vectors)
-                    vectors_neg.append(neg_features)
+            data = data.t()
+            users, pos, negs = data[0], data[1], data[2:]
+            users_emb = users_emb[users]
+            pos_features = self.score_pairwise(users_emb, items_emb[pos], users, pos)
+            vectors_pos.append(pos_features)
+            for neg in negs:
+                neg_features = self.score_pairwise(users_emb, items_emb[neg], users, neg)
+                vectors_neg.append(neg_features)
 
-            features = torch.cat([torch.cat(vectors_pos), torch.cat(vectors_neg)]).squeeze()
-            y_true = torch.cat([torch.ones(len(features) // 2), torch.zeros(len(features) // 2)])
-            self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+        vectors_pos = torch.stack(vectors_pos, dim=1)
+        vectors_neg = torch.stack(vectors_neg, dim=1)
 
-            if epoch % self.evaluate_every:
-                continue
+        features = torch.cat([vectors_pos, vectors_neg]).squeeze()
+        y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
 
-            self.evaluate()
-            self.checkpoint(epoch)
+        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+        self.evaluate()
+        self.checkpoint()
 
-            if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
-                break
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+        vectors = self.get_vectors(users_emb, items_emb, users, items)
+        return self.get_scores_pairwise(users_emb, items_emb, *vectors)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
-        x = self.get_features_batchwise(vectors).detach()
+        x = self.get_scores_batchwise(users_emb, items_emb, *vectors).detach()
         x = x.reshape(x.shape[0] * x.shape[1], x.shape[-1]).cpu().numpy()
-        return torch.from_numpy(self.tree.predict(x).reshape(len(users), self.n_items))
+        return self.tree.predict(x)
+
+    def predict(self, save=False):
+        self.training = False
+        y_probs, y_pred = [], []
+        with torch.no_grad():
+            users_emb, items_emb = self.representation
+            for batch_users in tqdm(self.test_batches,
+                                    desc='batches',
+                                    leave=False,
+                                    dynamic_ncols=True,
+                                    disable=self.slurm):
+
+                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
+
+                print('rating', rating)
+
+                ''' set scores for train items to be -inf so we don't recommend them. '''
+                # subtract exploded.index.min since rating matrix only has
+                # batch_size users, so starts with 0, while index has users' real indices
+                exploded = self.train_user_dict[batch_users].explode()
+                rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF
+
+                ''' select top-k items with highest ratings '''
+                probs, rank_indices = torch.topk(rating, k=max(self.k))
+                y_pred.append(rank_indices)
+                y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
+
+        predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
+                                              'y_pred': torch.cat(y_pred).tolist(),
+                                              'scores': torch.cat(y_probs).tolist()})
+        if save:
+            predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
+            self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
+        return predictions
