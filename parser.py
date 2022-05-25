@@ -84,9 +84,6 @@ def parse_args(s=None):
     parser.add_argument('--reshuffle',
                         action='store_true',
                         help='whether to reshuffle the train-test split or use the existing one')
-    parser.add_argument('--aggr', '--aggregator',
-                        choices=['mean', 'max', 'add'],
-                        help='neighbor node aggregation function used in torch_geometric models')
     parser.add_argument('--freeze',
                         action='store_true',
                         help='whether to freeze GNN embeddings when learning linear model on top or not')
@@ -115,6 +112,9 @@ def parse_args(s=None):
                         action='store_true',
                         help="whether to use the 'single' verison of the model or not")
 
+    # parser.add_argument('--aggr', '--aggregator',
+    #                     choices=['mean', 'max', 'add'],
+    #                     help='neighbor node aggregation function used in torch_geometric models')
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
                             default=256,
@@ -130,25 +130,25 @@ def parse_args(s=None):
                                  'microsoft/deberta-v3-xsmall '
                                  'roberta-large',
                             )
-    text_hyper.add_argument('--dist_fn',
-                            default='euclid',
-                            choices=['euclid', 'cosine_minus'],
-                            help='distance metric used in textual loss')
     text_hyper.add_argument('--separator', '--sep',
                             default='[SEP]',
                             type=str,
                             dest='sep',
                             help='separator for table comprehension (KG model)')
-    text_hyper.add_argument('--weight',
-                            help='formula for semantic loss')
-    text_hyper.add_argument('--pos',
-                            default='avg',
-                            choices=['user', 'avg', 'kg'],
-                            help='how to represent the positive items from the sampled triplets')
-    text_hyper.add_argument('--neg',
-                            default='avg',
-                            choices=['avg', 'kg'],
-                            help='how to represent the negative items from the sampled triplets')
+    # text_hyper.add_argument('--dist_fn',
+    #                         default='euclid',
+    #                         choices=['euclid', 'cosine_minus'],
+    #                         help='distance metric used in textual loss')
+    # text_hyper.add_argument('--weight',
+    #                         help='formula for semantic loss')
+    # text_hyper.add_argument('--pos',
+    #                         default='avg',
+    #                         choices=['user', 'avg', 'kg'],
+    #                         help='how to represent the positive items from the sampled triplets')
+    # text_hyper.add_argument('--neg',
+    #                         default='avg',
+    #                         choices=['avg', 'kg'],
+    #                         help='how to represent the negative items from the sampled triplets')
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     asserts(args)
@@ -169,6 +169,8 @@ def parse_args(s=None):
     args.k = sorted(args.k)
     args.logger = get_logger(args)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
+    if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop'] and args.load is None:
+        args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
 
     return args
 
@@ -177,6 +179,4 @@ def asserts(args):
     if args.model in ['gat', 'gatv2', 'gcn', 'graphsage']:
         assert args.aggr is not None, 'set up the aggregator function for torch_geometric model'
     elif args.model in ['text', 'reviews', 'kg']:
-        assert args.weight is not None, 'set the weight for model taht uses semantic loss'
-    elif args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
-        assert args.load is not None, 'you need to load a pretrained LightGCN model'
+        assert args.weight is not None, 'set the weight for model that uses semantic loss'
