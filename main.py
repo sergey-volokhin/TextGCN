@@ -20,7 +20,7 @@ def get_class(name):
         'kg': [DatasetKG, TextModelKG],
         'text': [TextData, TextModel],
         'ltr_linear': [LTRDataset, LTRLinear],
-        'ltr_linear_pop': [LTRDataset, LTRLinearWPop],
+        'ltr_pop': [LTRDataset, LTRLinearWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
         'gbdt': [LTRDataset, LTRGBDT],
     }.get(name, [BaseDataset, TorchGeometric])

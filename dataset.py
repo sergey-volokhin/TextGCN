@@ -37,20 +37,23 @@ class BaseDataset(Dataset):
             path = self.path + f'reshuffle_{seed}/'
             self.train_df = pd.read_table(path + 'train.tsv', header=0, names=['user_id', 'asin'])
             self.test_df = pd.read_table(path + 'test.tsv', header=0, names=['user_id', 'asin'])
-            self.item_mapping = pd.read_csv(path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
-            self.user_mapping = pd.read_csv(path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
         else:
             self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
             self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
-            self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
-            self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
             if reshuffle:
                 self._reshuffle_train_test(seed)
 
-        self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping.values))
-        self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping.values))
-        self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping.values))
-        self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping.values))
+        # remove users that don't appear in test set
+        self.train_df = self.train_df[self.train_df.user_id.isin(self.test_df.user_id.unique())]
+        self.test_df = self.test_df[self.test_df.user_id.isin(self.train_df.user_id.unique())]
+
+        self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
+        self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
+
+        self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+        self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+        self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
+        self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
     def _reshuffle_train_test(self, seed):
         train, test = [], []
@@ -67,14 +70,16 @@ class BaseDataset(Dataset):
         self.train_df = pd.concat(train)
         self.test_df = pd.concat(test)
 
-        assert set(self.train_df['asin'].unique().tolist()) & \
-            set(self.test_df['asin'].unique().tolist()) == \
-            set(self.test_df['asin'].unique().tolist()), "item from test set doesn't appear in train set"
+        assert set(self.train_df['asin'].unique()) & \
+            set(self.test_df['asin'].unique()) == \
+            set(self.test_df['asin'].unique()), "item from test set doesn't appear in train set"
 
-        self.user_mapping = pd.DataFrame(enumerate(self.train_df['user_id'].unique()), columns=[
-                                         'remap_id', 'org_id'])[['org_id', 'remap_id']]
-        self.item_mapping = pd.DataFrame(enumerate(self.train_df['asin'].unique()), columns=[
-                                         'remap_id', 'org_id'])[['org_id', 'remap_id']]
+        assert set(self.train_df['user_id'].unique()) & \
+            set(self.test_df['user_id'].unique()) == \
+            set(self.test_df['user_id'].unique()), "user from test set doesn't appear in train set"
+
+        self.user_mapping = pd.DataFrame(enumerate(self.train_df['user_id'].unique()), columns=['remap_id', 'org_id'])
+        self.item_mapping = pd.DataFrame(enumerate(self.train_df['asin'].unique()), columns=['remap_id', 'org_id'])
 
         os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
         self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
