@@ -14,7 +14,7 @@ def parse_args(s=None):
                         required=True,
                         choices=['lgcn',  # BaseModel, custom LightGCN
                                  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
-                                 'ltr_linear', 'ltr_linear_pop', 'gbdt',
+                                 'ltr_linear', 'ltr_pop', 'gbdt',
                                  'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
                                  ],
