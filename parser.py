@@ -169,8 +169,11 @@ def parse_args(s=None):
     args.k = sorted(args.k)
     args.logger = get_logger(args)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
-    if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop'] and args.load is None:
-        args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
+    if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
+        if args.load is None:
+            args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
+        if args.evaluate_every == 25:
+            args.evaluate_every = 10
 
     return args
 

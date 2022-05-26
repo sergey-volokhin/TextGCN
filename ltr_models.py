@@ -1,7 +1,9 @@
 import torch
 from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from torch import nn
-from tqdm.auto import tqdm, trange
+from tqdm.auto import tqdm
+from xgboost import XGBRanker
+
 
 from base_model import BaseModel
 from kg_models import DatasetKG
@@ -259,36 +261,49 @@ class LTRGBDT(LTRBase):
         x = x.reshape(x.shape[0] * x.shape[1], x.shape[-1]).cpu().numpy()
         return self.tree.predict(x)
 
-    def predict(self, save=False):
-        self.training = False
-        y_probs, y_pred = [], []
-        with torch.no_grad():
-            users_emb, items_emb = self.representation
-            for batch_users in tqdm(self.test_batches,
-                                    desc='batches',
-                                    leave=False,
-                                    dynamic_ncols=True,
-                                    disable=self.slurm):
 
-                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
+class LTRXGBoost(LTRBase):
 
-                print('rating', rating)
+    def _setup_layers(self, args):
+        self.layers = XGBRanker(verbosity=2)  # n_estimators, max_depth, verbosity=0-3
+                        # objective='rank:pairwise', 'rank:ndcg', 'rank:map'
+                        # tree_method='gpu_hist', 'exact'
+                        # booster='gbtree', 'gblinear', 'dart'
+                        # max_bin
+                        # n_jobs
+                        # sampling_method='gradient_based'
+                        # predictor='gpu_predictor'
+                        # eval_metric=['f1', 'recall', 'precision', 'ndcg', ]
 
-                ''' set scores for train items to be -inf so we don't recommend them. '''
-                # subtract exploded.index.min since rating matrix only has
-                # batch_size users, so starts with 0, while index has users' real indices
-                exploded = self.train_user_dict[batch_users].explode()
-                rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF
+    def fit(self, batches):
+        vectors_pos, vectors_neg = [], []
+        users_emb, items_emb = self.representation
+        for data in tqdm(batches,
+                         desc='batches',
+                         leave=False,
+                         dynamic_ncols=True,
+                         disable=self.slurm):
 
-                ''' select top-k items with highest ratings '''
-                probs, rank_indices = torch.topk(rating, k=max(self.k))
-                y_pred.append(rank_indices)
-                y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
+            data = data.t()
+            users, pos, negs = data[0], data[1], data[2:]
+            users_emb = users_emb[users]
+            pos_features = self.score_pairwise(users_emb, items_emb[pos], users, pos)
+            vectors_pos.append(pos_features)
+            for neg in negs:
+                neg_features = self.score_pairwise(users_emb, items_emb[neg], users, neg)
+                vectors_neg.append(neg_features)
 
-        predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
-                                              'y_pred': torch.cat(y_pred).tolist(),
-                                              'scores': torch.cat(y_probs).tolist()})
-        if save:
-            predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
-            self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
-        return predictions
+        vectors_pos = torch.stack(vectors_pos, dim=1)
+        vectors_neg = torch.stack(vectors_neg, dim=1)
+
+        features = torch.cat([vectors_pos, vectors_neg]).squeeze()
+        y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
+
+        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+        self.evaluate()
+        self.checkpoint()
+
+
+# df containing rows with feature columns,
+# a column named id which identifies the group,
+# and a target column called rank which contains the target.
