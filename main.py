@@ -5,7 +5,6 @@ from base_model import BaseModel
 from dataset import BaseDataset
 from kg_models import DatasetKG, TextModelKG
 from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop, LTRGBDT
-from non_text_models import TorchGeometric
 from reviews_models import DatasetReviews, TextModelReviews
 from text_joint_model import TextData, TextModel
 
@@ -23,7 +22,7 @@ def get_class(name):
         'ltr_pop': [LTRDataset, LTRLinearWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
         'gbdt': [LTRDataset, LTRGBDT],
-    }.get(name, [BaseDataset, TorchGeometric])
+    }[name]
 
 
 if __name__ == '__main__':
