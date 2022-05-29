@@ -14,7 +14,7 @@ def parse_args(s=None):
                         required=True,
                         choices=['lgcn',  # BaseModel, custom LightGCN
                                  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
-                                 'ltr_linear', 'ltr_pop', 'gbdt',
+                                 'ltr_linear', 'ltr_pop', 'gbdt', 'xgboost',
                                  'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
                                  ],
@@ -62,6 +62,9 @@ def parse_args(s=None):
     parser.add_argument('--load',
                         type=str,
                         help='path to the model to load')
+    parser.add_argument('--load_base',
+                        type=str,
+                        help='path to the base model to load for training the layer on top (LTR models)')
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')
@@ -170,7 +173,7 @@ def parse_args(s=None):
     args.logger = get_logger(args)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
     if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
-        if args.load is None:
+        if args.load_base is None and args.load is None:
             args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
         if args.evaluate_every == 25:
             args.evaluate_every = 10

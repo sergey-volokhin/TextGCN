@@ -42,14 +42,10 @@ class LTRBase(BaseModel):
         LightGCN vectors and trains a layer on top
     '''
 
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
-        self.score_pairwise = self.score_pairwise_ltr
-        self.score_batchwise = self.score_batchwise_ltr
-        self._setup_layers(args)
-        if args.freeze:
-            self.embedding_user.requires_grad_(False)
-            self.embedding_item.requires_grad_(False)
+    def _copy_args(self, args):
+        super()._copy_args(args)
+        self.load_base = args.load_base
+        self.freeze = args.freeze
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
@@ -58,10 +54,33 @@ class LTRBase(BaseModel):
         self.users_as_avg_desc = dataset.users_as_avg_desc
         self.items_as_desc = dataset.items_as_desc
 
+    def _init_embeddings(self, emb_size):
+        super()._init_embeddings(emb_size)
+        if self.freeze:
+            self.embedding_user.requires_grad_(False)
+            self.embedding_item.requires_grad_(False)
+
     def _add_vars(self, args):
         super()._add_vars(args)
-        self.feature_names = ['gnn', 'reviews', 'desc', 'reviews-description',
-                              'description-reviews', 'gnn-reviews', 'gnn-description']
+
+        ''' load the base model, before overwriting the scoring functions '''
+        if self.load_base:
+            self.load_model(self.load_base)
+
+        ''' features we are going to use'''
+        self.feature_names = ['gnn',
+                              'reviews',
+                              'desc',
+                              'reviews-description',
+                              'description-reviews',
+                              'gnn-reviews',
+                              'gnn-description']
+        ''' build the trainable layer on top '''
+        self._setup_layers(args)
+
+        ''' overwrite the scoring methods '''
+        self.score_pairwise = self.score_pairwise_ltr
+        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, args):
         ''' build the top predictive layer that takes features from LightGCN '''
@@ -197,9 +216,9 @@ class LTRLinearWPop(LTRLinear):
         self.popularity_users = dataset.popularity_users
         self.popularity_items = dataset.popularity_items
 
-    def _add_vars(self, args):
-        super()._add_vars(args)
+    def _setup_layers(self, args):
         self.feature_names += ['user popularity', 'item popularity']
+        super()._setup_layers(args)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
@@ -266,14 +285,14 @@ class LTRXGBoost(LTRBase):
 
     def _setup_layers(self, args):
         self.layers = XGBRanker(verbosity=2)  # n_estimators, max_depth, verbosity=0-3
-                        # objective='rank:pairwise', 'rank:ndcg', 'rank:map'
-                        # tree_method='gpu_hist', 'exact'
-                        # booster='gbtree', 'gblinear', 'dart'
-                        # max_bin
-                        # n_jobs
-                        # sampling_method='gradient_based'
-                        # predictor='gpu_predictor'
-                        # eval_metric=['f1', 'recall', 'precision', 'ndcg', ]
+        # objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
+        # tree_method = 'gpu_hist', 'exact'
+        # booster = 'gbtree', 'gblinear', 'dart'
+        # max_bin
+        # n_jobs
+        # sampling_method = 'gradient_based'
+        # predictor = 'gpu_predictor'
+        # eval_metric = ['f1', 'recall', 'precision', 'ndcg', ]
 
     def fit(self, batches):
         vectors_pos, vectors_neg = [], []
