@@ -19,7 +19,7 @@ def seed_everything(seed: int):
 
 
 def hit(row):
-    return row['intersecting_len'] > 0
+    return (row['intersecting_len'] > 0).astype(int)
 
 
 def recall(row):

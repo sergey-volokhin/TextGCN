@@ -19,6 +19,7 @@ class BaseDataset(Dataset):
         self._copy_args(args)
         self._load_files(args.reshuffle, args.seed)
         self._print_info()
+        self._convert_to_internal_ids()
         self._build_dicts()
         self._precalculate_normalization()
 
@@ -43,19 +44,15 @@ class BaseDataset(Dataset):
             if reshuffle:
                 self._reshuffle_train_test(seed)
 
-        # remove users that don't appear in test set
-        self.train_df = self.train_df[self.train_df.user_id.isin(self.test_df.user_id.unique())]
-        self.test_df = self.test_df[self.test_df.user_id.isin(self.train_df.user_id.unique())]
+        assert not(set(self.test_df['asin'].unique()) -
+                   set(self.train_df['asin'].unique())), "item from test set doesn't appear in train set"
 
-        self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
-        self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
-
-        self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
-        self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
-        self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
-        self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
+        assert not(set(self.test_df['user_id'].unique()) -
+                   set(self.train_df['user_id'].unique())), "user from test set doesn't appear in train set"
 
     def _reshuffle_train_test(self, seed):
+        os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
+
         train, test = [], []
         for _, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
                              desc='reshuffling',
@@ -67,25 +64,20 @@ class BaseDataset(Dataset):
             s_train, s_test = tts(group, test_size=0.2, random_state=seed)
             train.append(s_train)
             test.append(s_test)
+
         self.train_df = pd.concat(train)
         self.test_df = pd.concat(test)
-
-        assert set(self.train_df['asin'].unique()) & \
-            set(self.test_df['asin'].unique()) == \
-            set(self.test_df['asin'].unique()), "item from test set doesn't appear in train set"
-
-        assert set(self.train_df['user_id'].unique()) & \
-            set(self.test_df['user_id'].unique()) == \
-            set(self.test_df['user_id'].unique()), "user from test set doesn't appear in train set"
-
-        self.user_mapping = pd.DataFrame(enumerate(self.train_df['user_id'].unique()), columns=['remap_id', 'org_id'])
-        self.item_mapping = pd.DataFrame(enumerate(self.train_df['asin'].unique()), columns=['remap_id', 'org_id'])
-
-        os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
         self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
         self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
-        self.item_mapping.to_csv(self.path + f'reshuffle_{seed}/item_list.txt', sep=' ', index=False)
-        self.user_mapping.to_csv(self.path + f'reshuffle_{seed}/user_list.txt', sep=' ', index=False)
+
+    def _convert_to_internal_ids(self):
+        self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
+        self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
+
+        self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+        self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+        self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
+        self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
     def _build_dicts(self):
         self.cached_samplings = defaultdict(list)
@@ -129,9 +121,8 @@ class BaseDataset(Dataset):
                                  ('user', 'bought', 'item'): (self.train_df['user_id'].values,
                                                               self.train_df['asin'].values)})
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
-        item_ids = torch.tensor(self.item_mapping.index, dtype=torch.long)
-        graph.ndata['id'] = {'user': user_ids,
-                             'item': item_ids}
+        item_ids = torch.tensor(range(self.n_items), dtype=torch.long)
+        graph.ndata['id'] = {'user': user_ids, 'item': item_ids}
         return graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
 
     def _convert_sp_mat_to_sp_tensor(self, coo):

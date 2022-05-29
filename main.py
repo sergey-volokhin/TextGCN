@@ -41,4 +41,4 @@ if __name__ == '__main__':
 
     model.fit(loader)
     if args.predict:
-        model.predict(save=True)
+        model.predict(range(dataset.n_users), with_scores=True, save=True)

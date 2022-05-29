@@ -27,7 +27,6 @@ class AdvSamplModel(BaseModel):
         super()._copy_dataset_args(dataset)
         self.positive_lists = dataset.positive_lists
         self.pos_samples = dataset.pos_samples
-        self.neg_samples = dataset.neg_samples
 
     def score_pairwise_adv(self, users_emb, items_emb, *args):
         '''

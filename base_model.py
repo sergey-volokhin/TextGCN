@@ -58,6 +58,9 @@ class BaseModel(nn.Module):
         self.test_batches = dataset.test_batches
         self.true_test_lil = dataset.true_test_lil
         self.train_user_dict = dataset.train_user_dict
+        self.test_users = dataset.test_df.user_id.unique()          # ids of people from test set
+        self.user_mapping_dict = dict(dataset.user_mapping.values)  # dict mapping from internal id to real id
+        self.item_mapping_dict = dict(dataset.item_mapping.values)  # dict mapping from internal id to real id
 
     def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
@@ -216,7 +219,15 @@ class BaseModel(nn.Module):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
-        predictions = self.predict()
+        predictions, scores = self.predict(self.test_users, with_scores=True)
+
+        predictions = pd.DataFrame.from_dict({
+            'user_id': self.test_users,
+            'y_true': self.true_test_lil,
+            'y_pred': predictions,
+            'scores': scores,
+        })
+
         results = {i: np.zeros(len(self.k)) for i in self.metrics}
 
         ''' calculate intersections of y_pred and y_test '''
@@ -236,19 +247,16 @@ class BaseModel(nn.Module):
         self.save_progression()
         return results
 
-    def predict(self, save=False):
-        '''
-            returns a dataframe with predicted and true items for each test user:
-            pd.DataFrame(columns=['y_pred', 'y_true'])
+    def predict(self, users, with_scores=False, save=False):
+        ''' returns a list of lists with predicted items for given list of user ids '''
+        # todo predict using unmapped ids
 
-            using formula:
-            ..math::`\mathbf{e}_{u,gnn}\mathbf{e}_{neg,gnn} - \mathbf{e}_{u,gnn}\mathbf{e}_{pos,gnn}`.
-        '''
         self.training = False
         y_probs, y_pred = [], []
+        batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
         with torch.no_grad():
             users_emb, items_emb = self.representation
-            for batch_users in tqdm(self.test_batches,
+            for batch_users in tqdm(batches,
                                     desc='batches',
                                     leave=False,
                                     dynamic_ncols=True,
@@ -257,22 +265,27 @@ class BaseModel(nn.Module):
                 rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
 
                 ''' set scores for train items to be -inf so we don't recommend them. '''
-                # subtract exploded.index.min since rating matrix only has
-                # batch_size users, so starts with 0, while index has users' real indices
-                exploded = self.train_user_dict[batch_users].explode()
-                rating[(exploded.index - exploded.index.min()).tolist(), exploded.tolist()] = np.NINF
+                exploded = self.train_user_dict[batch_users].reset_index(drop=True).explode()
+                rating[exploded.index, exploded.tolist()] = np.NINF
 
                 ''' select top-k items with highest ratings '''
                 probs, rank_indices = torch.topk(rating, k=max(self.k))
                 y_pred.append(rank_indices)
                 y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
 
-        predictions = pd.DataFrame.from_dict({'y_true': self.true_test_lil,
-                                              'y_pred': torch.cat(y_pred).tolist(),
-                                              'scores': torch.cat(y_probs).tolist()})
+        predictions = torch.cat(y_pred).tolist()
+        scores = torch.cat(y_probs).tolist()
+
         if save:
-            predictions.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
+            predictions_unmapped = [[self.item_mapping_dict[i] for i in row] for row in predictions]
+            users_unmapped = [self.user_mapping_dict[u] for u in users]
+            pred_df = pd.DataFrame({'user_id': users_unmapped,
+                                    'y_pred': predictions_unmapped,
+                                    'scores': scores})
+            pred_df.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
+        if with_scores:
+            return predictions, scores
         return predictions
 
     def calculate_metrics(self, df):
