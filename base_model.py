@@ -121,7 +121,7 @@ class BaseModel(nn.Module):
             self._loss_values = defaultdict(float)
             total_loss = 0
             for data in tqdm(batches,
-                             desc='batches',
+                             desc='train batches',
                              leave=False,
                              dynamic_ncols=True,
                              disable=self.slurm):
@@ -257,7 +257,7 @@ class BaseModel(nn.Module):
         with torch.no_grad():
             users_emb, items_emb = self.representation
             for batch_users in tqdm(batches,
-                                    desc='batches',
+                                    desc='predict batches',
                                     leave=False,
                                     dynamic_ncols=True,
                                     disable=self.slurm):

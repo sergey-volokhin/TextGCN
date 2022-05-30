@@ -7,6 +7,9 @@ from kg_models import DatasetKG, TextModelKG
 from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop, LTRGBDT
 from reviews_models import DatasetReviews, TextModelReviews
 from text_joint_model import TextData, TextModel
+from ltr_xgboost import LTRXGBoost, XGBoostDataset
+
+from ltr_models import LTRXGBoost as boost_simple
 
 from parser import parse_args
 from utils import seed_everything
@@ -22,6 +25,8 @@ def get_class(name):
         'ltr_pop': [LTRDataset, LTRLinearWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
         'gbdt': [LTRDataset, LTRGBDT],
+        'xgboost': [XGBoostDataset, LTRXGBoost],
+        'boost': [LTRDataset, boost_simple],
     }[name]
 
 

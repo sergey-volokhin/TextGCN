@@ -82,15 +82,15 @@ class LTRBase(BaseModel):
         self.score_pairwise = self.score_pairwise_ltr
         self.score_batchwise = self.score_batchwise_ltr
 
-    def _setup_layers(self, args):
+    def _setup_layers(self, *args):
         ''' build the top predictive layer that takes features from LightGCN '''
         raise NotImplementedError
 
-    def score_batchwise_ltr(self):
+    def score_batchwise_ltr(self, *args):
         ''' analogue of score_batchwise in BaseModel that uses textual data '''
         raise NotImplementedError
 
-    def score_pairwise_ltr(self):
+    def score_pairwise_ltr(self, *args):
         ''' analogue of score_pairwise in BaseModel that uses textual data '''
         raise NotImplementedError
 
@@ -130,10 +130,10 @@ class LTRBase(BaseModel):
         vectors['items_desc'] = self.get_item_desc(items)
         vectors['users_reviews'] = self.get_user_reviews_mean(users)
         vectors['items_reviews'] = self.get_item_reviews_mean(items)
-        vectors['user_gnn_desc'] = torch.cat([users_emb, vectors['users_desc']], axis=1)
-        vectors['item_gnn_desc'] = torch.cat([items_emb, vectors['items_desc']], axis=1)
-        vectors['user_gnn_reviews'] = torch.cat([users_emb, vectors['users_reviews']], axis=1)
-        vectors['item_gnn_reviews'] = torch.cat([items_emb, vectors['items_reviews']], axis=1)
+        vectors['user_gnn_desc'] = torch.cat([users_emb, vectors['users_desc']], axis=-1)
+        vectors['item_gnn_desc'] = torch.cat([items_emb, vectors['items_desc']], axis=-1)
+        vectors['user_gnn_reviews'] = torch.cat([users_emb, vectors['users_reviews']], axis=-1)
+        vectors['item_gnn_reviews'] = torch.cat([items_emb, vectors['items_reviews']], axis=-1)
         return vectors
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
@@ -284,7 +284,7 @@ class LTRGBDT(LTRBase):
 class LTRXGBoost(LTRBase):
 
     def _setup_layers(self, args):
-        self.layers = XGBRanker(verbosity=2)  # n_estimators, max_depth, verbosity=0-3
+        self.tree = XGBRanker(verbosity=1)  # n_estimators, max_depth, verbosity=0-3
         # objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
         # tree_method = 'gpu_hist', 'exact'
         # booster = 'gbtree', 'gblinear', 'dart'
@@ -295,7 +295,6 @@ class LTRXGBoost(LTRBase):
         # eval_metric = ['f1', 'recall', 'precision', 'ndcg', ]
 
     def fit(self, batches):
-        vectors_pos, vectors_neg = [], []
         users_emb, items_emb = self.representation
         for data in tqdm(batches,
                          desc='batches',
@@ -305,22 +304,30 @@ class LTRXGBoost(LTRBase):
 
             data = data.t()
             users, pos, negs = data[0], data[1], data[2:]
-            users_emb = users_emb[users]
-            pos_features = self.score_pairwise(users_emb, items_emb[pos], users, pos)
-            vectors_pos.append(pos_features)
+            vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
+            y_true = []
+            groups = []
+            features = []
+            features.append(self.get_features_pairwise(vectors))
+
             for neg in negs:
-                neg_features = self.score_pairwise(users_emb, items_emb[neg], users, neg)
-                vectors_neg.append(neg_features)
+                vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
+                neg_features = self.get_features_pairwise(vectors)
+                features.append(neg_features)
 
-        vectors_pos = torch.stack(vectors_pos, dim=1)
-        vectors_neg = torch.stack(vectors_neg, dim=1)
+            y_true += [[1] + [0] * len(negs)] * len(users)
+            groups.append([len(negs) + 1] * len(users))
 
-        features = torch.cat([vectors_pos, vectors_neg]).squeeze()
-        y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
+            features = torch.stack(features).reshape(-1, len(self.feature_names))
 
-        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
+            self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
+
         self.evaluate()
-        self.checkpoint()
+        self.checkpoint(-1)
+
+    # def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+    #     vectors = self.get_vectors(users_emb, items_emb, users, items)
+    #     return self.layers(self.get_features_pairwise(vectors))
 
 
 # df containing rows with feature columns,

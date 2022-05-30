@@ -30,8 +30,8 @@ class AdvSamplModel(BaseModel):
 
     def score_pairwise_adv(self, users_emb, items_emb, *args):
         '''
-            calculate scores for all items for users in the batch
-            each user has 1000 randomly picked items
+            each user has a batch with corresponding items,
+            calculate scores for all items for those items:
             users_emb.shape = (batch_size, emb_size)
             items_emb.shape = (batch_size, 1000, emb_size)
         '''
