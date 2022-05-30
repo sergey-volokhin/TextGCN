@@ -153,6 +153,11 @@ def parse_args(s=None):
     #                         default='avg',
     #                         choices=['avg', 'kg'],
     #                         help='how to represent the negative items from the sampled triplets')
+
+    parser.add_argument('--old',
+                        action='store_true',
+                        help="whether old version of mapping is used or not")
+
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     asserts(args)

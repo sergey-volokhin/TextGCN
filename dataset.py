@@ -24,6 +24,7 @@ class BaseDataset(Dataset):
         self._precalculate_normalization()
 
     def _copy_args(self, args):
+        self.old = args.old
         self.path = args.data
         self.slurm = args.slurm
         self.logger = args.logger
@@ -71,8 +72,13 @@ class BaseDataset(Dataset):
         self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
 
     def _convert_to_internal_ids(self):
-        self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
-        self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
+
+        if self.old:
+            self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
+            self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
+        else:
+            self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
+            self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
 
         self.train_df.user_id = self.train_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
         self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))

@@ -58,9 +58,9 @@ class BaseModel(nn.Module):
         self.test_batches = dataset.test_batches
         self.true_test_lil = dataset.true_test_lil
         self.train_user_dict = dataset.train_user_dict
-        self.test_users = dataset.test_df.user_id.unique()          # ids of people from test set
-        self.user_mapping_dict = dict(dataset.user_mapping.values)  # dict mapping from internal id to real id
-        self.item_mapping_dict = dict(dataset.item_mapping.values)  # dict mapping from internal id to real id
+        self.test_users = np.sort(dataset.test_df.user_id.unique())  # ids of people from test set
+        self.user_mapping_dict = dict(dataset.user_mapping.values)   # dict mapping from internal id to real id
+        self.item_mapping_dict = dict(dataset.item_mapping.values)   # dict mapping from internal id to real id
 
     def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
@@ -227,8 +227,6 @@ class BaseModel(nn.Module):
             'y_pred': predictions,
             'scores': scores,
         })
-
-        results = {i: np.zeros(len(self.k)) for i in self.metrics}
 
         ''' calculate intersections of y_pred and y_test '''
         for col in predictions.columns:
