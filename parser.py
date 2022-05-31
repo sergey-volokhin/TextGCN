@@ -15,7 +15,7 @@ def parse_args(s=None):
                         choices=['lgcn',  # BaseModel, custom LightGCN
                                  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
                                  'ltr_linear', 'ltr_pop',
-                                 'gbdt', 'xgboost', 'boost',
+                                 'gbdt', 'xgboost', 'skboost',
                                  'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
                                  ],
@@ -25,11 +25,11 @@ def parse_args(s=None):
                         nargs='*',
                         default=[]),
     parser.add_argument('--data',
-                        default='data/subsampled/',
+                        default='data/small/',
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=1000,
+                        default=10,
                         type=int,
                         help='number of epochs to train')
     parser.add_argument('--emb_size',
@@ -49,7 +49,7 @@ def parse_args(s=None):
                         help="optional name for the model instead of generated uid")
 
     parser.add_argument('--evaluate_every', '--eval_every',
-                        default=25,
+                        default=1,
                         type=int,
                         help='how often evaluation is performed during training (default: every 25 epochs)')
     parser.add_argument('-k',

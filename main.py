@@ -26,7 +26,7 @@ def get_class(name):
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
         'gbdt': [LTRDataset, LTRGBDT],
         'xgboost': [XGBoostDataset, LTRXGBoost],
-        'boost': [LTRDataset, boost_simple],
+        'skboost': [LTRDataset, boost_simple],
     }[name]
 
 
