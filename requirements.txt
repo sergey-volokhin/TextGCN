@@ -1,5 +1,5 @@
-dgl-cu110==0.6.1
-torch==1.10.0
+torch==1.11.0
+dgl
 pandas
 networkx
 tensorboardX
@@ -7,3 +7,4 @@ sentence_transformers
 sentencepiece
 scikit-learn
 transformers
+xgboost

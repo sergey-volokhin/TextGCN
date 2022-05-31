@@ -308,8 +308,8 @@ class LTRXGBoost(LTRBase):
     def _setup_layers(self, args):
         self.tree = XGBRanker(verbosity=1,
                               objective='rank:pairwise',
-                              tree_method='gpu_hist',
-                              predictor='gpu_predictor',
+                            #   tree_method='gpu_hist',
+                            #   predictor='gpu_predictor',
                               eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
                               )
         ''' hyper params of xgboost:
