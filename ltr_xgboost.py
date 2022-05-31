@@ -35,22 +35,7 @@ class LTRXGBoost(LTRBase):
                               eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
                               )
 
-        #   eval_metric=['recall', 'precision', 'ndcg'])
-        # n_estimators, max_depth, verbosity=0-3
-        # objective='rank:pairwise', 'rank:ndcg', 'rank:map'
-        # tree_method='gpu_hist', 'ct'
-        # booster='gbtree', 'gblinear', 'dart'
-        # max_bin
-        # n_jobs
-        # sampling_method='gradient_based'
-        # predictor='gpu_predictor'
-
-        # model.fit(x_train, y_train, group_train, verbose=True,
-        #           eval_set=[(x_valid, y_valid)], eval_group=[group_valid])
-        # pred = model.predict(x_test)
-
     def fit(self, batches):
-
         self.training = True
         users_emb, items_emb = self.representation
         for data in tqdm(batches,
@@ -60,9 +45,6 @@ class LTRXGBoost(LTRBase):
                          disable=self.slurm):
 
             users = data.to(self.device)
-
-            # data = data.to(self.device)
-            # users, items = data[:, 0], data[:, 1:]
 
             y_true, batch, groups = [], [], []
 

@@ -1,9 +1,9 @@
+import numpy as np
 import torch
 from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from torch import nn
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm, trange
 from xgboost import XGBRanker
-
 
 from base_model import BaseModel
 from kg_models import DatasetKG
@@ -77,10 +77,6 @@ class LTRBase(BaseModel):
                               'gnn-description']
         ''' build the trainable layer on top '''
         self._setup_layers(args)
-
-        ''' overwrite the scoring methods '''
-        self.score_pairwise = self.score_pairwise_ltr
-        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, *args):
         ''' build the top predictive layer that takes features from LightGCN '''
@@ -178,7 +174,11 @@ class LTRLinear(LTRBase):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
+
+        ''' overwrite the scoring methods '''
         self.evaluate = self.evaluate_ltr
+        self.score_pairwise = self.score_pairwise_ltr
+        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, args):
         '''
@@ -238,98 +238,130 @@ class LTRLinearWPop(LTRLinear):
 class LTRGBDT(LTRBase):
     ''' train a Gradient Boosted Decision Tree (sklearn) on top of LightGCN '''
 
+    def __init__(self, args, dataset):
+        super().__init__(args, dataset)
+        self.score_batchwise = self.score_batchwise_ltr
+
     def _setup_layers(self, args):
         self.tree = GBRT(n_estimators=10, max_depth=3)
 
     def fit(self, batches):
+        '''
+            iter over epochs:
+                for each data batch:
+                    get features for positive items
+                    get features for negative items
+                    feed them into the tree
+        '''
 
-        vectors_pos, vectors_neg = [], []
-        users_emb, items_emb = self.representation
-        for data in tqdm(batches,
-                         desc='batches',
-                         leave=False,
-                         dynamic_ncols=True,
-                         disable=self.slurm):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
 
-            data = data.t()
-            users, pos, negs = data[0], data[1], data[2:]
-            users_emb = users_emb[users]
-            pos_features = self.score_pairwise(users_emb, items_emb[pos], users, pos)
-            vectors_pos.append(pos_features)
-            for neg in negs:
-                neg_features = self.score_pairwise(users_emb, items_emb[neg], users, neg)
-                vectors_neg.append(neg_features)
+            users_emb, items_emb = self.representation
+            for data in tqdm(batches,
+                             desc='batches',
+                             leave=False,
+                             dynamic_ncols=True,
+                             disable=self.slurm):
+                data = data.t()
+                users, pos, negs = data[0], data[1], data[2:]
+                vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
+                features, y_true = [], []
 
-        vectors_pos = torch.stack(vectors_pos, dim=1)
-        vectors_neg = torch.stack(vectors_neg, dim=1)
+                pos_features = self.get_features_pairwise(vectors)
+                features += pos_features
 
-        features = torch.cat([vectors_pos, vectors_neg]).squeeze()
-        y_true = torch.cat([torch.ones(features.shape[0] // 2), torch.zeros(features.shape[0] // 2)])
+                for neg in negs:
+                    vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
+                    neg_features = self.get_features_pairwise(vectors)
+                    features += neg_features
 
-        self.tree.fit(features.cpu().detach().numpy(), y_true.cpu().detach().numpy())
-        self.evaluate()
-        self.checkpoint()
+                y_true = [[1] + [0] * len(negs)] * len(users)
+                self.tree.fit(torch.stack(features).cpu().detach().numpy(), np.array(y_true).reshape(-1))
 
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
-        vectors = self.get_vectors(users_emb, items_emb, users, items)
-        return self.get_scores_pairwise(users_emb, items_emb, *vectors)
+            if epoch % self.evaluate_every:
+                continue
+
+            self.evaluate()
+            self.checkpoint(epoch)
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        else:
+            self.checkpoint(self.epochs)
+        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
         vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
-        x = self.get_scores_batchwise(users_emb, items_emb, *vectors).detach()
-        x = x.reshape(x.shape[0] * x.shape[1], x.shape[-1]).cpu().numpy()
-        return self.tree.predict(x)
+        features = self.get_features_batchwise(vectors).detach().cpu()
+        results = self.tree.predict(features.reshape(-1, features.shape[-1]))
+        return torch.from_numpy(results.reshape(features.shape[:2]))
 
 
 class LTRXGBoost(LTRBase):
+    ''' train xgboost ranker on top of LightGCN '''
+
+    def __init__(self, args, dataset):
+        super().__init__(args, dataset)
+        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, args):
-        self.tree = XGBRanker(verbosity=1)  # n_estimators, max_depth, verbosity=0-3
-        # objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
-        # tree_method = 'gpu_hist', 'exact'
-        # booster = 'gbtree', 'gblinear', 'dart'
-        # max_bin
-        # n_jobs
-        # sampling_method = 'gradient_based'
-        # predictor = 'gpu_predictor'
-        # eval_metric = ['f1', 'recall', 'precision', 'ndcg', ]
+        self.tree = XGBRanker(verbosity=1,
+                              objective='rank:pairwise',
+                              tree_method='gpu_hist',
+                              predictor='gpu_predictor',
+                              eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
+                              )
+        ''' hyper params of xgboost:
+            objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
+            n_estimators, max_depth
+            tree_method = 'gpu_hist', 'exact'
+            booster = 'gbtree', 'gblinear', 'dart'
+            max_bin, n_jobs
+            sampling_method = 'gradient_based'
+        '''
 
     def fit(self, batches):
-        users_emb, items_emb = self.representation
-        for data in tqdm(batches,
-                         desc='batches',
-                         leave=False,
-                         dynamic_ncols=True,
-                         disable=self.slurm):
+        ''' exactly same jazz as in GBDT, but need "groups" into the tree '''
 
-            data = data.t()
-            users, pos, negs = data[0], data[1], data[2:]
-            vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
-            y_true = []
-            groups = []
-            features = []
-            features.append(self.get_features_pairwise(vectors))
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
 
-            for neg in negs:
-                vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
-                neg_features = self.get_features_pairwise(vectors)
-                features.append(neg_features)
+            users_emb, items_emb = self.representation
+            for data in tqdm(batches,
+                             desc='train batches',
+                             leave=False,
+                             dynamic_ncols=True,
+                             disable=self.slurm):
+                data = data.t()
+                users, pos, negs = data[0], data[1], data[2:]
+                vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
 
-            y_true += [[1] + [0] * len(negs)] * len(users)
-            groups.append([len(negs) + 1] * len(users))
+                features = []
+                features.append(self.get_features_pairwise(vectors))
+                for neg in negs:
+                    vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
+                    neg_features = self.get_features_pairwise(vectors)
+                    features.append(neg_features)
 
-            features = torch.stack(features).reshape(-1, len(self.feature_names))
+                y_true = [[1] + [0] * len(negs)] * len(users)
+                groups = [len(negs) + 1] * len(users)
 
-            self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
+                features = torch.stack(features).reshape(-1, len(self.feature_names))
+                self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
 
-        self.evaluate()
-        self.checkpoint(-1)
+            if epoch % self.evaluate_every:
+                continue
 
-    # def score_pairwise_ltr(self, users_emb, items_emb, users, items):
-    #     vectors = self.get_vectors(users_emb, items_emb, users, items)
-    #     return self.layers(self.get_features_pairwise(vectors))
+            self.evaluate()
+            self.checkpoint(epoch)
+            if early_stop(self.metrics_logger):
+                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
+                break
+        else:
+            self.checkpoint(self.epochs)
+        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-
-# df containing rows with feature columns,
-# a column named id which identifies the group,
-# and a target column called rank which contains the target.
+    def score_batchwise_ltr(self, users_emb, items_emb, users):
+        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        features = self.get_features_batchwise(vectors).detach().cpu()
+        results = self.tree.predict(features.reshape(-1, features.shape[-1]))
+        return torch.from_numpy(results.reshape(features.shape[:2]))
