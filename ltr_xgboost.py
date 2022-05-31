@@ -1,11 +1,9 @@
-import random
-
+import sklearn
 import torch
-from tqdm import tqdm, trange
+from tqdm import tqdm
 from xgboost import XGBRanker
 
 from ltr_models import LTRBase, LTRDataset
-
 
 # class XGBoostDataset(LTRDataset, AdvSamplDataset):
 #     pass
@@ -64,7 +62,10 @@ class LTRXGBoost(LTRBase):
 
             features = self.get_features_batchwise_xgboost(vectors).squeeze()
             features = features.reshape((-1, len(self.feature_names)))
-            self.tree.fit(features.detach().cpu().numpy(), y_true, group=groups, verbose=True)
+            try:
+                self.tree.fit(features.detach().cpu().numpy(), y_true, group=groups, verbose=True, xgb_model=self.tree)
+            except sklearn.exceptions.NotFittedError:
+                self.tree.fit(features.detach().cpu().numpy(), y_true, group=groups, verbose=True)
 
         self.evaluate()
         self.checkpoint(-1)

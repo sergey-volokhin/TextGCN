@@ -1,4 +1,5 @@
 import numpy as np
+import sklearn
 import torch
 from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from torch import nn
@@ -346,7 +347,11 @@ class LTRXGBoost(LTRBase):
                 groups = [len(negs) + 1] * len(users)
 
                 features = torch.stack(features).reshape(-1, len(self.feature_names))
-                self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
+                try:
+                    self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups, xgb_model=self.tree)
+                except sklearn.exceptions.NotFittedError:
+                    print('not fitted')
+                    self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
 
             if epoch % self.evaluate_every:
                 continue
