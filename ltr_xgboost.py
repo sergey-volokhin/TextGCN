@@ -36,6 +36,7 @@ class LTRXGBoost(LTRBase):
     def fit(self, batches):
         self.training = True
         users_emb, items_emb = self.representation
+        all_features = []
         for data in tqdm(batches,
                          desc='train batches',
                          leave=False,
@@ -62,11 +63,9 @@ class LTRXGBoost(LTRBase):
 
             features = self.get_features_batchwise_xgboost(vectors).squeeze()
             features = features.reshape((-1, len(self.feature_names)))
-            try:
-                self.tree.fit(features.detach().cpu().numpy(), y_true, group=groups, verbose=True, xgb_model=self.tree)
-            except sklearn.exceptions.NotFittedError:
-                self.tree.fit(features.detach().cpu().numpy(), y_true, group=groups, verbose=True)
+            all_features.append(features)
 
+        self.tree.fit(torch.cat(all_features).detach().cpu().numpy(), y_true, group=groups, verbose=True)
         self.evaluate()
         self.checkpoint(-1)
 
