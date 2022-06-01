@@ -27,9 +27,11 @@ class LTRXGBoost(LTRBase):
 
     def _setup_layers(self, args):
         self.tree = XGBRanker(verbosity=1,
-                              objective='rank:pairwise',
-                              tree_method='gpu_hist',
-                              predictor='gpu_predictor',
+                              objective='rank:ndcg',
+                              sampling_method='gradient_based',
+                            #   tree_method='gpu_hist',
+                            #   predictor='gpu_predictor',
+                              n_estimators=10,
                               eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
                               )
 
@@ -47,7 +49,6 @@ class LTRXGBoost(LTRBase):
 
             y_true, batch, groups = [], [], []
 
-            # sampling the data correctly
             for user in users:
                 negatives = self.subtract_tensor_as_set(self.all_items, self.positive_lists[user]['tensor'])
                 positives = self.positive_lists[user]['tensor']

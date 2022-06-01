@@ -54,6 +54,7 @@ class LTRBase(BaseModel):
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.users_as_avg_desc = dataset.users_as_avg_desc
         self.items_as_desc = dataset.items_as_desc
+        self.all_items = torch.arange(0, dataset.n_items).to(self.device)
 
     def _init_embeddings(self, emb_size):
         super()._init_embeddings(emb_size)
@@ -193,7 +194,7 @@ class LTRLinear(LTRBase):
         self.layers = nn.Sequential(*layers).to(self.device)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
         return self.layers(self.get_features_batchwise(vectors)).squeeze()
 
     def score_pairwise_ltr(self, users_emb, items_emb, users, items):
@@ -222,7 +223,7 @@ class LTRLinearWPop(LTRLinear):
         super()._setup_layers(args)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
         features = self.get_features_batchwise(vectors)
         pop_u = self.popularity_users[users].unsqueeze(-1).expand(len(users), self.n_items, 1)
         pop_i = self.popularity_items.expand(len(users), self.n_items, 1)
@@ -244,7 +245,7 @@ class LTRGBDT(LTRBase):
         self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, args):
-        self.tree = GBRT(n_estimators=10, max_depth=3)
+        self.tree = GBRT(n_estimators=10, max_depth=3, warm_start=True)
 
     def fit(self, batches):
         '''
@@ -292,7 +293,7 @@ class LTRGBDT(LTRBase):
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
         features = self.get_features_batchwise(vectors).detach().cpu()
         results = self.tree.predict(features.reshape(-1, features.shape[-1]))
         return torch.from_numpy(results.reshape(features.shape[:2]))
@@ -307,7 +308,7 @@ class LTRXGBoost(LTRBase):
 
     def _setup_layers(self, args):
         self.tree = XGBRanker(verbosity=1,
-                              objective='rank:pairwise',
+                              objective='rank:ndcg',
                             #   tree_method='gpu_hist',
                             #   predictor='gpu_predictor',
                               eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
@@ -315,7 +316,6 @@ class LTRXGBoost(LTRBase):
         ''' hyper params of xgboost:
             objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
             n_estimators, max_depth
-            tree_method = 'gpu_hist', 'exact'
             booster = 'gbtree', 'gblinear', 'dart'
             max_bin, n_jobs
             sampling_method = 'gradient_based'
@@ -366,7 +366,7 @@ class LTRXGBoost(LTRBase):
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, list(range(self.n_items)))
+        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
         features = self.get_features_batchwise(vectors).detach().cpu()
         results = self.tree.predict(features.reshape(-1, features.shape[-1]))
         return torch.from_numpy(results.reshape(features.shape[:2]))

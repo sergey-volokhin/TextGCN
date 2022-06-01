@@ -192,3 +192,6 @@ def asserts(args):
         assert args.aggr is not None, 'set up the aggregator function for torch_geometric model'
     elif args.model in ['text', 'reviews', 'kg']:
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
+
+    if 'baseline' in args.load_base and 'medium' in args.data:  # hack to run the medium baseline for marcus smoothly
+        args.old = True
