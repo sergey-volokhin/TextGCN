@@ -1,15 +1,9 @@
-import numpy as np
-import sklearn
 import torch
-from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from torch import nn
-from tqdm.auto import tqdm, trange
-from xgboost import XGBRanker
 
 from base_model import BaseModel
 from kg_models import DatasetKG
 from reviews_models import DatasetReviews
-from utils import early_stop
 
 
 class LTRDataset(DatasetKG, DatasetReviews):
@@ -39,14 +33,14 @@ class LTRDataset(DatasetKG, DatasetReviews):
 
 class LTRBase(BaseModel):
     '''
-        base class for Learning-to-Rank models, which uses pre-trained
-        LightGCN vectors and trains a layer on top
+        base class for Learning-to-Rank models
+        uses pre-trained LightGCN vectors and trains a layer on top
     '''
 
     def _copy_args(self, args):
         super()._copy_args(args)
         self.load_base = args.load_base
-        self.freeze = args.freeze
+        self.unfreeze = args.unfreeze
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
@@ -54,29 +48,31 @@ class LTRBase(BaseModel):
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.users_as_avg_desc = dataset.users_as_avg_desc
         self.items_as_desc = dataset.items_as_desc
-        self.all_items = torch.arange(0, dataset.n_items).to(self.device)
+        self.all_items = dataset.all_items
 
     def _init_embeddings(self, emb_size):
         super()._init_embeddings(emb_size)
-        if self.freeze:
+        if not self.unfreeze:
             self.embedding_user.requires_grad_(False)
             self.embedding_item.requires_grad_(False)
 
     def _add_vars(self, args):
         super()._add_vars(args)
 
-        ''' load the base model, before overwriting the scoring functions '''
+        ''' load the base model before overwriting the scoring functions '''
         if self.load_base:
             self.load_model(self.load_base)
 
         ''' features we are going to use'''
-        self.feature_names = ['gnn',
-                              'reviews',
-                              'desc',
-                              'reviews-description',
-                              'description-reviews',
-                              'gnn-reviews',
-                              'gnn-description']
+        self.feature_names = [
+            'lightgcn',
+            'reviews',
+            'desc',
+            'reviews-description',
+            'description-reviews',
+            'lightgcn-reviews',
+            'lightgcn-description',
+        ]
         ''' build the trainable layer on top '''
         self._setup_layers(args)
 
@@ -102,56 +98,55 @@ class LTRBase(BaseModel):
         ''' represent users as mean of descriptions of items they reviewed '''
         return self.users_as_avg_desc[u]
 
-    def get_item_reviews_mean(self, i, u=None):
+    def get_item_reviews_mean(self, i, *args):
         ''' represent items as mean of their reviews '''
         return self.items_as_avg_reviews[i]
 
-    def get_item_desc(self, i, u=None):
+    def get_item_desc(self, i, *args):
         ''' represent items as their description '''
         return self.items_as_desc[i]
 
-    def get_item_reviews_user(self, i, u=None):
+    def get_item_reviews_user(self, i, u):
         ''' represent items as the review of corresponding user '''
         df = self.reviews_df.loc[torch.stack([i, u], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)
 
-    def get_vectors(self, users_emb, items_emb, users, items):
-        '''
-            returns all the dense features that consists of textual representations:
-                user/item LightGCN vectors
-                user/item reviews
-                user/item descriptions
-                & combinations of aforementioned
-        '''
-        vectors = {'users_emb': users_emb, 'items_emb': items_emb}
-        vectors['users_desc'] = self.get_user_desc(users)
-        vectors['items_desc'] = self.get_item_desc(items)
-        vectors['users_reviews'] = self.get_user_reviews_mean(users)
-        vectors['items_reviews'] = self.get_item_reviews_mean(items)
-        vectors['user_gnn_desc'] = torch.cat([users_emb, vectors['users_desc']], axis=-1)
-        vectors['item_gnn_desc'] = torch.cat([items_emb, vectors['items_desc']], axis=-1)
-        vectors['user_gnn_reviews'] = torch.cat([users_emb, vectors['users_reviews']], axis=-1)
-        vectors['item_gnn_reviews'] = torch.cat([items_emb, vectors['items_reviews']], axis=-1)
-        return vectors
+    def get_item_vectors(self, items_emb, items):
+        ''' get vectors used to calculate textual representations dense features for items '''
+        vecs = {'emb': items_emb}
+        vecs['desc'] = self.get_item_desc(items)
+        vecs['reviews'] = self.get_item_reviews_mean(items)
+        vecs['lightgcn||desc'] = torch.cat([items_emb, vecs['desc']], axis=-1)
+        vecs['lightgcn||reviews'] = torch.cat([items_emb, vecs['reviews']], axis=-1)
+        return vecs
+
+    def get_user_vectors(self, users_emb, users):
+        ''' get vectors used to calculate textual representations dense features for users '''
+        vecs = {'emb': users_emb}
+        vecs['desc'] = self.get_user_desc(users)
+        vecs['reviews'] = self.get_user_reviews_mean(users)
+        vecs['lightgcn||desc'] = torch.cat([users_emb, vecs['desc']], axis=-1)
+        vecs['lightgcn||reviews'] = torch.cat([users_emb, vecs['reviews']], axis=-1)
+        return vecs
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
-    def get_features_batchwise(self, vectors):
+    def get_features_batchwise(self, u_vecs, i_vecs):
         '''
             batchwise (all-to-all) calculation of features for top layer:
             vectors['users_emb'].shape = (batch_size, emb_size)
             vectors['items_emb'].shape = (n_items, emb_size)
         '''
         return torch.cat([
-            (vectors['users_emb'] @ vectors['items_emb'].T).unsqueeze(-1),
-            (vectors['users_reviews'] @ vectors['items_reviews'].T).unsqueeze(-1),
-            (vectors['users_desc'] @ vectors['items_desc'].T).unsqueeze(-1),
-            (vectors['users_reviews'] @ vectors['items_desc'].T).unsqueeze(-1),
-            (vectors['users_desc'] @ vectors['items_reviews'].T).unsqueeze(-1),
-            (vectors['user_gnn_reviews'] @ vectors['item_gnn_reviews'].T).unsqueeze(-1),
-            (vectors['user_gnn_desc'] @ vectors['item_gnn_desc'].T).unsqueeze(-1),
+            (u_vecs['emb'] @ i_vecs['emb'].T).unsqueeze(-1),
+            (u_vecs['reviews'] @ i_vecs['reviews'].T).unsqueeze(-1),
+            (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
+            (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
+            (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
+            (u_vecs['lightgcn||reviews'] @ i_vecs['lightgcn||reviews'].T).unsqueeze(-1),
+            (u_vecs['lightgcn||desc'] @ i_vecs['lightgcn||desc'].T).unsqueeze(-1),
         ], axis=-1)
 
-    def get_features_pairwise(self, vectors):
+    def get_features_pairwise(self, u_vecs, i_vecs):
         '''
             pairwise (1-to-1) calculation of features for top layer:
             vectors['users_emb'].shape == vectors['items_emb'].shape
@@ -161,13 +156,13 @@ class LTRBase(BaseModel):
             return (x * y).sum(dim=1).unsqueeze(1)
 
         return torch.cat([
-            sum_mul(vectors['users_emb'], vectors['items_emb']),
-            sum_mul(vectors['users_reviews'], vectors['items_reviews']),
-            sum_mul(vectors['users_desc'], vectors['items_desc']),
-            sum_mul(vectors['users_reviews'], vectors['items_desc']),
-            sum_mul(vectors['users_desc'], vectors['items_reviews']),
-            sum_mul(vectors['user_gnn_reviews'], vectors['item_gnn_reviews']),
-            sum_mul(vectors['user_gnn_desc'], vectors['item_gnn_desc']),
+            sum_mul(u_vecs['emb'], i_vecs['emb']),
+            sum_mul(u_vecs['reviews'], i_vecs['reviews']),
+            sum_mul(u_vecs['desc'], i_vecs['desc']),
+            sum_mul(u_vecs['reviews'], i_vecs['desc']),
+            sum_mul(u_vecs['desc'], i_vecs['reviews']),
+            sum_mul(u_vecs['lightgcn||reviews'], i_vecs['lightgcn||reviews']),
+            sum_mul(u_vecs['lightgcn||desc'], i_vecs['lightgcn||desc']),
         ], axis=1)
 
 
@@ -193,21 +188,22 @@ class LTRLinear(LTRBase):
             layers.append(nn.Linear(i, j))
         self.layers = nn.Sequential(*layers).to(self.device)
 
-    def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
-        return self.layers(self.get_features_batchwise(vectors)).squeeze()
-
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
-        vectors = self.get_vectors(users_emb, items_emb, users, items)
-        return self.layers(self.get_features_pairwise(vectors))
-
     def evaluate_ltr(self):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
-        res = super().evaluate()
         if len(self.layers) == 1:
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
                 self.logger.info(f'{f:<20} {w:.4}')
-        return res
+        return super().evaluate()
+
+    def score_batchwise_ltr(self, users_emb, items_emb, users):
+        u_vecs = self.get_user_vectors(users_emb, users)
+        i_vecs = self.get_item_vectors(items_emb, self.all_items)
+        return self.layers(self.get_features_batchwise(u_vecs, i_vecs)).squeeze()
+
+    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+        u_vecs = self.get_user_vectors(users_emb, users)
+        i_vecs = self.get_item_vectors(items_emb, items)
+        return self.layers(self.get_features_pairwise(u_vecs, i_vecs))
 
 
 class LTRLinearWPop(LTRLinear):
@@ -223,150 +219,17 @@ class LTRLinearWPop(LTRLinear):
         super()._setup_layers(args)
 
     def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
-        features = self.get_features_batchwise(vectors)
+        u_vecs = self.get_user_vectors(users_emb, users)
+        i_vecs = self.get_item_vectors(items_emb, self.all_items)
+        features = self.get_features_batchwise(u_vecs, i_vecs)
         pop_u = self.popularity_users[users].unsqueeze(-1).expand(len(users), self.n_items, 1)
         pop_i = self.popularity_items.expand(len(users), self.n_items, 1)
         return self.layers(torch.cat([features, pop_u, pop_i], axis=-1)).squeeze()
 
     def score_pairwise_ltr(self, users_emb, items_emb, users, items):
-        vectors = self.get_vectors(users_emb, items_emb, users, items)
-        features = self.get_features_pairwise(vectors)
+        u_vecs = self.get_user_vectors(users_emb, users)
+        i_vecs = self.get_item_vectors(items_emb, items)
+        features = self.get_features_pairwise(u_vecs, i_vecs)
         return self.layers(torch.cat([features,
                                       self.popularity_users[users],
                                       self.popularity_items[items]], axis=-1))
-
-
-class LTRGBDT(LTRBase):
-    ''' train a Gradient Boosted Decision Tree (sklearn) on top of LightGCN '''
-
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
-        self.score_batchwise = self.score_batchwise_ltr
-
-    def _setup_layers(self, args):
-        self.tree = GBRT(n_estimators=10, max_depth=3, warm_start=True)
-
-    def fit(self, batches):
-        '''
-            iter over epochs:
-                for each data batch:
-                    get features for positive items
-                    get features for negative items
-                    feed them into the tree
-        '''
-
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
-
-            users_emb, items_emb = self.representation
-            for data in tqdm(batches,
-                             desc='batches',
-                             leave=False,
-                             dynamic_ncols=True,
-                             disable=self.slurm):
-                data = data.t()
-                users, pos, negs = data[0], data[1], data[2:]
-                vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
-                features, y_true = [], []
-
-                pos_features = self.get_features_pairwise(vectors)
-                features += pos_features
-
-                for neg in negs:
-                    vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
-                    neg_features = self.get_features_pairwise(vectors)
-                    features += neg_features
-
-                y_true = [[1] + [0] * len(negs)] * len(users)
-                self.tree.fit(torch.stack(features).cpu().detach().numpy(), np.array(y_true).reshape(-1))
-
-            if epoch % self.evaluate_every:
-                continue
-
-            self.evaluate()
-            self.checkpoint(epoch)
-            if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
-                break
-        else:
-            self.checkpoint(self.epochs)
-        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
-
-    def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
-        features = self.get_features_batchwise(vectors).detach().cpu()
-        results = self.tree.predict(features.reshape(-1, features.shape[-1]))
-        return torch.from_numpy(results.reshape(features.shape[:2]))
-
-
-class LTRXGBoost(LTRBase):
-    ''' train xgboost ranker on top of LightGCN '''
-
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
-        self.score_batchwise = self.score_batchwise_ltr
-
-    def _setup_layers(self, args):
-        self.tree = XGBRanker(verbosity=1,
-                              objective='rank:ndcg',
-                            #   tree_method='gpu_hist',
-                            #   predictor='gpu_predictor',
-                              eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
-                              )
-        ''' hyper params of xgboost:
-            objective = 'rank:pairwise', 'rank:ndcg', 'rank:map'
-            n_estimators, max_depth
-            booster = 'gbtree', 'gblinear', 'dart'
-            max_bin, n_jobs
-            sampling_method = 'gradient_based'
-        '''
-
-    def fit(self, batches):
-        ''' exactly same jazz as in GBDT, but need "groups" into the tree '''
-
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
-
-            users_emb, items_emb = self.representation
-            for data in tqdm(batches,
-                             desc='train batches',
-                             leave=False,
-                             dynamic_ncols=True,
-                             disable=self.slurm):
-                data = data.t()
-                users, pos, negs = data[0], data[1], data[2:]
-                vectors = self.get_vectors(users_emb[users], items_emb[pos], users, pos)
-
-                features = []
-                features.append(self.get_features_pairwise(vectors))
-                for neg in negs:
-                    vectors = self.get_vectors(users_emb[users], items_emb[neg], users, neg)
-                    neg_features = self.get_features_pairwise(vectors)
-                    features.append(neg_features)
-
-                y_true = [[1] + [0] * len(negs)] * len(users)
-                groups = [len(negs) + 1] * len(users)
-
-                features = torch.stack(features).reshape(-1, len(self.feature_names))
-                try:
-                    self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups, xgb_model=self.tree)
-                except sklearn.exceptions.NotFittedError:
-                    print('not fitted')
-                    self.tree.fit(features.cpu().detach().numpy(), y_true, group=groups)
-
-            if epoch % self.evaluate_every:
-                continue
-
-            self.evaluate()
-            self.checkpoint(epoch)
-            if early_stop(self.metrics_logger):
-                self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
-                break
-        else:
-            self.checkpoint(self.epochs)
-        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
-
-    def score_batchwise_ltr(self, users_emb, items_emb, users):
-        vectors = self.get_vectors(users_emb, items_emb, users, self.all_items)
-        features = self.get_features_batchwise(vectors).detach().cpu()
-        results = self.tree.predict(features.reshape(-1, features.shape[-1]))
-        return torch.from_numpy(results.reshape(features.shape[:2]))

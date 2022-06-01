@@ -16,9 +16,7 @@ def parse_args(s=None):
                                  'adv_sampling',  # dynamic negative sampling
                                  'text',
                                  'ltr_linear', 'ltr_pop',
-                                 'gb',
-                                #  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
-                                #  'reviews', 'kg',
+                                 'xgboost', 'gbdt',
                                  ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',

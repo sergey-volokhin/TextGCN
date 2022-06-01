@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 from advanced_sampling import AdvSamplDataset, AdvSamplModel
 from base_model import BaseModel
 from dataset import BaseDataset
+from ltr_gradient_boosted import LTRGradientBoosted, OneBatchDataset
 from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop
 from text_joint_model import TextData, TextModel
 
@@ -17,6 +18,8 @@ def get_class(name):
         'text': [TextData, TextModel],
         'ltr_linear': [LTRDataset, LTRLinear],
         'ltr_pop': [LTRDataset, LTRLinearWPop],
+        'xgboost': [OneBatchDataset, LTRGradientBoosted],
+        'gbdt': [OneBatchDataset, LTRGradientBoosted],
     }[name]
 
 
