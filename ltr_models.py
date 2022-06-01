@@ -70,8 +70,6 @@ class LTRBase(BaseModel):
             'desc',
             'reviews-description',
             'description-reviews',
-            'lightgcn-reviews',
-            'lightgcn-description',
         ]
         ''' build the trainable layer on top '''
         self._setup_layers(args)
@@ -116,8 +114,6 @@ class LTRBase(BaseModel):
         vecs = {'emb': items_emb}
         vecs['desc'] = self.get_item_desc(items)
         vecs['reviews'] = self.get_item_reviews_mean(items)
-        vecs['lightgcn||desc'] = torch.cat([items_emb, vecs['desc']], axis=-1)
-        vecs['lightgcn||reviews'] = torch.cat([items_emb, vecs['reviews']], axis=-1)
         return vecs
 
     def get_user_vectors(self, users_emb, users):
@@ -125,8 +121,6 @@ class LTRBase(BaseModel):
         vecs = {'emb': users_emb}
         vecs['desc'] = self.get_user_desc(users)
         vecs['reviews'] = self.get_user_reviews_mean(users)
-        vecs['lightgcn||desc'] = torch.cat([users_emb, vecs['desc']], axis=-1)
-        vecs['lightgcn||reviews'] = torch.cat([users_emb, vecs['reviews']], axis=-1)
         return vecs
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
@@ -142,8 +136,6 @@ class LTRBase(BaseModel):
             (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
             (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
             (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
-            (u_vecs['lightgcn||reviews'] @ i_vecs['lightgcn||reviews'].T).unsqueeze(-1),
-            (u_vecs['lightgcn||desc'] @ i_vecs['lightgcn||desc'].T).unsqueeze(-1),
         ], axis=-1)
 
     def get_features_pairwise(self, u_vecs, i_vecs):
@@ -161,8 +153,6 @@ class LTRBase(BaseModel):
             sum_mul(u_vecs['desc'], i_vecs['desc']),
             sum_mul(u_vecs['reviews'], i_vecs['desc']),
             sum_mul(u_vecs['desc'], i_vecs['reviews']),
-            sum_mul(u_vecs['lightgcn||reviews'], i_vecs['lightgcn||reviews']),
-            sum_mul(u_vecs['lightgcn||desc'], i_vecs['lightgcn||desc']),
         ], axis=1)
 
 
