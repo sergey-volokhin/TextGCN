@@ -56,5 +56,5 @@ class TextModelKG(TextBaseModel):
         super()._copy_dataset_args(dataset)
         self.items_as_desc = dataset.items_as_desc
 
-    def get_item_desc(self, items, users=None):
+    def get_item_desc(self, items, *args):
         return self.items_as_desc[items]

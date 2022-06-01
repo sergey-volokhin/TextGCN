@@ -13,11 +13,12 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         required=True,
                         choices=['lgcn',  # BaseModel, custom LightGCN
-                                 'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
-                                 'ltr_linear', 'ltr_pop',
-                                 'gbdt', 'xgboost', 'skboost', 'one_batch',
-                                 'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
+                                 'text',
+                                 'ltr_linear', 'ltr_pop',
+                                 'gb',
+                                #  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
+                                #  'reviews', 'kg',
                                  ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',
@@ -88,9 +89,9 @@ def parse_args(s=None):
     parser.add_argument('--reshuffle',
                         action='store_true',
                         help='whether to reshuffle the train-test split or use the existing one')
-    parser.add_argument('--freeze',
+    parser.add_argument('--unfreeze',
                         action='store_true',
-                        help='whether to freeze GNN embeddings when learning linear model on top or not')
+                        help='whether to freeze GNN embeddings when learning linear model on top (default: freeze)')
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')

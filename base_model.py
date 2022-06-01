@@ -172,14 +172,14 @@ class BaseModel(nn.Module):
 
     def score_pairwise(self, users_emb, items_emb, *args):
         '''
-            calculate scores for list of pairs (u, i):
+            calculate predicted user-item scores for a list of pairs (u, i):
             users_emb.shape == items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
     def score_batchwise(self, users_emb, items_emb, *args):
         '''
-            calculate scores batchwise (all-to-all):
+            calculate predicted user-item scores batchwise (all-to-all):
             users_emb.shape = (batch_size, emb_size)
             items_emb.shape = (n_items, emb_size)
         '''

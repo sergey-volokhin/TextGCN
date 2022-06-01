@@ -3,13 +3,8 @@ from torch.utils.data import DataLoader
 from advanced_sampling import AdvSamplDataset, AdvSamplModel
 from base_model import BaseModel
 from dataset import BaseDataset
-from kg_models import DatasetKG, TextModelKG
-from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop, LTRGBDT
-from reviews_models import DatasetReviews, TextModelReviews
+from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop
 from text_joint_model import TextData, TextModel
-from ltr_xgboost import LTRXGBoost, XGBoostDataset
-
-from ltr_models import LTRXGBoost as boost_simple
 
 from parser import parse_args
 from utils import seed_everything
@@ -18,15 +13,10 @@ from utils import seed_everything
 def get_class(name):
     return {
         'lgcn': [BaseDataset, BaseModel],
-        'reviews': [DatasetReviews, TextModelReviews],
-        'kg': [DatasetKG, TextModelKG],
+        'adv_sampling': [AdvSamplDataset, AdvSamplModel],
         'text': [TextData, TextModel],
         'ltr_linear': [LTRDataset, LTRLinear],
         'ltr_pop': [LTRDataset, LTRLinearWPop],
-        'adv_sampling': [AdvSamplDataset, AdvSamplModel],
-        'gbdt': [LTRDataset, LTRGBDT],
-        'xgboost': [XGBoostDataset, LTRXGBoost],
-        'skboost': [LTRDataset, boost_simple],
     }[name]
 
 

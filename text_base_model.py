@@ -71,10 +71,10 @@ class TextBaseModel(BaseModel):
                             self.get_neg_items_reprs(neg, users)
                             ).to(self.device)
 
-    def get_pos_items_reprs(self, items, users=None):
+    def get_pos_items_reprs(self, *args):
         ''' how do we represent positive items from sampled triplets '''
         raise NotImplementedError
 
-    def get_neg_items_reprs(self, items):
+    def get_neg_items_reprs(self, *args):
         ''' how do we represent negative items from sampled triplets '''
         raise NotImplementedError

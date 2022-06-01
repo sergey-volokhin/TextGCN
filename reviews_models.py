@@ -99,11 +99,11 @@ class TextModelReviews(TextBaseModel):
         self.reviews_df = dataset.reviews_df
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
-    def get_item_reviews_mean(self, items, users=None):
+    def get_item_reviews_mean(self, items, *args):
         ''' represent items with mean of their reviews '''
         return self.items_as_avg_reviews[items]
 
-    def get_item_reviews_user(self, items, users=None):
+    def get_item_reviews_user(self, items, users):
         ''' represent items with the review of corresponding user '''
         df = self.reviews_df.loc[torch.stack([items, users], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)
