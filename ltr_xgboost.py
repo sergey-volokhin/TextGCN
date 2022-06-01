@@ -14,7 +14,7 @@ class XGBoostDataset(LTRDataset):
         return self.n_users
 
     def __getitem__(self, idx):
-        return idx // self.bucket_len
+        return idx
 
 
 class LTRXGBoost(LTRBase):

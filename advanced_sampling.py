@@ -3,6 +3,7 @@ import random
 
 from base_model import BaseModel
 from dataset import BaseDataset
+from utils import subtract_tensor_as_set
 
 
 class AdvSamplDataset(BaseDataset):
@@ -56,17 +57,8 @@ class AdvSamplModel(BaseModel):
             item = item[rank.argsort(descending=True)]  # sort items by score to select highest rated
             positives = self.positive_lists[user]['list']
             positives = torch.tensor(random.sample(positives, min(self.pos_samples, len(positives)))).to(self.device)
-            negatives = self.subtract_tensor_as_set(item, self.positive_lists[user]['tensor'])[:max(self.k)]
+            negatives = subtract_tensor_as_set(item, self.positive_lists[user]['tensor'])[:max(self.k)]
             prod = torch.cartesian_prod(positives, negatives)
             batch.append(torch.cat([user.expand(prod.shape[0], 1), prod], dim=1))
 
         return super().get_loss(torch.cat(batch))
-
-    def subtract_tensor_as_set(self, t1, t2):
-        '''
-            quickly subtracts elements of the second tensor from
-            the first tensor as if they were sets.
-
-            copied from stackoverflow. no clue how this works
-        '''
-        return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1]

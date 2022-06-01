@@ -106,6 +106,16 @@ def embed_text(sentences, path, bert_model, batch_size, device):
     return result
 
 
+def subtract_tensor_as_set(t1, t2):
+    '''
+        quickly subtracts elements of the second tensor from
+        the first tensor as if they were sets.
+
+        copied from stackoverflow. no clue how this works
+    '''
+    return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
+
+
 def profile(func):
     ''' function profiler to monitor time it takes for each call '''
     def wrapper(*args, **kwargs):

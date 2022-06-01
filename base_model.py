@@ -53,7 +53,6 @@ class BaseModel(nn.Module):
     def _copy_dataset_args(self, dataset):
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
-        self.n_batches = dataset.n_batches
         self.norm_matrix = dataset.norm_matrix
         self.test_batches = dataset.test_batches
         self.true_test_lil = dataset.true_test_lil

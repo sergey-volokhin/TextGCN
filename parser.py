@@ -15,7 +15,7 @@ def parse_args(s=None):
                         choices=['lgcn',  # BaseModel, custom LightGCN
                                  'lightgcn', 'gat', 'gatv2', 'gcn', 'graphsage',  # torch_geometric
                                  'ltr_linear', 'ltr_pop',
-                                 'gbdt', 'xgboost', 'skboost',
+                                 'gbdt', 'xgboost', 'skboost', 'one_batch',
                                  'text', 'reviews', 'kg',
                                  'adv_sampling',  # dynamic negative sampling
                                  ],
@@ -193,5 +193,6 @@ def asserts(args):
     elif args.model in ['text', 'reviews', 'kg']:
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
 
-    if 'baseline' in args.load_base and 'medium' in args.data:  # hack to run the medium baseline for marcus smoothly
+    # hack to run the medium baseline for marcus smoothly
+    if args.load_base is not None and 'baseline' in args.load_base and 'medium' in args.data:
         args.old = True

@@ -144,16 +144,14 @@ class BaseDataset(Dataset):
         self.n_items = self.train_df.asin.nunique()
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
-        self.n_batches = (self.n_train - 1) // self.batch_size + 1
         self.bucket_len = self.n_train // self.n_users      # number of samples per user
         self.iterable_len = self.bucket_len * self.n_users  # length of torch Dataset we convert into
-        self.range_items = range(self.n_items)
+        self.all_items = range(self.n_items)  # this needs to be a python list for correct set conversion
 
         self.logger.info(f"n_train:    {self.n_train:-7}")
         self.logger.info(f"n_test:     {self.test_df.shape[0]:-7}")
         self.logger.info(f"n_users:    {self.n_users:-7}")
         self.logger.info(f"n_items:    {self.n_items:-7}")
-        self.logger.info(f"n_batches:  {self.n_batches:-7}")
 
     ''' this is done for compatibility w torch Dataset class '''
 
@@ -171,7 +169,7 @@ class BaseDataset(Dataset):
         if not self.cached_samplings[idx]:
             positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
             while True:
-                negatives = random.choices(self.range_items, k=self.bucket_len * self.neg_samples)
+                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples)
                 if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
                     break
             negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]
