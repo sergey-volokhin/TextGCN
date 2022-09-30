@@ -45,11 +45,11 @@ class BaseDataset(Dataset):
             if reshuffle:
                 self._reshuffle_train_test(seed)
 
-        assert not(set(self.test_df['asin'].unique()) -
-                   set(self.train_df['asin'].unique())), "item from test set doesn't appear in train set"
+        assert not (set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())), \
+            "item from test set doesn't appear in train set"
 
-        assert not(set(self.test_df['user_id'].unique()) -
-                   set(self.train_df['user_id'].unique())), "user from test set doesn't appear in train set"
+        assert not (set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())), \
+            "user from test set doesn't appear in train set"
 
     def _reshuffle_train_test(self, seed):
         os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
@@ -122,10 +122,10 @@ class BaseDataset(Dataset):
 
     def _adjacency_matrix(self):
         ''' create bipartite graph with initial vectors '''
-        graph = dgl.heterograph({('item', 'bought_by', 'user'): (self.train_df['asin'].values,
-                                                                 self.train_df['user_id'].values),
-                                 ('user', 'bought', 'item'): (self.train_df['user_id'].values,
-                                                              self.train_df['asin'].values)})
+        graph = dgl.heterograph({
+            ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
+            ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values)
+        })
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
         item_ids = torch.tensor(range(self.n_items), dtype=torch.long)
         graph.ndata['id'] = {'user': user_ids, 'item': item_ids}

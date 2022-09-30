@@ -1,14 +1,22 @@
 from torch.utils.data import DataLoader
 
-from advanced_sampling import AdvSamplDataset, AdvSamplModel
-from base_model import BaseModel
-from dataset import BaseDataset
-from ltr_gradient_boosted import LTRGradientBoosted, OneBatchDataset
-from ltr_models import LTRDataset, LTRLinear, LTRLinearWPop
-from text_joint_model import TextData, TextModel
-
-from parser import parse_args
-from utils import seed_everything
+from TextGCN import (
+    AdvSamplDataset,
+    AdvSamplModel,
+    BaseDataset,
+    BaseModel,
+    LTRDataset,
+    LTRGradientBoosted,
+    LTRGradientBoostedWPop,
+    LTRLinear,
+    LTRLinearWPop,
+    MarcusGradientBoosted,
+    OneBatchDataset,
+    TextData,
+    TextModel
+)
+from TextGCN.parser import parse_args
+from TextGCN.utils import seed_everything
 
 
 def get_class(name):
@@ -20,6 +28,10 @@ def get_class(name):
         'ltr_pop': [LTRDataset, LTRLinearWPop],
         'xgboost': [OneBatchDataset, LTRGradientBoosted],
         'gbdt': [OneBatchDataset, LTRGradientBoosted],
+        'gbdt_class': [OneBatchDataset, LTRGradientBoosted],
+        'gbdt_pop': [OneBatchDataset, LTRGradientBoostedWPop],
+        'xgboost_pop': [OneBatchDataset, LTRGradientBoostedWPop],
+        'marcus': [OneBatchDataset, MarcusGradientBoosted]
     }[name]
 
 

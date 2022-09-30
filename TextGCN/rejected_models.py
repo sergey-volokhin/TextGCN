@@ -1,7 +1,7 @@
 import torch
 from torch_geometric.nn import GATConv, GATv2Conv, GCNConv, LGConv, SAGEConv
 
-from base_model import BaseModel
+from .base_model import BaseModel
 
 
 class TorchGeometric(BaseModel):

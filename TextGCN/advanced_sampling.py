@@ -1,9 +1,9 @@
 import torch
 import random
 
-from base_model import BaseModel
-from dataset import BaseDataset
-from utils import subtract_tensor_as_set
+from .base_model import BaseModel
+from .dataset import BaseDataset
+from .utils import subtract_tensor_as_set
 
 
 class AdvSamplDataset(BaseDataset):

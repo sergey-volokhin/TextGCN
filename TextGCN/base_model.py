@@ -10,7 +10,7 @@ from torch import nn
 from torch.nn import functional as F
 from tqdm.auto import tqdm, trange
 
-from utils import early_stop, hit, ndcg, precision, recall
+from .utils import early_stop, hit, ndcg, precision, recall
 
 
 class BaseModel(nn.Module):
@@ -46,6 +46,7 @@ class BaseModel(nn.Module):
         self.batch_size = args.batch_size
         self.reg_lambda = args.reg_lambda
         self.evaluate_every = args.evaluate_every
+        self.neg_samples = args.neg_samples
         self.slurm = args.slurm or args.quiet
         if args.single:
             self.layer_combination = self.layer_combination_single
@@ -58,15 +59,13 @@ class BaseModel(nn.Module):
         self.true_test_lil = dataset.true_test_lil
         self.train_user_dict = dataset.train_user_dict
         self.test_users = np.sort(dataset.test_df.user_id.unique())  # ids of people from test set
-        self.user_mapping_dict = dict(dataset.user_mapping.values)   # dict mapping from internal id to real id
-        self.item_mapping_dict = dict(dataset.item_mapping.values)   # dict mapping from internal id to real id
+        self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
+        self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
 
     def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
-        self.embedding_user = nn.Embedding(num_embeddings=self.n_users,
-                                           embedding_dim=emb_size).to(self.device)
-        self.embedding_item = nn.Embedding(num_embeddings=self.n_items,
-                                           embedding_dim=emb_size).to(self.device)
+        self.embedding_user = nn.Embedding(num_embeddings=self.n_users, embedding_dim=emb_size).to(self.device)
+        self.embedding_item = nn.Embedding(num_embeddings=self.n_items, embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
@@ -173,15 +172,15 @@ class BaseModel(nn.Module):
     def score_pairwise(self, users_emb, items_emb, *args):
         '''
             calculate predicted user-item scores for a list of pairs (u, i):
-            users_emb.shape == items_emb.shape
+                users_emb.shape == items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
     def score_batchwise(self, users_emb, items_emb, *args):
         '''
             calculate predicted user-item scores batchwise (all-to-all):
-            users_emb.shape = (batch_size, emb_size)
-            items_emb.shape = (n_items, emb_size)
+                users_emb.shape = (batch_size, emb_size)
+                items_emb.shape = (n_items, emb_size)
         '''
         return torch.matmul(users_emb, items_emb.t())
 
@@ -300,10 +299,12 @@ class BaseModel(nn.Module):
             result['ndcg'].append(ndcg(df, k).mean())
             numerator = rec * prec * 2
             denominator = rec + prec
-            result['f1'].append(np.divide(numerator,
-                                          denominator,
-                                          out=np.zeros_like(numerator),
-                                          where=denominator != 0).mean())
+            result['f1'].append(np.divide(
+                numerator,
+                denominator,
+                out=np.zeros_like(numerator),
+                where=denominator != 0).mean()
+            )
         return result
 
     def _save_code(self):
@@ -312,8 +313,7 @@ class BaseModel(nn.Module):
         os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
         for file in os.listdir(folder):
             if file.endswith('.py') or file.endswith('.sh'):
-                shutil.copyfile(os.path.join(folder, file),
-                                os.path.join(self.save_path, 'code', file + '_'))
+                shutil.copyfile(os.path.join(folder, file), os.path.join(self.save_path, 'code', file + '_'))
 
     def load_model(self, load_path):
         ''' load and eval model from file '''
@@ -335,8 +335,7 @@ class BaseModel(nn.Module):
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {epoch}')
             os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
-            shutil.copyfile(os.path.join(self.save_path, 'checkpoint.pkl'),
-                            os.path.join(self.save_path, 'best.pkl'))
+            shutil.copyfile(os.path.join(self.save_path, 'checkpoint.pkl'), os.path.join(self.save_path, 'best.pkl'))
 
     def save_progression(self):
         ''' save all scores in one file for clarity '''

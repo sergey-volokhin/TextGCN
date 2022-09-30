@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from base_model import BaseModel
+from .base_model import BaseModel
 
 
 class TextBaseModel(BaseModel):
@@ -40,22 +40,24 @@ class TextBaseModel(BaseModel):
         b = self.bert_dist(pos, neg, users)
         g = self.gnn_dist(pos, neg)
 
-        distance = {'max(b-g)': F.relu(b - g),
-                    'max(g-b)': F.relu(g - b),
-                    '(b-g)': b - g,
-                    '(g-b)': g - b,
-                    '|b-g|': torch.abs(b - g),
-                    '|g-b|': torch.abs(g - b),
-                    'selu(g-b)': F.selu(g - b),
-                    'selu(b-g)': F.selu(b - g),
-                    }[self.distance_key]
+        distance = {
+            'max(b-g)': F.relu(b - g),
+            'max(g-b)': F.relu(g - b),
+            '(b-g)': b - g,
+            '(g-b)': g - b,
+            '|b-g|': torch.abs(b - g),
+            '|g-b|': torch.abs(g - b),
+            'selu(g-b)': F.selu(g - b),
+            'selu(b-g)': F.selu(b - g),
+        }[self.distance_key]
 
-        weight = {'max(p-n)': F.relu(pos_scores - neg_scores),
-                  '|p-n|': torch.abs(pos_scores - neg_scores),
-                  '(p-n)': pos_scores - neg_scores,
-                  '1': 1,
-                  '0': 0,  # in case we don't want semantic loss
-                  }[self.weight_key]
+        weight = {
+            'max(p-n)': F.relu(pos_scores - neg_scores),
+            '|p-n|': torch.abs(pos_scores - neg_scores),
+            '(p-n)': pos_scores - neg_scores,
+            '1': 1,
+            '0': 0,  # in case we don't want semantic loss
+        }[self.weight_key]
 
         return (weight * distance).mean()
 

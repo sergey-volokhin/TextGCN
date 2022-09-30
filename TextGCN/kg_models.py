@@ -4,9 +4,9 @@ import pandas as pd
 import torch
 from tqdm.auto import tqdm
 
-from dataset import BaseDataset
-from text_base_model import TextBaseModel
-from utils import embed_text
+from .dataset import BaseDataset
+from .text_base_model import TextBaseModel
+from .utils import embed_text
 
 
 class DatasetKG(BaseDataset):

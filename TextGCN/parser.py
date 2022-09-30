@@ -5,19 +5,20 @@ import time
 
 import torch
 
-from utils import get_logger
+from .utils import get_logger
 
 
 def parse_args(s=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         required=True,
-                        choices=['lgcn',  # BaseModel, custom LightGCN
-                                 'adv_sampling',  # dynamic negative sampling
-                                 'text',
-                                 'ltr_linear', 'ltr_pop',
-                                 'xgboost', 'gbdt',
-                                 ],
+                        choices=[
+                            'lgcn',  # BaseModel, custom LightGCN
+                            'adv_sampling',  # dynamic negative sampling
+                            'text',
+                            'ltr_linear', 'ltr_pop',
+                            'xgboost', 'gbdt', 'xgboost_pop', 'gbdt_pop', 'gbdt_class', 'marcus',
+                        ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',
                         type=int,
@@ -166,7 +167,7 @@ def parse_args(s=None):
 
     if args.uid is None:
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-    args.save_path = f'runs/ltr_faster/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
+    args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
 
     os.makedirs(args.save_path, exist_ok=True)
 
@@ -180,8 +181,6 @@ def parse_args(s=None):
     if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
         if args.load_base is None and args.load is None:
             args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
-        if args.evaluate_every == 25:
-            args.evaluate_every = 10
 
     return args
 
@@ -192,6 +191,6 @@ def asserts(args):
     elif args.model in ['text', 'reviews', 'kg']:
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
 
-    # hack to run the medium baseline for marcus smoothly
-    if args.load_base is not None and 'baseline' in args.load_base and 'medium' in args.data:
-        args.old = True
+    # # hack to run the medium baseline for marcus smoothly
+    # if args.load_base is not None and 'baseline' in args.load_base and ('medium' in args.data or 'subsampled' in args.data):
+    #     args.old = True
