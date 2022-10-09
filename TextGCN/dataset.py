@@ -37,11 +37,11 @@ class BaseDataset(Dataset):
 
         if reshuffle and os.path.isdir(self.path + f'reshuffle_{seed}'):
             path = self.path + f'reshuffle_{seed}/'
-            self.train_df = pd.read_table(path + 'train.tsv', header=0, names=['user_id', 'asin'])
-            self.test_df = pd.read_table(path + 'test.tsv', header=0, names=['user_id', 'asin'])
+            self.train_df = pd.read_table(path + 'train.tsv')
+            self.test_df = pd.read_table(path + 'test.tsv')
         else:
-            self.train_df = pd.read_table(self.path + 'train.tsv', header=0, names=['user_id', 'asin'])
-            self.test_df = pd.read_table(self.path + 'test.tsv', header=0, names=['user_id', 'asin'])
+            self.train_df = pd.read_table(self.path + 'train.tsv')
+            self.test_df = pd.read_table(self.path + 'test.tsv')
             if reshuffle:
                 self._reshuffle_train_test(seed)
 

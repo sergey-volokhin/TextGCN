@@ -347,4 +347,5 @@ class BaseModel(nn.Module):
         progression = [f'Model {self.uid}', 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
         for k, v in self.metrics_logger.items():
             progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
-        open(self.progression_path, 'w').write('\n'.join(progression))
+        with open(self.progression_path, 'w') as f:
+            f.write('\n'.join(progression))
