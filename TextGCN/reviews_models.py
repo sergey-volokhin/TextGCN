@@ -20,9 +20,10 @@ class DatasetReviews(BaseDataset):
         self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)
         self.reviews = self.reviews[['asin', 'user_id', 'review', 'time']].sort_values(['asin', 'user_id'])
         self.reviews['asin'] = self.reviews['asin'].map(
-            dict(self.item_mapping[['org_id', 'remap_id']].values)).astype(int)
+            dict(self.item_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
         self.reviews['user_id'] = self.reviews['user_id'].map(
-            dict(self.user_mapping[['org_id', 'remap_id']].values)).astype(int)
+            dict(self.user_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
+        self.reviews = self.reviews.dropna()
 
     def _calc_review_embs(self, emb_batch_size, bert_model):
         ''' load/calc embeddings of the reviews and setup the dicts '''

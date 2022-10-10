@@ -1,6 +1,9 @@
 torch==1.11.0
 dgl
 pandas
+numpy
+tqdm
+scipy
 networkx
 tensorboardX
 sentence_transformers

@@ -8,10 +8,14 @@ from .utils import subtract_tensor_as_set
 
 class AdvSamplDataset(BaseDataset):
 
+    pos_samples = 5
+    max_neg_samples = 1000
+
     def __init__(self, args):
         super().__init__(args)
-        self.neg_samples = min(len(self.range_items), 1000)  # todo put magic numbers in args
-        self.pos_samples = 5
+        # is creating and referencing range faster than recreating range every time when sampling?
+        self.range_items = range(self.n_items)
+        self.neg_samples = min(len(self.range_items), self.max_neg_samples)
 
     def __getitem__(self, idx):
         return torch.tensor([idx // self.bucket_len] + random.sample(self.range_items, k=self.neg_samples))
@@ -42,7 +46,7 @@ class AdvSamplModel(BaseModel):
         '''
             rank items per user, select top-k negative items,
             query super() loss for all pairings between those negatives
-            with 5 random positives per user
+            with self.pos_samples random positives per user
 
             num pairs in final batch: 5 * k
         '''
