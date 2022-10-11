@@ -15,11 +15,11 @@ from .utils import early_stop, hit, ndcg, precision, recall
 
 class BaseModel(nn.Module):
     '''
-        meta class with model-agnostic utility functions
-        also works as custom lgcn (vs 'lightgcn' from torch_geometric)
+    meta class with model-agnostic utility functions
+    also works as custom lgcn (vs 'lightgcn' from torch_geometric)
     '''
 
-    def __init__(self, args, dataset):
+    def __init__(self, args, dataset) -> None:
         super().__init__()
         self._copy_args(args)
         self._copy_dataset_args(dataset)
@@ -30,7 +30,7 @@ class BaseModel(nn.Module):
         self.load_model(args.load)
         self.to(args.device)
 
-    def _copy_args(self, args):
+    def _copy_args(self, args) -> None:
         self.k = args.k
         self.lr = args.lr
         self.uid = args.uid
@@ -51,7 +51,7 @@ class BaseModel(nn.Module):
         if args.single:
             self.layer_combination = self.layer_combination_single
 
-    def _copy_dataset_args(self, dataset):
+    def _copy_dataset_args(self, dataset) -> None:
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.norm_matrix = dataset.norm_matrix
@@ -62,25 +62,22 @@ class BaseModel(nn.Module):
         self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
         self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
 
-    def _init_embeddings(self, emb_size):
+    def _init_embeddings(self, emb_size: int) -> None:
         ''' randomly initialize entity embeddings '''
         self.embedding_user = nn.Embedding(num_embeddings=self.n_users, embedding_dim=emb_size).to(self.device)
         self.embedding_item = nn.Embedding(num_embeddings=self.n_items, embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
-    def _add_vars(self, args):
+    def _add_vars(self, args) -> None:
         ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.training = False
 
     @property
-    def _dropout_norm_matrix(self):
-        '''
-            drop elements from adj table
-            to help with overfitting
-        '''
+    def _dropout_norm_matrix(self) -> torch.Tensor:
+        ''' drop elements from adj table to help with overfitting '''
         index = self.norm_matrix.indices().t()
         values = self.norm_matrix.values()
         random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
@@ -90,15 +87,15 @@ class BaseModel(nn.Module):
         return matrix.coalesce().to(self.device)
 
     @property
-    def embedding_matrix(self):
+    def embedding_matrix(self) -> torch.Tensor:
         ''' 0th layer embedding matrix '''
         return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
 
     @property
-    def representation(self):
+    def representation(self) -> list[torch.Tensor]:
         '''
-            aggregate embeddings from neighbors for each layer,
-            combine layers into final representations
+        aggregate embeddings from neighbors for each layer,
+        combine layers into final representations
         '''
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         curent_lvl_emb_matrix = self.embedding_matrix
@@ -144,43 +141,53 @@ class BaseModel(nn.Module):
             self.checkpoint(self.epochs)
         self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
 
-    def layer_aggregation(self, norm_matrix, emb_matrix):
+    def layer_aggregation(self, norm_matrix: torch.Tensor, emb_matrix: torch.Tensor) -> torch.Tensor:
         '''
-            aggregate the neighbor's representations
-            to get next layer node representation.
+        aggregate the neighbor's representations
+        to get next layer node representation.
 
-            default: normalized sum
+        default: normalized sum
         '''
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    def layer_combination(self, vectors):
+    def layer_combination(self, vectors: list[torch.Tensor]) -> torch.Tensor:
         '''
-            combine embeddings from all layers
-            into final representation matrix.
+        combine embeddings from all layers
+        into final representation matrix.
 
-            default: mean of all layers
+        default: mean of all layers
         '''
         return torch.mean(torch.stack(vectors), axis=0)
 
     def layer_combination_single(self, vectors):
         '''
-            only return the last layer representation
-            instead of combining all layers
+        only return the last layer representation
+        instead of combining all layers
         '''
         return vectors[-1]
 
-    def score_pairwise(self, users_emb, items_emb, *args):
+    def score_pairwise(
+        self,
+        users_emb: torch.Tensor,
+        items_emb: torch.Tensor,
+        *args
+    ) -> torch.Tensor:
         '''
-            calculate predicted user-item scores for a list of pairs (u, i):
-                users_emb.shape == items_emb.shape
+        calculate predicted user-item scores for a list of pairs (u, i):
+            users_emb.shape == items_emb.shape
         '''
         return torch.sum(torch.mul(users_emb, items_emb), dim=1)
 
-    def score_batchwise(self, users_emb, items_emb, *args):
+    def score_batchwise(
+        self,
+        users_emb: torch.Tensor,
+        items_emb: torch.Tensor,
+        *args
+    ) -> torch.Tensor:
         '''
-            calculate predicted user-item scores batchwise (all-to-all):
-                users_emb.shape = (batch_size, emb_size)
-                items_emb.shape = (n_items, emb_size)
+        calculate predicted user-item scores batchwise (all-to-all):
+            users_emb.shape = (batch_size, emb_size)
+            items_emb.shape = (n_items, emb_size)
         '''
         return torch.matmul(users_emb, items_emb.t())
 
@@ -190,7 +197,12 @@ class BaseModel(nn.Module):
         users, pos, negs = data[0], data[1], data[2:]
         return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
-    def bpr_loss(self, users, pos, negs):
+    def bpr_loss(
+        self,
+        users: list[int],
+        pos: list[int],
+        negs: list[int]
+    ):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
@@ -204,7 +216,12 @@ class BaseModel(nn.Module):
         self._loss_values['bpr'] += loss
         return loss
 
-    def reg_loss(self, users, pos, negs):
+    def reg_loss(
+        self,
+        users: list[int],
+        pos: list[int],
+        negs: list[int]
+    ):
         ''' regularization L2 loss '''
         loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
         for neg in negs:
@@ -213,7 +230,7 @@ class BaseModel(nn.Module):
         self._loss_values['reg'] += res
         return res
 
-    def evaluate(self):
+    def evaluate(self) -> dict[str, list[float]]:
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
@@ -243,8 +260,17 @@ class BaseModel(nn.Module):
         self.save_progression()
         return results
 
-    def predict(self, users, with_scores=False, save=False):
-        ''' returns a list of lists with predicted items for given list of user ids '''
+    def predict(
+        self,
+        users: list[int],
+        with_scores: bool = False,
+        save: bool = False
+    ) -> list | tuple[list, list]:
+
+        '''
+        returns a list of lists with predicted items for given list of user_ids
+            optionally with probabilities
+        '''
         # todo predict using unmapped ids
 
         self.training = False
@@ -284,7 +310,7 @@ class BaseModel(nn.Module):
             return predictions, scores
         return predictions
 
-    def calculate_metrics(self, df):
+    def calculate_metrics(self, df: pd.DataFrame) -> dict[str, list[float]]:
         ''' computes all metrics for predictions for all users '''
         result = {i: [] for i in self.metrics}
         df['y_true_len'] = df['y_true'].apply(len)
@@ -307,7 +333,7 @@ class BaseModel(nn.Module):
             )
         return result
 
-    def _save_code(self):
+    def _save_code(self) -> None:
         ''' saving all code to the folder with the model '''
         folder = os.path.dirname(os.path.abspath(__file__))
         os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
@@ -315,7 +341,7 @@ class BaseModel(nn.Module):
             if file.endswith('.py') or file.endswith('.sh'):
                 shutil.copyfile(os.path.join(folder, file), os.path.join(self.save_path, 'code', file + '_'))
 
-    def load_model(self, load_path):
+    def load_model(self, load_path: str) -> None:
         ''' load and eval model from file '''
         self.progression_path = f'{self.save_path}/progression.txt'
         if load_path is not None:
@@ -327,7 +353,7 @@ class BaseModel(nn.Module):
         else:
             self.logger.info(f'Created model {self.uid}')
 
-    def checkpoint(self, epoch):
+    def checkpoint(self, epoch: int) -> None:
         ''' save current model and update the best one '''
         if not self.save:
             return
@@ -337,7 +363,7 @@ class BaseModel(nn.Module):
             os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
             shutil.copyfile(os.path.join(self.save_path, 'checkpoint.pkl'), os.path.join(self.save_path, 'best.pkl'))
 
-    def save_progression(self):
+    def save_progression(self) -> None:
         ''' save all scores in one file for clarity '''
         epochs_string, at_string = [' ' * 9], [' ' * 9]
         width = f'%-{max(10, len(self.k) * 7 - 1)}s'

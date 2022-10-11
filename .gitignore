@@ -1,2 +1,4 @@
 /*
-!/TextGCN/*.py
+TextGCN/*
+!TextGCN/
+!*.py

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 class BaseDataset(Dataset):
 
-    def __init__(self, args):
+    def __init__(self, args) -> None:
         self._copy_args(args)
         self._load_files(args.reshuffle, args.seed)
         self._print_info()
@@ -23,7 +23,7 @@ class BaseDataset(Dataset):
         self._build_dicts()
         self._precalculate_normalization()
 
-    def _copy_args(self, args):
+    def _copy_args(self, args) -> None:
         self.old = args.old
         self.path = args.data
         self.slurm = args.slurm
@@ -32,7 +32,7 @@ class BaseDataset(Dataset):
         self.batch_size = args.batch_size
         self.neg_samples = args.neg_samples
 
-    def _load_files(self, reshuffle, seed):  # todo simplify loading
+    def _load_files(self, reshuffle: bool, seed: int = 42) -> None:  # todo simplify loading
         self.logger.info('loading data')
 
         if reshuffle and os.path.isdir(self.path + f'reshuffle_{seed}'):
@@ -51,7 +51,7 @@ class BaseDataset(Dataset):
         assert not (set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())), \
             "user from test set doesn't appear in train set"
 
-    def _reshuffle_train_test(self, seed):
+    def _reshuffle_train_test(self, seed: int = 42) -> None:
         os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
 
         train, test = [], []
@@ -71,7 +71,7 @@ class BaseDataset(Dataset):
         self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
         self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
 
-    def _convert_to_internal_ids(self):
+    def _convert_to_internal_ids(self) -> None:
 
         if self.old:
             self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
@@ -85,7 +85,7 @@ class BaseDataset(Dataset):
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
-    def _build_dicts(self):
+    def _build_dicts(self) -> None:
         self.cached_samplings = defaultdict(list)
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
         self.positive_lists = [{
@@ -102,7 +102,7 @@ class BaseDataset(Dataset):
         # list of lists with test samples (per user)
         self.true_test_lil = test_user_agg.values.tolist()
 
-    def _precalculate_normalization(self):
+    def _precalculate_normalization(self) -> None:
         '''
             precalculate normalization coefficients:
                             1
@@ -120,7 +120,7 @@ class BaseDataset(Dataset):
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float)
         self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
 
-    def _adjacency_matrix(self):
+    def _adjacency_matrix(self) -> dgl.DGLHeteroGraph:
         ''' create bipartite graph with initial vectors '''
         graph = dgl.heterograph({
             ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
@@ -131,7 +131,7 @@ class BaseDataset(Dataset):
         graph.ndata['id'] = {'user': user_ids, 'item': item_ids}
         return graph.adj(etype='bought', scipy_fmt='coo', ctx=self.device)
 
-    def _convert_sp_mat_to_sp_tensor(self, coo):
+    def _convert_sp_mat_to_sp_tensor(self, coo) -> torch.Tensor:
         ''' convert sparse matrix into torch sparse tensor '''
         row = torch.Tensor(coo.row).long()
         col = torch.Tensor(coo.col).long()
@@ -139,7 +139,7 @@ class BaseDataset(Dataset):
         data = torch.FloatTensor(coo.data)
         return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
 
-    def _print_info(self):
+    def _print_info(self) -> None:
         self.n_users = self.train_df.user_id.nunique()
         self.n_items = self.train_df.asin.nunique()
         self.n_train = self.train_df.shape[0]
@@ -155,21 +155,24 @@ class BaseDataset(Dataset):
 
     ''' this is done for compatibility w torch Dataset class '''
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.iterable_len
 
-    def __getitem__(self, idx):
-        ''' each user has a continuous 'bucket', user_id depends on the bucket number '''
+    def __getitem__(self, idx: int):
+        '''
+        each user has a continuous 'bucket' of self.n_train // self.n_users items,
+        incoming idx is the id of the element. to find the id of the bucket, divide by its length
+        '''
         idx //= self.bucket_len
 
         '''
-            precaching pos and neg samples for users to save time during iteration
-            sample exactly as many examples at the beginning of each epoch as we'll need per item
+        precaching pos and neg samples for users to save time during iteration
+        sample exactly as many examples at the beginning of each epoch as we'll need per item
         '''
         if not self.cached_samplings[idx]:
             positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
             while True:
-                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples)
+                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples) # !this is VERY inefficient
                 if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
                     break
             negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]

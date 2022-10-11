@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
 
-def seed_everything(seed: int):
+def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -26,11 +26,11 @@ def recall(row):
     return row['intersecting_len'] / row['y_true_len']
 
 
-def precision(row, k):
+def precision(row, k: int):
     return row['intersecting_len'] / k
 
 
-def dcg(rel, k):
+def dcg(rel, k: int):
     return np.sum((2 ** rel - 1) / np.log2(np.arange(2, k + 2)), axis=1)
 
 
@@ -55,10 +55,10 @@ def get_logger(args):
     return logging.getLogger()
 
 
-def early_stop(res):
+def early_stop(res: dict[str, list[float] | np.ndarray]) -> bool:
     '''
-        returns True if the difference between metrics
-        from current and 2 previous epochs is less than 1e-4
+    returns True if the difference between metrics
+    from current and 2 previous epochs is less than 1e-4
     '''
     if len(res['recall']) < 3:
         return False
@@ -68,7 +68,7 @@ def early_stop(res):
     return converged or declining
 
 
-def tokenize_text(sentences, bert_model, batch_size):
+def tokenize_text(sentences: list[str], bert_model: str, batch_size: int) -> list[dict[str, torch.Tensor]]:
     tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
     token_batches = [sentences[j:j + batch_size] for j in range(0, len(sentences), batch_size)]
 
@@ -88,7 +88,13 @@ def tokenize_text(sentences, bert_model, batch_size):
     return tokenization
 
 
-def embed_text(sentences, path, bert_model, batch_size, device):
+def embed_text(
+    sentences,
+    path: str,
+    bert_model: str,
+    batch_size: int,
+    device: str | torch.device
+) -> torch.Tensor:
     ''' calculate SentenceBERT embeddings'''
 
     if os.path.exists(path):
@@ -110,7 +116,7 @@ def embed_text(sentences, path, bert_model, batch_size, device):
     return result
 
 
-def subtract_tensor_as_set(t1, t2):
+def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     '''
         quickly subtracts elements of the second tensor from
         the first tensor as if they were sets.
