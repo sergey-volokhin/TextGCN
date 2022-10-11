@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 
-from TextGCN import (
+from .TextGCN import (
     AdvSamplDataset,
     AdvSamplModel,
     BaseDataset,
@@ -15,8 +15,8 @@ from TextGCN import (
     TextData,
     TextModel
 )
-from TextGCN.parser import parse_args
-from TextGCN.utils import seed_everything
+from .TextGCN.parser import parse_args
+from .TextGCN.utils import seed_everything
 
 
 def get_class(name):

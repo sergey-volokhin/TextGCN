@@ -172,7 +172,7 @@ class BaseDataset(Dataset):
         if not self.cached_samplings[idx]:
             positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
             while True:
-                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples) # !this is VERY inefficient
+                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples)  # !this is VERY inefficient
                 if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
                     break
             negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]
