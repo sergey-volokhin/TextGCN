@@ -243,13 +243,6 @@ class BaseModel(nn.Module):
             'scores': scores,
         })
 
-        ''' calculate intersections of y_pred and y_test '''
-        for col in predictions.columns:
-            predictions[col] = predictions[col].apply(np.array)
-        for k in self.k:
-            predictions[f'intersection_{k}'] = predictions.apply(
-                lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
-
         results = self.calculate_metrics(predictions)
 
         ''' show metrics in log '''
@@ -314,7 +307,14 @@ class BaseModel(nn.Module):
         ''' computes all metrics for predictions for all users '''
         result = {i: [] for i in self.metrics}
         df['y_true_len'] = df['y_true'].apply(len)
+
+        ''' calculate intersections of y_pred and y_test '''
+        for col in df.columns:
+            df[col] = df[col].apply(np.array)
+
         for k in sorted(self.k):
+            df[f'intersection_{k}'] = df.apply(lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
+
             df[f'y_pred_{k}'] = df['y_pred'].apply(lambda x: x[:k])
             df['intersecting_len'] = df[f'intersection_{k}'].apply(len)
             rec = recall(df)

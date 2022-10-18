@@ -1,6 +1,7 @@
 from torch.utils.data import DataLoader
+from transformers import set_seed
 
-from .TextGCN import (
+from TextGCN import (
     AdvSamplDataset,
     AdvSamplModel,
     BaseDataset,
@@ -15,8 +16,7 @@ from .TextGCN import (
     TextData,
     TextModel
 )
-from .TextGCN.parser import parse_args
-from .TextGCN.utils import seed_everything
+from TextGCN.parser import parse_args
 
 
 def get_class(name):
@@ -38,7 +38,7 @@ def get_class(name):
 if __name__ == '__main__':
 
     args = parse_args()
-    seed_everything(args.seed)
+    set_seed(args.seed)
 
     Dataset, Model = get_class(args.model)
     args.logger.info(f'Class: {Model}')
@@ -49,6 +49,8 @@ if __name__ == '__main__':
     model = Model(args, dataset)
     model.logger.info(model)
 
-    model.fit(loader)
+    if not args.no_train:
+        model.fit(loader)
+
     if args.predict:
         model.predict(range(dataset.n_users), with_scores=True, save=True)

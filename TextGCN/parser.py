@@ -23,7 +23,7 @@ def parse_args(s=None):
     parser.add_argument('--ltr_layers',
                         type=int,
                         nargs='*',
-                        default=[]),
+                        default=[])
     parser.add_argument('--data',
                         default='data/small/',
                         type=str,
@@ -66,6 +66,10 @@ def parse_args(s=None):
     parser.add_argument('--load_base',
                         type=str,
                         help='path to the base model to load for training the layer on top (LTR models)')
+
+    parser.add_argument('--no_train',
+                        action='store_true',
+                        help='whether to train')
     parser.add_argument('--predict',
                         action='store_true',
                         help='whether to save the predictions for test set')

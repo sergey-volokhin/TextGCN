@@ -11,13 +11,6 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
 
-def seed_everything(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
 def hit(row):
     return (row['intersecting_len'] > 0).astype(int)
 
@@ -64,11 +57,15 @@ def early_stop(res: dict[str, list[float] | np.ndarray]) -> bool:
         return False
     declining = all(np.less(m[-1], m[-2]).all() and np.less(m[-2], m[-3]).all() for m in res.values())
     converged = all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values()) and \
-        all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
+                all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
     return converged or declining
 
 
-def tokenize_text(sentences: list[str], bert_model: str, batch_size: int) -> list[dict[str, torch.Tensor]]:
+def tokenize_text(
+    sentences: list[str],
+    bert_model: str,
+    batch_size: int
+) -> list[dict[str, torch.Tensor]]:
     tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
     token_batches = [sentences[j:j + batch_size] for j in range(0, len(sentences), batch_size)]
 
@@ -100,8 +97,8 @@ def embed_text(
     if os.path.exists(path):
         return torch.load(path, map_location=device)
 
-    def dedup_and_sort(l):
-        return sorted(l.unique().tolist(), key=lambda x: len(x.split(" ")), reverse=True)
+    def dedup_and_sort(line):
+        return sorted(line.unique().tolist(), key=lambda x: len(x.split(" ")), reverse=True)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     model = SentenceTransformer(bert_model, device=device)
@@ -118,8 +115,8 @@ def embed_text(
 
 def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     '''
-        quickly subtracts elements of the second tensor from
-        the first tensor as if they were sets.
+        quickly subtracts elements of the second tensor
+        from the first tensor as if they were sets.
 
         copied from stackoverflow. no clue how this works
     '''
