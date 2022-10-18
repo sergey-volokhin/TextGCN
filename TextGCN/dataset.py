@@ -35,7 +35,7 @@ class BaseDataset(Dataset):
     def _load_files(self, reshuffle: bool, seed: int = 42) -> None:  # todo simplify loading
         self.logger.info('loading data')
 
-        if reshuffle and os.path.isdir(self.path + f'reshuffle_{seed}'):
+        if reshuffle and os.path.exists(self.path + f'reshuffle_{seed}/train.tsv'):
             path = self.path + f'reshuffle_{seed}/'
             self.train_df = pd.read_table(path + 'train.tsv')
             self.test_df = pd.read_table(path + 'test.tsv')
@@ -43,7 +43,7 @@ class BaseDataset(Dataset):
             self.train_df = pd.read_table(self.path + 'train.tsv')
             self.test_df = pd.read_table(self.path + 'test.tsv')
             if reshuffle:
-                self._reshuffle_train_test(seed)
+                self._reshuffle_train_test(seed=seed)
 
         assert not (set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())), \
             "item from test set doesn't appear in train set"
@@ -51,23 +51,27 @@ class BaseDataset(Dataset):
         assert not (set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())), \
             "user from test set doesn't appear in train set"
 
-    def _reshuffle_train_test(self, seed: int = 42) -> None:
+    def _reshuffle_train_test(self, train_size: float = 0.8, seed: int = 42) -> None:
         os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
 
         train, test = [], []
-        for _, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
-                             desc='reshuffling',
-                             dynamic_ncols=True,
-                             leave=False,
-                             disable=self.slurm):
-            if len(group) < 3:
-                continue
-            s_train, s_test = tts(group, test_size=0.2, random_state=seed)
-            train.append(s_train)
-            test.append(s_test)
+        for user, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
+                                desc='reshuffling',
+                                dynamic_ncols=True,
+                                leave=False,
+                                disable=self.slurm):
+            assert len(group) > 3, f'too few reviews for user {user}: {len(group)}'
+            group = group.sample(frac=1, random_state=seed)
+            group_train_size = round(group.shape[0] * train_size)
+            train.append(group.iloc[:group_train_size])
+            test.append(group.iloc[group_train_size:])
 
         self.train_df = pd.concat(train)
         self.test_df = pd.concat(test)
+
+        self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
+        self.train_df = self.train_df[self.train_df['user_id'].isin(self.test_df['user_id'].unique())]
+
         self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
         self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
 
@@ -77,6 +81,10 @@ class BaseDataset(Dataset):
             self.user_mapping = pd.read_csv(self.path + 'user_list.txt', sep=' ')[['org_id', 'remap_id']]
             self.item_mapping = pd.read_csv(self.path + 'item_list.txt', sep=' ')[['org_id', 'remap_id']]
         else:
+            # remove users that do not appear in test_df
+            user_not_in_train = set(self.train_df.user_id.unique()) - set(self.test_df.user_id.unique())
+            self.train_df = self.train_df[~self.train_df.user_id.isin(user_not_in_train)]
+
             self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
             self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
 
