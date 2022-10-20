@@ -12,7 +12,7 @@ class DatasetReviews(BaseDataset):
     def __init__(self, args):
         super().__init__(args)
         self._load_reviews()
-        self._calc_review_embs(args.emb_batch_size, args.bert_model)
+        self._calc_review_embs(args.emb_batch_size, args.bert_model, args.seed)
         self._get_items_as_avg_reviews()
         self._calc_popularity()
 
@@ -25,9 +25,14 @@ class DatasetReviews(BaseDataset):
             dict(self.user_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
         self.reviews = self.reviews.dropna()
 
-    def _calc_review_embs(self, emb_batch_size, bert_model):
+    def _calc_review_embs(
+        self,
+        emb_batch_size: int,
+        bert_model: str,
+        seed: int = 0
+    ):
         ''' load/calc embeddings of the reviews and setup the dicts '''
-        emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch'
+        emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}_{seed}-seed.torch'
         self.reviews['vector'] = embed_text(self.reviews['review'],
                                             emb_file,
                                             bert_model,
@@ -102,11 +107,11 @@ class TextModelReviews(TextBaseModel):
         self.reviews_df = dataset.reviews_df
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
 
-    def get_item_reviews_mean(self, items, *args):
+    def get_item_reviews_mean(self, items: list[int], *args):
         ''' represent items with mean of their reviews '''
         return self.items_as_avg_reviews[items]
 
-    def get_item_reviews_user(self, items, users):
+    def get_item_reviews_user(self, items: list[int], users: list[int]):
         ''' represent items with the review of corresponding user '''
         df = self.reviews_df.loc[torch.stack([items, users], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)

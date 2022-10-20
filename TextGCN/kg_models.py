@@ -13,16 +13,17 @@ class DatasetKG(BaseDataset):
 
     def __init__(self, args):
         super().__init__(args)
-        self._load_kg(args.bert_model, args.emb_batch_size, args.sep)
+        self._load_kg(args.bert_model, args.emb_batch_size, args.sep, args.seed)
 
     def _load_kg(
         self,
         bert_model: str = 'bert-base-uncased',
         emb_batch_size: int = 64,
-        sep: str = '[SEP]'
+        sep: str = '[SEP]',
+        seed: int = 0,
     ) -> None:
 
-        emb_file = f'{self.path}/embeddings/item_kg_repr_{bert_model.split("/")[-1]}.torch'
+        emb_file = f'{self.path}/embeddings/item_kg_repr_{bert_model.split("/")[-1]}_{seed}-seed.torch'
         if os.path.exists(emb_file):
             self.items_as_desc = torch.load(emb_file, map_location=self.device)
             return
@@ -36,8 +37,8 @@ class DatasetKG(BaseDataset):
                                 disable=self.slurm):
             vals = group[['relation', 'attribute']].values
             item_text_dict[asin] = f' {sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
-        self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
 
+        self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
         self.items_as_desc = embed_text(
             self.item_mapping['text'],
             emb_file,
