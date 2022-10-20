@@ -35,10 +35,10 @@ class BaseDataset(Dataset):
     def _load_files(self, reshuffle: bool, seed: int = 42) -> None:  # todo simplify loading
         self.logger.info('loading data')
 
-        if reshuffle and os.path.exists(self.path + f'reshuffle_{seed}/train.tsv'):
-            path = self.path + f'reshuffle_{seed}/'
-            self.train_df = pd.read_table(path + 'train.tsv')
-            self.test_df = pd.read_table(path + 'test.tsv')
+        reshuffle_folder = os.path.join(self.path, f'reshuffle_{seed}')
+        if reshuffle and os.path.exists(os.path.join(reshuffle_folder, 'train.tsv')):
+            self.train_df = pd.read_table(os.path.join(reshuffle_folder, 'train.tsv'))
+            self.test_df = pd.read_table(os.path.join(reshuffle_folder, 'test.tsv'))
         else:
             self.train_df = pd.read_table(self.path + 'train.tsv')
             self.test_df = pd.read_table(self.path + 'test.tsv')
@@ -52,7 +52,7 @@ class BaseDataset(Dataset):
             "user from test set doesn't appear in train set"
 
     def _reshuffle_train_test(self, train_size: float = 0.8, seed: int = 42) -> None:
-        os.makedirs(self.path + f'reshuffle_{seed}', exist_ok=True)
+        os.makedirs(os.path.join(self.path, f'reshuffle_{seed}'), exist_ok=True)
 
         train, test = [], []
         for user, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
@@ -69,7 +69,9 @@ class BaseDataset(Dataset):
         self.train_df = pd.concat(train)
         self.test_df = pd.concat(test)
 
+        # remove items from test that don't appear in train
         self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
+        # remove users from train that don't appear in test;
         self.train_df = self.train_df[self.train_df['user_id'].isin(self.test_df['user_id'].unique())]
 
         self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)

@@ -70,15 +70,9 @@ class LTRBase(BaseModel):
             'desc',
             'reviews-description',
             'description-reviews',
-            'lightgcn||reviews',
-            'lightgcn||desc'
         ]
         ''' build the trainable layer on top '''
         self._setup_layers(args)
-
-        ''' overwrite the scoring methods after creating the new layers '''
-        self.score_pairwise = self.score_pairwise_ltr
-        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, *args):
         ''' build the top predictive layer that takes features from LightGCN '''
@@ -120,10 +114,6 @@ class LTRBase(BaseModel):
         vecs = {'emb': items_emb}
         vecs['desc'] = self.get_item_desc(items)
         vecs['reviews'] = self.get_item_reviews_mean(items)
-        vecs['gnn_desc'] = torch.cat([items_emb, vecs['desc']], axis=1)
-        vecs['gnn_reviews'] = torch.cat([items_emb, vecs['reviews']], axis=1)
-        vecs['gnn_desc'] = torch.cat([items_emb, vecs['desc']], axis=1)
-        vecs['gnn_reviews'] = torch.cat([items_emb, vecs['reviews']], axis=1)
         return vecs
 
     def get_user_vectors(self, users_emb, users):
@@ -131,10 +121,6 @@ class LTRBase(BaseModel):
         vecs = {'emb': users_emb}
         vecs['desc'] = self.get_user_desc(users)
         vecs['reviews'] = self.get_user_reviews_mean(users)
-        vecs['gnn_desc'] = torch.cat([users_emb, vecs['desc']], axis=1)
-        vecs['gnn_reviews'] = torch.cat([users_emb, vecs['reviews']], axis=1)
-        vecs['gnn_desc'] = torch.cat([users_emb, vecs['desc']], axis=1)
-        vecs['gnn_reviews'] = torch.cat([users_emb, vecs['reviews']], axis=1)
         return vecs
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
@@ -150,8 +136,6 @@ class LTRBase(BaseModel):
             (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
             (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
             (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
-            (u_vecs['gnn_reviews'] @ i_vecs['gnn_reviews'].T).unsqueeze(-1),
-            (u_vecs['gnn_desc'] @ i_vecs['gnn_desc'].T).unsqueeze(-1),
         ], axis=-1)
 
     def get_features_pairwise(self, u_vecs, i_vecs):
@@ -169,8 +153,6 @@ class LTRBase(BaseModel):
             sum_mul(u_vecs['desc'], i_vecs['desc']),
             sum_mul(u_vecs['reviews'], i_vecs['desc']),
             sum_mul(u_vecs['desc'], i_vecs['reviews']),
-            sum_mul(u_vecs['gnn_reviews'], i_vecs['gnn_reviews']),
-            sum_mul(u_vecs['gnn_desc'], i_vecs['gnn_desc']),
         ], axis=1)
 
 
@@ -179,6 +161,11 @@ class LTRLinear(LTRBase):
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
+
+        ''' overwrite the scoring methods '''
+        self.evaluate = self.evaluate_ltr
+        self.score_pairwise = self.score_pairwise_ltr
+        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, args):
         '''
@@ -190,9 +177,6 @@ class LTRLinear(LTRBase):
         for i, j in zip(layer_sizes, layer_sizes[1:]):
             layers.append(nn.Linear(i, j))
         self.layers = nn.Sequential(*layers).to(self.device)
-
-        ''' overwrite the eval method to also print the weights '''
-        self.evaluate = self.evaluate_ltr
 
     def evaluate_ltr(self):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
@@ -236,6 +220,8 @@ class LTRLinearWPop(LTRLinear):
         u_vecs = self.get_user_vectors(users_emb, users)
         i_vecs = self.get_item_vectors(items_emb, items)
         features = self.get_features_pairwise(u_vecs, i_vecs)
-        return self.layers(torch.cat([features,
-                                      self.popularity_users[users],
-                                      self.popularity_items[items]], axis=-1))
+        return self.layers(torch.cat([
+            features,
+            self.popularity_users[users],
+            self.popularity_items[items]
+        ], axis=-1))
