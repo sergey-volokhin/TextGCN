@@ -29,7 +29,7 @@ def parse_args(s=None):
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
-                        default=10,
+                        default=1000,
                         type=int,
                         help='number of epochs to train')
     parser.add_argument('--emb_size',
@@ -49,7 +49,7 @@ def parse_args(s=None):
                         help="optional name for the model instead of generated uid")
 
     parser.add_argument('--evaluate_every', '--eval_every',
-                        default=1,
+                        default=25,
                         type=int,
                         help='how often evaluation is performed during training (default: every 25 epochs)')
     parser.add_argument('-k',

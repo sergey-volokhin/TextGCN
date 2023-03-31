@@ -50,8 +50,9 @@ def get_logger(args):
 
 def early_stop(res: dict[str, list[float] | np.ndarray]) -> bool:
     '''
-    returns True if the difference between metrics
-    from current and 2 previous epochs is less than 1e-4
+    returns True if:
+     the difference between metrics from current and 2 previous epochs is less than 1e-4
+     or the last 3 epochs are yielding strictly declining values for all metrics
     '''
     if len(res['recall']) < 3:
         return False

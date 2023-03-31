@@ -180,12 +180,9 @@ class MarcusGradientBoosted(LTRGradientBoosted):
                     pos_idx = yt.nonzero().squeeze()
                     neg_idx = (1 - yt).nonzero().squeeze()
                     neg_sample_idx = []
-                    print('self.neg_samples', self.neg_samples)
                     for _ in range(self.neg_samples):
-                        print('appending')
                         neg_sample_idx.append(neg_idx[torch.randint(len(neg_idx), (len(pos_idx), ))])
                     neg_sample_idx = torch.stack(neg_sample_idx, axis=1)
-                    print('neg_sample_idx', neg_sample_idx)
                     sample_idx = torch.concat([pos_idx, neg_sample_idx])
 
                     u_vec = self.get_user_vectors(users_emb[u], u)
