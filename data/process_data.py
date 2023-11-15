@@ -159,9 +159,6 @@ def main():
         meta_df, reviews_df = sync(meta_df, reviews_df, n=7)
         print(domain, reviews_df.user_id.nunique(), reviews_df.asin.nunique())
 
-        domain = f'new_{domain}'
-        os.makedirs(domain, exist_ok=True)
-
         reviews_df.to_csv(f'{domain}/reviews_synced.tsv', sep='\t', index=False)
         meta_df.to_csv(f'{domain}/meta_synced.tsv', sep='\t', index=False)
 
