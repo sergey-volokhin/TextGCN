@@ -40,11 +40,12 @@ def get_logger(args):
     if args.quiet:
         args.logging_level = 'error'
     args.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
-    logging.basicConfig(level=(logging.ERROR if args.quiet else args.logging_level),
-                        format='%(asctime)-10s - %(levelname)s: %(message)s',
-                        datefmt='%d/%m/%y %H:%M',
-                        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log'), mode='w'),
-                                  logging.StreamHandler()])
+    logging.basicConfig(
+        level=(logging.ERROR if args.quiet else args.logging_level),
+        format='%(asctime)-10s - %(levelname)s: %(message)s',
+        datefmt='%d/%m/%y %H:%M',
+        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
+    )
     return logging.getLogger()
 
 
@@ -65,7 +66,7 @@ def early_stop(res: dict[str, list[float] | np.ndarray]) -> bool:
 def tokenize_text(
     sentences: list[str],
     bert_model: str,
-    batch_size: int
+    batch_size: int,
 ) -> list[dict[str, torch.Tensor]]:
     tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
     token_batches = [sentences[j:j + batch_size] for j in range(0, len(sentences), batch_size)]
@@ -91,9 +92,9 @@ def embed_text(
     path: str,
     bert_model: str,
     batch_size: int,
-    device: str | torch.device
+    device: str | torch.device,
 ) -> torch.Tensor:
-    ''' calculate SentenceBERT embeddings'''
+    ''' calculate SentenceBERT embeddings '''
 
     if os.path.exists(path):
         return torch.load(path, map_location=device)
@@ -116,16 +117,17 @@ def embed_text(
 
 def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     '''
-        quickly subtracts elements of the second tensor
-        from the first tensor as if they were sets.
+    quickly subtracts elements of the second tensor
+    from the first tensor as if they were sets.
 
-        copied from stackoverflow. no clue how this works
+    copied from stackoverflow. no clue how this works
     '''
     return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
 
 
 def profile(func):
     ''' function profiler to monitor time it takes for each call '''
+
     def wrapper(*args, **kwargs):
         profiler = cProfile.Profile()
         profiler.enable()
@@ -133,4 +135,5 @@ def profile(func):
         profiler.disable()
         stats = pstats.Stats(profiler).sort_stats('cumtime')
         stats.print_stats()
+
     return wrapper

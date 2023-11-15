@@ -158,7 +158,7 @@ def parse_args(s=None):
     #                         choices=['avg', 'kg'],
     #                         help='how to represent the negative items from the sampled triplets')
 
-    parser.add_argument('--old',
+    parser.add_argument('--old',  # legacy
                         action='store_true',
                         help="whether old version of mapping is used or not")
 
