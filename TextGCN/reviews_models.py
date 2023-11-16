@@ -18,26 +18,33 @@ class DatasetReviews(BaseDataset):
 
     def _load_reviews(self):
         self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)
+        if 'time' not in self.reviews.columns:
+            self.reviews['time'] = 0
         self.reviews = self.reviews[['asin', 'user_id', 'review', 'time']].sort_values(['asin', 'user_id'])
-        self.reviews['asin'] = self.reviews['asin'].map(
-            dict(self.item_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
-        self.reviews['user_id'] = self.reviews['user_id'].map(
-            dict(self.user_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
+        self.reviews.user_id = self.reviews.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
+        self.reviews.asin = self.reviews.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values)).dropna().astype(int)
         self.reviews = self.reviews.dropna()
 
     def _calc_review_embs(
         self,
         emb_batch_size: int,
         bert_model: str,
-        seed: int = 0
+        seed: int = 0,
     ):
         ''' load/calc embeddings of the reviews and setup the dicts '''
         emb_file = f'{self.path}/embeddings/item_full_reviews_loss_repr_{bert_model.split("/")[-1]}_{seed}-seed.torch'
-        self.reviews['vector'] = embed_text(self.reviews['review'],
-                                            emb_file,
-                                            bert_model,
-                                            emb_batch_size,
-                                            self.device).cpu().numpy().tolist()
+        self.reviews['vector'] = (
+            embed_text(
+                self.reviews['review'],
+                emb_file,
+                bert_model,
+                emb_batch_size,
+                self.device,
+            )
+            .cpu()
+            .numpy()
+            .tolist()
+        )
 
         ''' dropping testset reviews '''
         # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
@@ -81,11 +88,17 @@ class DatasetReviews(BaseDataset):
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
         lengths = self.reviews.groupby('user_id')[['asin']].agg(len).sort_values('asin', ascending=False)
-        self.popularity_users = torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0],
-                                             dtype=torch.float).to(self.device).unsqueeze(1)
+        self.popularity_users = (
+            torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0], dtype=torch.float)
+            .to(self.device)
+            .unsqueeze(1)
+        )
         lengths = self.reviews.groupby('asin')[['user_id']].agg(len).sort_values('user_id', ascending=False)
-        self.popularity_items = torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0],
-                                             dtype=torch.float).to(self.device).unsqueeze(1)
+        self.popularity_items = (
+            torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0], dtype=torch.float)
+            .to(self.device)
+            .unsqueeze(1)
+        )
 
 
 class TextModelReviews(TextBaseModel):

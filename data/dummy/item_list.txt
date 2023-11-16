@@ -1,5 +1,0 @@
-org_id remap_id
-asin_0 0
-asin_1 1
-asin_2 2
-asin_3 3

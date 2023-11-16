@@ -23,7 +23,6 @@ class BaseModel(nn.Module):
         super().__init__()
         self._copy_args(args)
         self._copy_dataset_args(dataset)
-        self._save_code()
         self._init_embeddings(args.emb_size)
         self._add_vars(args)
 
@@ -170,7 +169,7 @@ class BaseModel(nn.Module):
         self,
         users_emb: torch.Tensor,
         items_emb: torch.Tensor,
-        *args
+        *args,
     ) -> torch.Tensor:
         '''
         calculate predicted user-item scores for a list of pairs (u, i):
@@ -182,7 +181,7 @@ class BaseModel(nn.Module):
         self,
         users_emb: torch.Tensor,
         items_emb: torch.Tensor,
-        *args
+        *args,
     ) -> torch.Tensor:
         '''
         calculate predicted user-item scores batchwise (all-to-all):
@@ -193,15 +192,14 @@ class BaseModel(nn.Module):
 
     def get_loss(self, data):
         ''' get total loss per batch of users '''
-        data = data.to(self.device).t()
-        users, pos, negs = data[0], data[1], data[2:]
+        users, pos, *negs = data.to(self.device).t()
         return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
     def bpr_loss(
         self,
         users: list[int],
         pos: list[int],
-        negs: list[int]
+        negs: list[int],
     ):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
@@ -220,7 +218,7 @@ class BaseModel(nn.Module):
         self,
         users: list[int],
         pos: list[int],
-        negs: list[int]
+        negs: list[int],
     ):
         ''' regularization L2 loss '''
         loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
@@ -257,7 +255,7 @@ class BaseModel(nn.Module):
         self,
         users: list[int],
         with_scores: bool = False,
-        save: bool = False
+        save: bool = False,
     ) -> list | tuple[list, list]:
 
         '''
@@ -329,17 +327,9 @@ class BaseModel(nn.Module):
                 numerator,
                 denominator,
                 out=np.zeros_like(numerator),
-                where=denominator != 0).mean()
+                where=denominator != 0).mean(),
             )
         return result
-
-    def _save_code(self) -> None:
-        ''' saving all code to the folder with the model '''
-        folder = os.path.dirname(os.path.abspath(__file__))
-        os.makedirs(os.path.join(self.save_path, 'code'), exist_ok=True)
-        for file in os.listdir(folder):
-            if file.endswith('.py') or file.endswith('.sh'):
-                shutil.copyfile(os.path.join(folder, file), os.path.join(self.save_path, 'code', file + '_'))
 
     def load_model(self, load_path: str) -> None:
         ''' load and eval model from file '''

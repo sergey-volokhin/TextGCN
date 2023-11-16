@@ -1,6 +1,0 @@
-org_id remap_id
-user_0 0
-user_1 1
-user_2 2
-user_3 3
-user_4 4

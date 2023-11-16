@@ -1,13 +1,9 @@
-torch==1.11.0
-dgl
-pandas
-numpy
-tqdm
-scipy
-networkx
-tensorboardX
-sentence_transformers
-sentencepiece
-scikit-learn
-transformers
-xgboost
+pandas==2.1.2
+scipy==1.11.3
+sentence_transformers==2.2.2
+scikit-learn==1.2.2
+transformers==4.34
+xgboost==2.0.2
+dgl==1.1.2 -f https://data.dgl.ai/wheels/cu116/repo.html
+dglgo==0.0.2 -f https://data.dgl.ai/wheels-test/repo.html
+torch==1.13.1 -i https://download.pytorch.org/whl/cu116

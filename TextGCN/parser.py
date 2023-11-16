@@ -17,7 +17,7 @@ def parse_args(s=None):
                             'adv_sampling',  # dynamic negative sampling
                             'text',
                             'ltr_linear', 'ltr_pop',
-                            'xgboost', 'gbdt', 'xgboost_pop', 'gbdt_pop', 'gbdt_class', 'marcus',
+                            'xgboost', 'gbdt', 'xgboost_pop', 'gbdt_pop', 'gbdt_class',
                         ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',
@@ -62,10 +62,10 @@ def parse_args(s=None):
                         help='whether to save the model (yes by default)')
     parser.add_argument('--load',
                         type=str,
-                        help='path to the model to load')
+                        help='path to the model to load (continue training or predict)')
     parser.add_argument('--load_base',
                         type=str,
-                        help='path to the base model to load for training the layer on top (LTR models)')
+                        help='path to the base model to load for training the textual layer on top (LTR models)')
 
     parser.add_argument('--no_train',
                         action='store_true',
@@ -158,9 +158,6 @@ def parse_args(s=None):
     #                         choices=['avg', 'kg'],
     #                         help='how to represent the negative items from the sampled triplets')
 
-    parser.add_argument('--old',  # legacy
-                        action='store_true',
-                        help="whether old version of mapping is used or not")
 
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
@@ -186,6 +183,13 @@ def parse_args(s=None):
         if args.load_base is None and args.load is None:
             args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
 
+    if args.evaluate_every > args.epochs:
+        args.logger.warn(
+            f'Supplied args.evaluate_every ({args.evaluate_every}) is greater than args.epochs ({args.epochs}). '
+            'Setting args.evaluate_every to be args.epochs.',
+        )
+        args.evaluate_every = args.epochs
+
     return args
 
 
@@ -194,6 +198,8 @@ def asserts(args):
         assert args.aggr is not None, 'set up the aggregator function for torch_geometric model'
     elif args.model in ['text', 'reviews', 'kg']:
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
+
+    assert args.load is None or args.load_base is None, 'cannot load both base and trained model'
 
     # # hack to run the medium baseline for marcus smoothly
     # if args.load_base is not None and 'baseline' in args.load_base and ('medium' in args.data or 'subsampled' in args.data):
