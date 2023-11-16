@@ -28,7 +28,7 @@ options:
 To train TextGCN model you need to first train a LightGCN model on the same data and then load it as a base model for the TextGCN model.
 
 After the model is trained, the folder `runs` is created, and results for each experiment are saved there:
-* `checkpoint.pkl` - the latest checkpoint of the model
+* `latest_checkpoint.pkl` - the latest checkpoint of the model
 * `best.pkl` - the best checkpoint of the model
 * `log.log` - the log of the training process
 * `progression.txt` - human-readable metrics for each epoch
