@@ -1,11 +1,9 @@
 import numpy as np
-
-from tqdm import trange
 import torch
-from tqdm import tqdm
-from xgboost import XGBRanker
-from sklearn.ensemble import GradientBoostingRegressor as GBRT
 from sklearn.ensemble import GradientBoostingClassifier as GBCT
+from sklearn.ensemble import GradientBoostingRegressor as GBRT
+from tqdm.auto import tqdm, trange
+from xgboost import XGBRanker
 
 from .ltr_models import LTRBase, LTRDataset
 

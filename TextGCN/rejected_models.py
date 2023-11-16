@@ -12,12 +12,13 @@ class TorchGeometric(BaseModel):
         self._build_layers(args.emb_size, args.model, args.aggr)
 
     def _build_layers(self, emb_size, model_name, aggr):
-        LayerClass = {'gat': GATConv,
-                      'gatv2': GATv2Conv,
-                      'gcn': GCNConv,
-                      'graphsage': SAGEConv,
-                      'lightgcn': LGConv,
-                      }[model_name]
+        LayerClass = {
+            'gat': GATConv,
+            'gatv2': GATv2Conv,
+            'gcn': GCNConv,
+            'graphsage': SAGEConv,
+            'lightgcn': LGConv,
+        }[model_name]
         if model_name == 'lightgcn':
             self.layers = [LayerClass().to(self.device) for i in range(self.n_layers)]
         else:
@@ -43,16 +44,17 @@ class TorchGeometric(BaseModel):
 
 class LTRCosine(BaseModel):
     '''
-        train the LightGCN model from scratch
-        concatenate LightGCN vectors with text during training
+    train the LightGCN model from scratch
+    concatenate LightGCN vectors with text during training
     '''
 
     def __init__(self, args, dataset):
         super().__init__(args, dataset)
         self.users_text_repr = self.users_as_avg_reviews
-        self.items_text_repr = {'ltr_reviews': self.items_as_avg_reviews,
-                                'ltr_kg': self.items_as_desc,
-                                }[args.model]
+        self.items_text_repr = {
+            'ltr_reviews': self.items_as_avg_reviews,
+            'ltr_kg': self.items_as_desc,
+        }[args.model]
 
     def _copy_dataset_args(self, dataset):
         super()._copy_dataset_args(dataset)
@@ -74,8 +76,8 @@ class LTRCosine(BaseModel):
 
 class LTRSimple(BaseModel):
     '''
-        uses pretrained LightGCN model:
-        concatenates LightGCN vectors with text during inference
+    uses pretrained LightGCN model:
+    concatenates LightGCN vectors with text during inference
     '''
 
     def __init__(self, args, dataset):

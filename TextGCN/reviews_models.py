@@ -17,7 +17,7 @@ class DatasetReviews(BaseDataset):
         self._calc_popularity()
 
     def _load_reviews(self):
-        self.reviews = pd.read_table(self.path + 'reviews_text.tsv', dtype=str)
+        self.reviews = pd.read_table(self.path + 'reviews_synced.tsv', dtype=str)
         if 'time' not in self.reviews.columns:
             self.reviews['time'] = 0
         self.reviews = self.reviews[['asin', 'user_id', 'review', 'time']].sort_values(['asin', 'user_id'])
@@ -63,23 +63,29 @@ class DatasetReviews(BaseDataset):
                                           group_user['asin'].agg(len)]).median())
 
         # use only most recent reviews for representation
-        cut_reviews = set()
+        cut_reviews = []
         for _, group in tqdm(group_user,
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
                              disable=self.slurm):
-            cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
+            cut_reviews.append(group.sort_values('time', ascending=False).head(self.num_reviews))
         for _, group in tqdm(group_item,
                              leave=False,
                              desc='selecting reviews',
                              dynamic_ncols=True,
                              disable=self.slurm):
-            cut_reviews |= set(group.sort_values('time', ascending=False)['review'].head(self.num_reviews))
+            cut_reviews.append(group.sort_values('time', ascending=False).head(self.num_reviews))
+
+        # saving top_med_reviews to model so we could extend LTR
+        self.top_med_reviews = (
+            pd.concat(cut_reviews)
+            .drop_duplicates(subset=['asin', 'user_id'])
+            .sort_values(['asin', 'user_id'])
+            .reset_index(drop=True)
+        )
 
         item_text_embs = {}
-        # saving top_med_reviews to model so we could extend LTR
-        self.top_med_reviews = self.reviews[self.reviews['review'].isin(cut_reviews)]
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
         items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()

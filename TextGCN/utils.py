@@ -2,7 +2,6 @@ import cProfile
 import logging
 import os
 import pstats
-import random
 
 import numpy as np
 import torch
@@ -81,8 +80,8 @@ def tokenize_text(
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=512
-            )
+                max_length=512,
+            ),
         )
     return tokenization
 

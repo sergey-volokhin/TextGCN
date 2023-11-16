@@ -33,8 +33,8 @@ class LTRDataset(DatasetKG, DatasetReviews):
 
 class LTRBase(BaseModel):
     '''
-        base class for Learning-to-Rank models
-        uses pre-trained LightGCN vectors and trains a layer on top
+    base class for Learning-to-Rank models
+    uses pre-trained LightGCN vectors and trains a layer on top
     '''
 
     def _copy_args(self, args):
@@ -65,7 +65,7 @@ class LTRBase(BaseModel):
 
         ''' features we are going to use'''
         self.feature_names = [
-            'lightgcn',
+            'lightgcn score',
             'reviews',
             'desc',
             'reviews-description',
@@ -126,34 +126,40 @@ class LTRBase(BaseModel):
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
     def get_features_batchwise(self, u_vecs, i_vecs):
         '''
-            batchwise (all-to-all) calculation of features for top layer:
-            vectors['users_emb'].shape = (batch_size, emb_size)
-            vectors['items_emb'].shape = (n_items, emb_size)
+        batchwise (all-to-all) calculation of features for top layer:
+        vectors['users_emb'].shape = (batch_size, emb_size)
+        vectors['items_emb'].shape = (n_items, emb_size)
         '''
-        return torch.cat([
-            (u_vecs['emb'] @ i_vecs['emb'].T).unsqueeze(-1),
-            (u_vecs['reviews'] @ i_vecs['reviews'].T).unsqueeze(-1),
-            (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
-            (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
-            (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
-        ], axis=-1)
+        return torch.cat(
+            [
+                (u_vecs['emb'] @ i_vecs['emb'].T).unsqueeze(-1),
+                (u_vecs['reviews'] @ i_vecs['reviews'].T).unsqueeze(-1),
+                (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
+                (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
+                (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
+            ],
+            axis=-1,
+        )
 
     def get_features_pairwise(self, u_vecs, i_vecs):
         '''
-            pairwise (1-to-1) calculation of features for top layer:
-            vectors['users_emb'].shape == vectors['items_emb'].shape
+        pairwise (1-to-1) calculation of features for top layer:
+        vectors['users_emb'].shape == vectors['items_emb'].shape
         '''
 
         def sum_mul(x, y):
             return (x * y).sum(dim=1).unsqueeze(1)
 
-        return torch.cat([
-            sum_mul(u_vecs['emb'], i_vecs['emb']),
-            sum_mul(u_vecs['reviews'], i_vecs['reviews']),
-            sum_mul(u_vecs['desc'], i_vecs['desc']),
-            sum_mul(u_vecs['reviews'], i_vecs['desc']),
-            sum_mul(u_vecs['desc'], i_vecs['reviews']),
-        ], axis=1)
+        return torch.cat(
+            [
+                sum_mul(u_vecs['emb'], i_vecs['emb']),
+                sum_mul(u_vecs['reviews'], i_vecs['reviews']),
+                sum_mul(u_vecs['desc'], i_vecs['desc']),
+                sum_mul(u_vecs['reviews'], i_vecs['desc']),
+                sum_mul(u_vecs['desc'], i_vecs['reviews']),
+            ],
+            axis=1,
+        )
 
 
 class LTRLinear(LTRBase):
@@ -169,8 +175,8 @@ class LTRLinear(LTRBase):
 
     def _setup_layers(self, args):
         '''
-            dense layers that combine all the scores from different node representations
-            layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
+        dense layers that combine all the scores from different node representations
+        layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
         '''
         layer_sizes = [len(self.feature_names)] + args.ltr_layers + [1]
         layers = []
@@ -181,6 +187,7 @@ class LTRLinear(LTRBase):
     def evaluate_ltr(self):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
         if len(self.layers) == 1:
+            self.logger.info('Feature weights from the top layer:')
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
                 self.logger.info(f'{f:<20} {w:.4}')
         return super().evaluate()
@@ -223,5 +230,5 @@ class LTRLinearWPop(LTRLinear):
         return self.layers(torch.cat([
             features,
             self.popularity_users[users],
-            self.popularity_items[items]
+            self.popularity_items[items],
         ], axis=-1))
