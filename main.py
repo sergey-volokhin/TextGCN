@@ -9,8 +9,6 @@ from TextGCN import (
     LTRDataset,
     LTRLinear,
     LTRLinearWPop,
-    TextData,
-    TextModel,
 )
 from TextGCN.parser import parse_args
 
@@ -19,7 +17,6 @@ def get_class(name):
     return {
         'lgcn': [BaseDataset, BaseModel],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
-        'text': [TextData, TextModel],
         'ltr_linear': [LTRDataset, LTRLinear],
         'ltr_pop': [LTRDataset, LTRLinearWPop],
     }[name]

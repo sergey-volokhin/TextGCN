@@ -16,7 +16,7 @@ from .utils import early_stop, hit, ndcg, precision, recall
 class BaseModel(nn.Module):
     '''
     meta class with model-agnostic utility functions
-    also works as custom lgcn (vs 'lightgcn' from torch_geometric)
+    also works as custom lgcn (to distinguish from 'lightgcn' from torch_geometric)
     '''
 
     def __init__(self, args, dataset) -> None:
@@ -58,8 +58,8 @@ class BaseModel(nn.Module):
         self.true_test_lil = dataset.true_test_lil
         self.train_user_dict = dataset.train_user_dict
         self.test_users = np.sort(dataset.test_df.user_id.unique())  # ids of people from test set
-        self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
-        self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)   # internal id -> real id
+        self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
+        self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
 
     def _init_embeddings(self, emb_size: int) -> None:
         ''' randomly initialize entity embeddings '''
@@ -347,11 +347,10 @@ class BaseModel(nn.Module):
         ''' save current model and update the best one '''
         if not self.save:
             return
-        torch.save(self.state_dict(), f'{self.save_path}/checkpoint.pkl')
+        torch.save(self.state_dict(), f'{self.save_path}/latest_checkpoint.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {epoch}')
-            os.system(f'cp {self.save_path}/checkpoint.pkl {self.save_path}/best.pkl')
-            shutil.copyfile(os.path.join(self.save_path, 'checkpoint.pkl'), os.path.join(self.save_path, 'best.pkl'))
+            shutil.copyfile(os.path.join(self.save_path, 'latest_checkpoint.pkl'), os.path.join(self.save_path, 'best.pkl'))
 
     def save_progression(self) -> None:
         ''' save all scores in one file for clarity '''

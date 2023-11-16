@@ -23,8 +23,7 @@ class TestModel(TextModel):
         for fn in [self.representation_rev_rev,
                    self.representation_kg_kg,
                    self.representation_rev_kg,
-                   self.representation_kg_rev
-                   ]:
+                   self.representation_kg_rev]:
             self.representation = fn
             self.evaluate()
         exit()

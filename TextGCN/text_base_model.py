@@ -63,15 +63,11 @@ class TextBaseModel(BaseModel):
 
     def gnn_dist(self, pos, neg):
         ''' calculate similarity between gnn representations of the sampled items '''
-        return self.dist_fn(self.embedding_item(pos),
-                            self.embedding_item(neg)
-                            ).to(self.device)
+        return self.dist_fn(self.embedding_item(pos), self.embedding_item(neg)).to(self.device)
 
     def bert_dist(self, pos, neg, users):
         ''' calculate similarity between textual representations of the sampled items '''
-        return self.dist_fn(self.get_pos_items_reprs(pos, users),
-                            self.get_neg_items_reprs(neg, users)
-                            ).to(self.device)
+        return self.dist_fn(self.get_pos_items_reprs(pos, users), self.get_neg_items_reprs(neg, users)).to(self.device)
 
     def get_pos_items_reprs(self, *args):
         ''' how do we represent positive items from sampled triplets '''

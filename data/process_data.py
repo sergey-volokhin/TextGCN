@@ -2,9 +2,9 @@ import html
 import json
 import re
 import string
+import sys
 import numpy as np
 from unicodedata import normalize
-import os
 
 import pandas as pd
 from tqdm import tqdm
@@ -151,32 +151,35 @@ def train_test_split(df: pd.DataFrame, column='user_id', train_size=0.8):
 def main():
     ''' takes raw datasets of reviews and metadata from amazon '''
 
-    for domain in ['Electronics', 'Toys_and_Games', 'Movies_and_TV']:
+    if len(sys.argv) != 2:
+        print('usage: python process_data.py <domain>')
+        sys.exit(1)
 
-        reviews_df = process_reviews(open(f'{domain}/{domain}.json', 'r').read().split('\n'))
-        meta_df = process_metadata(open(f'{domain}/meta_{domain}.json', 'r').read().split('\n'))
+    domain = sys.argv[1]
 
-        meta_df, reviews_df = sync(meta_df, reviews_df, n=7)
-        print(domain, reviews_df.user_id.nunique(), reviews_df.asin.nunique())
+    reviews_df = process_reviews(open(f'{domain}/{domain}.json', 'r').read().split('\n'))
+    meta_df = process_metadata(open(f'{domain}/meta_{domain}.json', 'r').read().split('\n'))
 
-        reviews_df.to_csv(f'{domain}/reviews_synced.tsv', sep='\t', index=False)
-        meta_df.to_csv(f'{domain}/meta_synced.tsv', sep='\t', index=False)
+    meta_df, reviews_df = sync(meta_df, reviews_df, n=5)
 
-        (
-            pd.melt(meta_df, id_vars=['asin'])
-            .rename(columns={'variable': 'relation', 'value': 'attribute'})
-            .to_csv(
-                f'{domain}/kg_readable.tsv',
-                sep='\t',
-                index=False,
-                quoting=2,
-                escapechar='"',
-            )
+    reviews_df.to_csv(f'{domain}/reviews_synced.tsv', sep='\t', index=False)
+    meta_df.to_csv(f'{domain}/meta_synced.tsv', sep='\t', index=False)
+
+    (
+        pd.melt(meta_df, id_vars=['asin'])
+        .rename(columns={'variable': 'relation', 'value': 'attribute'})
+        .to_csv(
+            f'{domain}/kg_readable.tsv',
+            sep='\t',
+            index=False,
+            quoting=2,
+            escapechar='"',
         )
+    )
 
-        train, test = train_test_split(reviews_df)
-        train.to_csv(f'{domain}/train.tsv', sep='\t', index=False)
-        test.to_csv(f'{domain}/test.tsv', sep='\t', index=False)
+    train, test = train_test_split(reviews_df)
+    train.to_csv(f'{domain}/train.tsv', sep='\t', index=False)
+    test.to_csv(f'{domain}/test.tsv', sep='\t', index=False)
 
 
 if __name__ == '__main__':
