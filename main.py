@@ -7,14 +7,10 @@ from TextGCN import (
     BaseDataset,
     BaseModel,
     LTRDataset,
-    LTRGradientBoosted,
-    LTRGradientBoostedWPop,
     LTRLinear,
     LTRLinearWPop,
-    MarcusGradientBoosted,
-    OneBatchDataset,
     TextData,
-    TextModel
+    TextModel,
 )
 from TextGCN.parser import parse_args
 
@@ -26,12 +22,6 @@ def get_class(name):
         'text': [TextData, TextModel],
         'ltr_linear': [LTRDataset, LTRLinear],
         'ltr_pop': [LTRDataset, LTRLinearWPop],
-        'xgboost': [OneBatchDataset, LTRGradientBoosted],
-        'gbdt': [OneBatchDataset, LTRGradientBoosted],
-        'gbdt_class': [OneBatchDataset, LTRGradientBoosted],
-        'gbdt_pop': [OneBatchDataset, LTRGradientBoostedWPop],
-        'xgboost_pop': [OneBatchDataset, LTRGradientBoostedWPop],
-        'marcus': [OneBatchDataset, MarcusGradientBoosted]
     }[name]
 
 
