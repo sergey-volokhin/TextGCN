@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import torch
-from sklearn.model_selection import train_test_split as tts
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -17,36 +16,35 @@ class BaseDataset(Dataset):
 
     def __init__(self, args) -> None:
         self._copy_args(args)
-        self._load_files(args.reshuffle, args.seed)
+        self._load_files(args.reshuffle)
         self._convert_to_internal_ids()
         self._print_info()
         self._build_dicts()
         self._precalculate_normalization()
 
-        assert all(
-            self.n_items > i for i in args.k
-        ), f'all values of k must be smaller than number of items ({self.n_items}), got k={args.k}'
+        assert self.n_items > max(args.k), f'all values of k must be smaller than number of items ({self.n_items}), got k={args.k}'
 
     def _copy_args(self, args) -> None:
-        self.path = args.data
-        self.slurm = args.slurm
+        self.path: str = args.data
+        self.slurm: bool = args.slurm
+        self.device: str | torch.device = args.device
+        self.batch_size: int = args.batch_size
+        self.neg_samples: int = args.neg_samples
+        self.seed: int = args.seed
         self.logger = args.logger
-        self.device = args.device
-        self.batch_size = args.batch_size
-        self.neg_samples = args.neg_samples
 
-    def _load_files(self, reshuffle: bool, seed: int = 42) -> None:  # todo simplify loading
+    def _load_files(self, reshuffle: bool) -> None:  # todo simplify loading
         self.logger.info('loading data')
 
-        reshuffle_folder = os.path.join(self.path, f'reshuffle_{seed}')
+        reshuffle_folder = os.path.join(self.path, f'reshuffle_{self.seed}')
         if reshuffle and os.path.exists(os.path.join(reshuffle_folder, 'train.tsv')):
             self.train_df = pd.read_table(os.path.join(reshuffle_folder, 'train.tsv'), dtype=str)
             self.test_df = pd.read_table(os.path.join(reshuffle_folder, 'test.tsv'), dtype=str)
         else:
-            self.train_df = pd.read_table(self.path + 'train.tsv', dtype=str)
-            self.test_df = pd.read_table(self.path + 'test.tsv', dtype=str)
+            self.train_df = pd.read_table(os.path.join(self.path, 'train.tsv'), dtype=str)
+            self.test_df = pd.read_table(os.path.join(self.path, 'test.tsv'), dtype=str)
             if reshuffle:
-                self._reshuffle_train_test(seed=seed)
+                self._reshuffle_train_test()
 
         ''' remove items from test that don't appear in train '''
         if set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique()):
@@ -55,20 +53,25 @@ class BaseDataset(Dataset):
         if set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique()):
             self.train_df = self.train_df[self.train_df['user_id'].isin(self.test_df['user_id'].unique())]
 
-    def _reshuffle_train_test(self, train_size: float = 0.8, seed: int = 42) -> None:
-        os.makedirs(os.path.join(self.path, f'reshuffle_{seed}'), exist_ok=True)
+    def _reshuffle_train_test(self, train_size: float = 0.8) -> None:
+        os.makedirs(os.path.join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
+
+        df = pd.concat([self.train_df, self.test_df])
+        group_sizes = df.groupby('user_id').size()
+        valid_groups = group_sizes[group_sizes >= 3].index
+        filtered_df = df[df['user_id'].isin(valid_groups)]
+        shuffled_df = filtered_df.sample(frac=1, random_state=self.seed)
+        group_train_sizes = (shuffled_df.groupby('user_id').size() * train_size).round().astype(int)
 
         train, test = [], []
-        for user, group in tqdm(pd.concat([self.train_df, self.test_df]).groupby('user_id'),
+        for user, group in tqdm(shuffled_df.groupby('user_id'),
                                 desc='reshuffling',
                                 dynamic_ncols=True,
                                 leave=False,
                                 disable=self.slurm):
-            assert len(group) > 3, f'too few reviews for user {user}: {len(group)}'
-            group = group.sample(frac=1, random_state=seed)
-            group_train_size = round(group.shape[0] * train_size)
-            train.append(group.iloc[:group_train_size])
-            test.append(group.iloc[group_train_size:])
+            train_size = group_train_sizes[user]
+            train.append(group.iloc[:train_size])
+            test.append(group.iloc[train_size:])
 
         self.train_df = pd.concat(train)
         self.test_df = pd.concat(test)
@@ -78,8 +81,8 @@ class BaseDataset(Dataset):
         ''' remove users from train that don't appear in test '''
         self.train_df = self.train_df[self.train_df['user_id'].isin(self.test_df['user_id'].unique())]
 
-        self.train_df.to_csv(self.path + f'reshuffle_{seed}/train.tsv', sep='\t', index=False)
-        self.test_df.to_csv(self.path + f'reshuffle_{seed}/test.tsv', sep='\t', index=False)
+        self.train_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
+        self.test_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
 
     def _convert_to_internal_ids(self) -> None:
         # remove users that do not appear in test_df
@@ -141,7 +144,7 @@ class BaseDataset(Dataset):
             {
                 ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
                 ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-            }
+            },
         )
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
         item_ids = torch.tensor(range(self.n_items), dtype=torch.long)

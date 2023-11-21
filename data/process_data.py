@@ -1,11 +1,12 @@
 import html
-import json
+import os
 import re
 import string
 import sys
-import numpy as np
 from unicodedata import normalize
 
+import numpy as np
+import orjson as json
 import pandas as pd
 from tqdm import tqdm
 from unidecode import unidecode
@@ -18,7 +19,7 @@ na_values = ['', '#N/A', '#N/A N/A', '#NA', '-1.#IND', '-1.#QNAN',
              'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null']
 
 
-def normalize_string(s):
+def normalize_string(s: str) -> str:
     s = normalize("NFKD", deEmojify(re.sub('<[^<]+?>', '', html.unescape(unidecode(s)))))
     s = ''.join(filter(lambda x: x in printable, s))
     result = (
@@ -32,7 +33,7 @@ def normalize_string(s):
     return result if len(result) > 1 else ''
 
 
-def deEmojify(text):
+def deEmojify(text: str | float) -> str:
     '''shamelessly yoinked from stackoverflow'''
     if isinstance(text, float):
         return ''
@@ -46,7 +47,7 @@ def deEmojify(text):
     return emoji_pattern.sub(r'', text)
 
 
-def process_metadata(metadata):
+def process_metadata(metadata: list[str]) -> pd.DataFrame:
     '''
     remove all unused fields,
     normalize textual fields
@@ -60,7 +61,7 @@ def process_metadata(metadata):
     '''
     fields = ['title', 'description', 'asin']
     cleaned = []
-    for row in tqdm(metadata, desc='proc meta'):
+    for row in tqdm(metadata, desc='proc meta', dynamic_ncols=True):
         if not all(i in row for i in fields):
             continue
         row = json.loads(row)
@@ -70,16 +71,16 @@ def process_metadata(metadata):
     return pd.DataFrame(cleaned).drop_duplicates()
 
 
-def process_reviews(reviews):
+def process_reviews(reviews: list[str]) -> pd.DataFrame:
     '''
     remove all unused fields from reviews,
     normalize textual fields
 
-    returns: pd.DataFrame(dict(['user_id', 'review', 'asin', 'unixReviewTime'], Any))
+    returns: pd.DataFrame(dict(['user_id', 'review', 'asin', 'unixReviewTime', 'overall'], Any))
     '''
-    fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime']
+    fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime', 'overall']
     cleaned = []
-    for row in tqdm(reviews, desc='proc reviews'):
+    for row in tqdm(reviews, desc='proc reviews', dynamic_ncols=True):
         if not row:
             continue
         row = json.loads(row)
@@ -97,7 +98,11 @@ def process_reviews(reviews):
     )
 
 
-def intersect(df1, df2, column='asin'):
+def intersect(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    column: str = 'asin',
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     ''' remove all items that don't appear in both dataframes '''
     intersection = set(df1[column].unique()).intersection(set(df2[column].unique()))
     df1 = df1[df1[column].isin(intersection)]
@@ -105,12 +110,15 @@ def intersect(df1, df2, column='asin'):
     return df1, df2
 
 
-def core_n(reviews, n=5, columns=('asin', 'user_id')):
+def core_n(
+    reviews: pd.DataFrame,
+    n: int = 5,
+    columns: tuple[str, str] = ('asin', 'user_id')
+) -> pd.DataFrame:
     ''' repeatedly
     remove all items that have less than n reviews,
     remove all users that have less than n reviews
     '''
-
     while True:
         shape = reviews.shape
         for c in columns:
@@ -120,7 +128,11 @@ def core_n(reviews, n=5, columns=('asin', 'user_id')):
             return reviews
 
 
-def sync(meta, reviews, n=1):
+def sync(
+    meta: pd.DataFrame,
+    reviews: pd.DataFrame,
+    n: int = 1
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if n == 1:
         return intersect(meta, reviews)
     while True:
@@ -132,20 +144,35 @@ def sync(meta, reviews, n=1):
             return meta, reviews
 
 
-def train_test_split(df: pd.DataFrame, column='user_id', train_size=0.8):
+def train_test_split(
+    df: pd.DataFrame,
+    column: str = 'user_id',
+    train_size: float = 0.8,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     ''' split df into train and test, ensuring that all users are in both sets '''
+
+    # Pre-filter groups with less than 3 elements
+    group_sizes = df.groupby(column).size()
+    valid_groups = group_sizes[group_sizes >= 3].index
+    filtered_df = df[df[column].isin(valid_groups)]
+
+    # Shuffle the DataFrame
+    shuffled_df = filtered_df.sample(frac=1, random_state=0)
+    shuffled_df_groupped = shuffled_df.groupby(column)
+
+    # Calculate train size for each group
+    group_train_sizes = (shuffled_df_groupped.size() * train_size).round().astype(int)
+
     train, test = [], []
-    for _, group in tqdm(df.groupby(column)):
-        if len(group) < 3:
-            continue
-        group = group.sample(frac=1, random_state=0)
-        group_train_size = round(group.shape[0] * train_size)
-        train.append(group.iloc[:group_train_size])
-        test.append(group.iloc[group_train_size:])
-    train = pd.concat(train)
-    test = pd.concat(test)
-    test = test[test['asin'].isin(train['asin'].unique())]
-    return train, test
+    for group_name, group in tqdm(shuffled_df_groupped, desc='splitting', dynamic_ncols=True):
+        train_size = group_train_sizes[group_name]
+        train.append(group.iloc[:train_size])
+        test.append(group.iloc[train_size:])
+
+    train_df = pd.concat(train)
+    test_df = pd.concat(test)
+    test_df = test_df[test_df['asin'].isin(train_df['asin'].unique())]
+    return train_df, test_df
 
 
 def main():
