@@ -49,7 +49,7 @@ python main.py --model ltr_linear --data data/Electronics --load_base runs/light
 * `adv_sampling` - LightGCN with dynamic negative sampling, selecting several negative samples with highest scores, instead of a random one sample. Better performance but much slower. Defined in the [AdvSamplModel](TextGCN/advanced_sampling.py#L24) class.
 * `ltr_linear` - TextGCN model which uses LightGCN score and 4 textual features, combining them in a linear layer on top. Defined in the [LTRLinear](TextGCN/ltr_models.py#L165LTRLinear) class.
 Corresponds to the architecture from the paper: ![picture](diagram.png)
-* `ltr_pop` - same as `ltr_linear`, but also using popularity of the item and the user as features. Defined in the [LTRLinearWPop](TextGCN/ltr_models.py#L206) file.
+* `ltr_pop` - same as `ltr_linear`, but also using popularity of the item and the user as features. Defined in the [LTRLinearWPop](TextGCN/ltr_models.py#L206) class.
 
 There are model models in other files, like `text`, or gradient boosted versions I have experimented with, but they are not included in the paper.
 

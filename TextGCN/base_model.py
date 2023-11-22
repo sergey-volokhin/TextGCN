@@ -8,6 +8,7 @@ import torch
 import torch.optim as opt
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm, trange
 
 from .utils import early_stop, hit, ndcg, precision, recall
@@ -16,10 +17,10 @@ from .utils import early_stop, hit, ndcg, precision, recall
 class BaseModel(nn.Module):
     '''
     meta class with model-agnostic utility functions
-    also works as custom lgcn (to distinguish from 'lightgcn' from torch_geometric)
+    also works as custom lgcn (vs 'lightgcn' from torch_geometric)
     '''
 
-    def __init__(self, args, dataset) -> None:
+    def __init__(self, args, dataset):
         super().__init__()
         self._copy_args(args)
         self._copy_dataset_args(dataset)
@@ -29,7 +30,7 @@ class BaseModel(nn.Module):
         self.load_model(args.load)
         self.to(args.device)
 
-    def _copy_args(self, args) -> None:
+    def _copy_args(self, args):
         self.k = args.k
         self.lr = args.lr
         self.uid = args.uid
@@ -50,7 +51,7 @@ class BaseModel(nn.Module):
         if args.single:
             self.layer_combination = self.layer_combination_single
 
-    def _copy_dataset_args(self, dataset) -> None:
+    def _copy_dataset_args(self, dataset):
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.norm_matrix = dataset.norm_matrix
@@ -61,37 +62,38 @@ class BaseModel(nn.Module):
         self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
         self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
 
-    def _init_embeddings(self, emb_size: int) -> None:
+    def _init_embeddings(self, emb_size):
         ''' randomly initialize entity embeddings '''
         self.embedding_user = nn.Embedding(num_embeddings=self.n_users, embedding_dim=emb_size).to(self.device)
         self.embedding_item = nn.Embedding(num_embeddings=self.n_items, embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
-    def _add_vars(self, args) -> None:
+    def _add_vars(self, *args, **kwargs):
         ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.training = False
+        self.writer = SummaryWriter(self.save_path)
 
     @property
-    def _dropout_norm_matrix(self) -> torch.Tensor:
+    def _dropout_norm_matrix(self):
         ''' drop elements from adj table to help with overfitting '''
-        index = self.norm_matrix.indices().t()
-        values = self.norm_matrix.values()
-        random_index = (torch.rand(len(values)) + (1 - self.dropout)).int().bool()
-        index = index[random_index]
-        values = values[random_index] / (1 - self.dropout)
-        matrix = torch.sparse.FloatTensor(index.t(), values, self.norm_matrix.size())
+        indices = self.norm_matrix._indices()
+        values = self.norm_matrix._values()
+        mask = (torch.rand(len(values)) < (1 - self.dropout)).to(self.device)
+        indices = indices[:, mask]
+        values = values[mask] / (1 - self.dropout)
+        matrix = torch.sparse_coo_tensor(indices, values, self.norm_matrix.size())
         return matrix.coalesce().to(self.device)
 
     @property
-    def embedding_matrix(self) -> torch.Tensor:
+    def embedding_matrix(self):
         ''' 0th layer embedding matrix '''
         return torch.cat([self.embedding_user.weight, self.embedding_item.weight])
 
     @property
-    def representation(self) -> list[torch.Tensor]:
+    def representation(self):
         '''
         aggregate embeddings from neighbors for each layer,
         combine layers into final representations
@@ -113,24 +115,26 @@ class BaseModel(nn.Module):
             self.train()
             self.training = True
             self._loss_values = defaultdict(float)
-            total_loss = 0
+            epoch_loss = 0
             for data in tqdm(batches,
                              desc='train batches',
                              leave=False,
                              dynamic_ncols=True,
                              disable=self.slurm):
                 self.optimizer.zero_grad()
-                loss = self.get_loss(data)
-                assert not loss.isnan(), f'loss is NA at epoch {epoch}'
-                total_loss += loss
-                loss.backward()
+                batch_loss = self.get_loss(data)
+                assert not batch_loss.isnan(), f'loss is NA at epoch {epoch}'
+                epoch_loss += batch_loss
+                batch_loss.backward()
                 self.optimizer.step()
+
+            self.writer.add_scalar('training loss', epoch_loss, epoch)
 
             if epoch % self.evaluate_every:
                 continue
 
             self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
-            self.evaluate()
+            self.evaluate(epoch)
             self.checkpoint(epoch)
 
             if early_stop(self.metrics_logger):
@@ -138,9 +142,9 @@ class BaseModel(nn.Module):
                 break
         else:
             self.checkpoint(self.epochs)
-        self.logger.info(f'Full progression of metrics is saved in `{self.progression_path}`')
+        self.writer.close()
 
-    def layer_aggregation(self, norm_matrix: torch.Tensor, emb_matrix: torch.Tensor) -> torch.Tensor:
+    def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
         aggregate the neighbor's representations
         to get next layer node representation.
@@ -149,7 +153,7 @@ class BaseModel(nn.Module):
         '''
         return torch.sparse.mm(norm_matrix, emb_matrix)
 
-    def layer_combination(self, vectors: list[torch.Tensor]) -> torch.Tensor:
+    def layer_combination(self, vectors):
         '''
         combine embeddings from all layers
         into final representation matrix.
@@ -165,24 +169,14 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score_pairwise(
-        self,
-        users_emb: torch.Tensor,
-        items_emb: torch.Tensor,
-        *args,
-    ) -> torch.Tensor:
+    def score_pairwise(self, users_emb, items_emb, *args, **kwargs):
         '''
         calculate predicted user-item scores for a list of pairs (u, i):
             users_emb.shape == items_emb.shape
         '''
-        return torch.sum(torch.mul(users_emb, items_emb), dim=1)
+        return torch.sum(users_emb * items_emb, dim=1)
 
-    def score_batchwise(
-        self,
-        users_emb: torch.Tensor,
-        items_emb: torch.Tensor,
-        *args,
-    ) -> torch.Tensor:
+    def score_batchwise(self, users_emb, items_emb, *args, **kwargs):
         '''
         calculate predicted user-item scores batchwise (all-to-all):
             users_emb.shape = (batch_size, emb_size)
@@ -195,12 +189,7 @@ class BaseModel(nn.Module):
         users, pos, *negs = data.to(self.device).t()
         return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
 
-    def bpr_loss(
-        self,
-        users: list[int],
-        pos: list[int],
-        negs: list[int],
-    ):
+    def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
         users_emb, items_emb = self.representation
         users_emb = users_emb[users]
@@ -214,21 +203,19 @@ class BaseModel(nn.Module):
         self._loss_values['bpr'] += loss
         return loss
 
-    def reg_loss(
-        self,
-        users: list[int],
-        pos: list[int],
-        negs: list[int],
-    ):
+    def reg_loss(self, users, pos, negs):
         ''' regularization L2 loss '''
-        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(pos).norm(2).pow(2)
-        for neg in negs:
-            loss += self.embedding_item(neg).norm(2).pow(2) / len(negs)
+        loss = (
+            self.embedding_user(users).norm(2).pow(2)
+            + self.embedding_item(pos).norm(2).pow(2)
+            + self.embedding_item(torch.stack(negs)).norm(2).pow(2).mean()
+        )
+
         res = self.reg_lambda * loss / len(users) / 2
         self._loss_values['reg'] += res
         return res
 
-    def evaluate(self) -> dict[str, list[float]]:
+    def evaluate(self, epoch=None):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
@@ -242,22 +229,22 @@ class BaseModel(nn.Module):
         })
 
         results = self.calculate_metrics(predictions)
+        for metric, values in results.items():
+            for k_idx, k_val in enumerate(self.k):
+                metric_value_at_k = values[k_idx]  # Get the latest value for this 'k'
+                if epoch is not None:
+                    self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k, epoch)
+                else:
+                    self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
         for i in results:
             self.metrics_logger[i] = np.append(self.metrics_logger[i], [results[i]], axis=0)
             self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in results[i]]))
-        self.save_progression()
         return results
 
-    def predict(
-        self,
-        users: list[int],
-        with_scores: bool = False,
-        save: bool = False,
-    ) -> list | tuple[list, list]:
-
+    def predict(self, users, save: bool = False, with_scores: bool = False):
         '''
         returns a list of lists with predicted items for given list of user_ids
             optionally with probabilities
@@ -292,16 +279,14 @@ class BaseModel(nn.Module):
         if save:
             predictions_unmapped = [[self.item_mapping_dict[i] for i in row] for row in predictions]
             users_unmapped = [self.user_mapping_dict[u] for u in users]
-            pred_df = pd.DataFrame({'user_id': users_unmapped,
-                                    'y_pred': predictions_unmapped,
-                                    'scores': scores})
+            pred_df = pd.DataFrame({'user_id': users_unmapped, 'y_pred': predictions_unmapped, 'scores': scores})
             pred_df.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
             self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
         if with_scores:
             return predictions, scores
         return predictions
 
-    def calculate_metrics(self, df: pd.DataFrame) -> dict[str, list[float]]:
+    def calculate_metrics(self, df):
         ''' computes all metrics for predictions for all users '''
         result = {i: [] for i in self.metrics}
         df['y_true_len'] = df['y_true'].apply(len)
@@ -312,7 +297,6 @@ class BaseModel(nn.Module):
 
         for k in sorted(self.k):
             df[f'intersection_{k}'] = df.apply(lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
-
             df[f'y_pred_{k}'] = df['y_pred'].apply(lambda x: x[:k])
             df['intersecting_len'] = df[f'intersection_{k}'].apply(len)
             rec = recall(df)
@@ -327,40 +311,27 @@ class BaseModel(nn.Module):
                 numerator,
                 denominator,
                 out=np.zeros_like(numerator),
-                where=denominator != 0).mean(),
-            )
+                where=denominator != 0,
+            ).mean())
         return result
 
-    def load_model(self, load_path: str) -> None:
+    def load_model(self, load_path):
         ''' load and eval model from file '''
-        self.progression_path = f'{self.save_path}/progression.txt'
-        if load_path is not None:
-            self.logger.info(f'Loading model {load_path}')
-            self.load_state_dict(torch.load(load_path, map_location=self.device))
-            self.logger.info('Performance of the loaded model:')
-            self.evaluate()
-            self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
-        else:
+        if load_path is None:
             self.logger.info(f'Created model {self.uid}')
+            return
+        self.logger.info(f'Loading model {load_path}')
+        self.load_state_dict(torch.load(load_path, map_location=self.device))
+        self.logger.info('Performance of the loaded model:')
+        self.evaluate()
+        self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}  # reset metrics logger
 
-    def checkpoint(self, epoch: int) -> None:
+    def checkpoint(self, epoch):
         ''' save current model and update the best one '''
         if not self.save:
             return
         torch.save(self.state_dict(), f'{self.save_path}/latest_checkpoint.pkl')
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {epoch}')
-            shutil.copyfile(os.path.join(self.save_path, 'latest_checkpoint.pkl'), os.path.join(self.save_path, 'best.pkl'))
-
-    def save_progression(self) -> None:
-        ''' save all scores in one file for clarity '''
-        epochs_string, at_string = [' ' * 9], [' ' * 9]
-        width = f'%-{max(10, len(self.k) * 7 - 1)}s'
-        for i in range(len(self.metrics_logger[self.metrics[0]])):
-            epochs_string.append(width % f'{(i + 1) * self.evaluate_every} epochs')
-            at_string.append(width % ' '.join([f'@{i:<5}' for i in self.k]))
-        progression = [f'Model {self.uid}', 'Full progression:', '  '.join(epochs_string), '  '.join(at_string)]
-        for k, v in self.metrics_logger.items():
-            progression.append(f'{k:11}' + '  '.join([width % ' '.join([f'{g:.4f}' for g in j]) for j in v]))
-        with open(self.progression_path, 'w') as f:
-            f.write('\n'.join(progression))
+            shutil.copyfile(os.path.join(self.save_path, 'latest_checkpoint.pkl'),
+                            os.path.join(self.save_path, 'best.pkl'))

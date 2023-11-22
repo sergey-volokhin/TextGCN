@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 class BaseDataset(Dataset):
 
-    def __init__(self, args) -> None:
+    def __init__(self, args):
         self._copy_args(args)
         self._load_files(args.reshuffle)
         self._convert_to_internal_ids()
@@ -24,7 +24,7 @@ class BaseDataset(Dataset):
 
         assert self.n_items > max(args.k), f'all values of k must be smaller than number of items ({self.n_items}), got k={args.k}'
 
-    def _copy_args(self, args) -> None:
+    def _copy_args(self, args):
         self.path: str = args.data
         self.slurm: bool = args.slurm
         self.device: str | torch.device = args.device
@@ -33,18 +33,17 @@ class BaseDataset(Dataset):
         self.seed: int = args.seed
         self.logger = args.logger
 
-    def _load_files(self, reshuffle: bool) -> None:  # todo simplify loading
+    def _load_files(self, reshuffle: bool):
         self.logger.info('loading data')
 
-        reshuffle_folder = os.path.join(self.path, f'reshuffle_{self.seed}')
-        if reshuffle and os.path.exists(os.path.join(reshuffle_folder, 'train.tsv')):
-            self.train_df = pd.read_table(os.path.join(reshuffle_folder, 'train.tsv'), dtype=str)
-            self.test_df = pd.read_table(os.path.join(reshuffle_folder, 'test.tsv'), dtype=str)
-        else:
-            self.train_df = pd.read_table(os.path.join(self.path, 'train.tsv'), dtype=str)
-            self.test_df = pd.read_table(os.path.join(self.path, 'test.tsv'), dtype=str)
-            if reshuffle:
+        folder = self.path
+        if reshuffle:
+            folder = os.path.join(self.path, f'reshuffle_{self.seed}')
+            if not os.path.exists(os.path.join(folder, 'train.tsv')):
                 self._reshuffle_train_test()
+
+        self.train_df = pd.read_table(os.path.join(folder, 'train.tsv'), dtype=str)
+        self.test_df = pd.read_table(os.path.join(folder, 'test.tsv'), dtype=str)
 
         ''' remove items from test that don't appear in train '''
         if set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique()):
@@ -53,7 +52,7 @@ class BaseDataset(Dataset):
         if set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique()):
             self.train_df = self.train_df[self.train_df['user_id'].isin(self.test_df['user_id'].unique())]
 
-    def _reshuffle_train_test(self, train_size: float = 0.8) -> None:
+    def _reshuffle_train_test(self, train_size: float = 0.8):
         os.makedirs(os.path.join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
 
         df = pd.concat([self.train_df, self.test_df])
@@ -84,10 +83,7 @@ class BaseDataset(Dataset):
         self.train_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
         self.test_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
 
-    def _convert_to_internal_ids(self) -> None:
-        # remove users that do not appear in test_df
-        user_not_in_train = set(self.train_df.user_id.unique()) - set(self.test_df.user_id.unique())
-        self.train_df = self.train_df[~self.train_df.user_id.isin(user_not_in_train)]
+    def _convert_to_internal_ids(self):
 
         self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
         self.item_mapping = pd.DataFrame(enumerate(self.train_df.asin.unique()), columns=['remap_id', 'org_id'])
@@ -100,17 +96,14 @@ class BaseDataset(Dataset):
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
-    def _build_dicts(self) -> None:
+    def _build_dicts(self):
         self.cached_samplings = defaultdict(list)
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
-        self.positive_lists = [
-            {
-                'list': self.train_user_dict[u],  # list for faster random.choice
-                'set': set(self.train_user_dict[u]),  # set for faster "x in y" check
-                'tensor': torch.tensor(self.train_user_dict[u]).to(self.device),  # tensor for faster set difference
-            }
-            for u in range(self.n_users)
-        ]
+        self.positive_lists = [{
+            'list': self.train_user_dict[u],  # list for faster random.choice
+            'set': set(self.train_user_dict[u]),  # set for faster "x in y" check
+            'tensor': torch.tensor(self.train_user_dict[u]).to(self.device),  # tensor for faster set difference
+        } for u in range(self.n_users)]
 
         # split test into batches once at init instead of at every predict
         test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
@@ -120,7 +113,7 @@ class BaseDataset(Dataset):
         # list of lists with test samples (per user)
         self.true_test_lil = test_user_agg.values.tolist()
 
-    def _precalculate_normalization(self) -> None:
+    def _precalculate_normalization(self):
         '''
         precalculate normalization coefficients:
                         1
@@ -138,20 +131,18 @@ class BaseDataset(Dataset):
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float64)
         self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
 
-    def _adjacency_matrix(self) -> dgl.DGLHeteroGraph:
+    def _adjacency_matrix(self):
         ''' create bipartite graph with initial vectors '''
-        graph = dgl.heterograph(
-            {
-                ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
-                ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-            },
-        )
+        graph = dgl.heterograph({
+            ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
+            ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
+        })
         user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
         item_ids = torch.tensor(range(self.n_items), dtype=torch.long)
         graph.ndata['id'] = {'user': user_ids, 'item': item_ids}
         return graph.adj_external(etype='bought', scipy_fmt='coo', ctx=self.device)
 
-    def _convert_sp_mat_to_sp_tensor(self, coo) -> torch.Tensor:
+    def _convert_sp_mat_to_sp_tensor(self, coo):
         ''' convert sparse matrix into torch sparse tensor '''
         row = torch.Tensor(coo.row).long()
         col = torch.Tensor(coo.col).long()
@@ -159,7 +150,7 @@ class BaseDataset(Dataset):
         data = torch.FloatTensor(coo.data)
         return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
 
-    def _print_info(self) -> None:
+    def _print_info(self):
         self.n_users = self.train_df.user_id.nunique()
         self.n_items = self.train_df.asin.nunique()
         self.n_train = self.train_df.shape[0]
@@ -175,7 +166,7 @@ class BaseDataset(Dataset):
 
     ''' this is done for compatibility w torch Dataset class '''
 
-    def __len__(self) -> int:
+    def __len__(self):
         return self.iterable_len
 
     def __getitem__(self, idx: int):
@@ -191,11 +182,11 @@ class BaseDataset(Dataset):
         '''
         if not self.cached_samplings[idx]:
             positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
-            while True:
-                negatives = random.choices(self.all_items, k=self.bucket_len * self.neg_samples)  # !VERY inefficient
-                if len(set(negatives).intersection(self.positive_lists[idx]['set'])) == 0:
-                    break
-            negatives = [negatives[i:i + self.bucket_len] for i in range(0, len(negatives), self.bucket_len)]
+            neg_samples = set()
+            while len(neg_samples) < self.bucket_len * self.neg_samples:
+                neg_sample = random.choice(self.all_items)
+                if neg_sample not in self.positive_lists[idx]['set']:
+                    neg_samples.add(neg_sample)
+            negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
             self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
-
         return self.cached_samplings[idx].pop()
