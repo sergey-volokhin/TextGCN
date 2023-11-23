@@ -13,8 +13,8 @@ class TextModel(TextModelReviews, TextModelKG):
 class TestModel(TextModel):
     ''' evaluate the Simple models (concat text emb at inference) '''
 
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.users_as_avg_desc = dataset.users_as_avg_desc

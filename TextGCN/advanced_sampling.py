@@ -1,5 +1,6 @@
-import torch
 import random
+
+import torch
 
 from .base_model import BaseModel
 from .dataset import BaseDataset
@@ -11,8 +12,8 @@ class AdvSamplDataset(BaseDataset):
     pos_samples = 5
     max_neg_samples = 1000
 
-    def __init__(self, args):
-        super().__init__(args)
+    def __init__(self, params):
+        super().__init__(params)
         # is creating and referencing range faster than recreating range every time when sampling?
         self.range_items = range(self.n_items)
         self.neg_samples = min(len(self.range_items), self.max_neg_samples)
@@ -28,12 +29,12 @@ class AdvSamplModel(BaseModel):
     '''
     # TODO: rank all positives and return those which have the lowest scores, instead of taking random positives?
 
-    def _copy_dataset_args(self, dataset):
-        super()._copy_dataset_args(dataset)
+    def _copy_dataset_params(self, dataset):
+        super()._copy_dataset_params(dataset)
         self.positive_lists = dataset.positive_lists
         self.pos_samples = dataset.pos_samples
 
-    def score_pairwise_adv(self, users_emb, items_emb, *args):
+    def score_pairwise_adv(self, users_emb, items_emb):
         '''
             each user has a batch with corresponding items,
             calculate scores for all items for those items:
@@ -54,7 +55,7 @@ class AdvSamplModel(BaseModel):
         users_emb, items_emb = self.representation
         data = data.to(self.device)
         users, items = data[:, 0], data[:, 1:]
-        rankings = self.score_pairwise_adv(users_emb[users], items_emb[items], users)
+        rankings = self.score_pairwise_adv(users_emb[users], items_emb[items])
         batch = []
 
         for user, item, rank in zip(users, items, rankings):

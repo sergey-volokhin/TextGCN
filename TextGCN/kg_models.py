@@ -11,24 +11,29 @@ from .utils import embed_text
 
 class DatasetKG(BaseDataset):
 
-    def __init__(self, args):
-        super().__init__(args)
-        self._load_kg(args.bert_model, args.emb_batch_size, args.sep, args.seed)
+    def __init__(self, params):
+        super().__init__(params)
+        self._load_kg(params.bert_model, params.emb_batch_size, params.sep)
 
     def _load_kg(
         self,
         bert_model: str = 'bert-base-uncased',
         emb_batch_size: int = 64,
         sep: str = '[SEP]',
-        seed: int = 0,
-    ) -> None:
+    ):
 
-        emb_file = f'{self.path}/embeddings/item_kg_repr_{bert_model.split("/")[-1]}_{seed}-seed.torch'
+        emb_file = os.path.join(
+            self.path,
+            'embeddings',
+            f'item_kg_repr_{bert_model.split("/")[-1]}_{self.seed}-seed.torch',
+        )
         if os.path.exists(emb_file):
             self.items_as_desc = torch.load(emb_file, map_location=self.device)
             return
 
-        self.kg_df_text = pd.read_table(self.path + 'kg_readable.tsv', dtype=str)[['asin', 'relation', 'attribute']]
+        self.kg_df_text = pd.read_table(os.path.join(self.path, 'kg_readable.tsv'),
+                                        usecols=['asin', 'relation', 'attribute'],
+                                        dtype=str)
         item_text_dict = {}
         for asin, group in tqdm(self.kg_df_text.groupby('asin'),
                                 desc='kg text repr',
@@ -44,25 +49,25 @@ class DatasetKG(BaseDataset):
             emb_file,
             bert_model,
             emb_batch_size,
-            self.device
+            self.device,
         )
 
 
 class TextModelKG(TextBaseModel):
 
-    def __init__(self, args, dataset) -> None:
-        super().__init__(args, dataset)
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
 
         ''' all items are represented with their descriptions '''
 
-        if args.pos == 'kg' or args.model == 'kg':
+        if params.pos == 'kg' or params.model == 'kg':
             self.get_pos_items_reprs = self.get_item_desc
-        if args.neg == 'kg' or args.model == 'kg':
+        if params.neg == 'kg' or params.model == 'kg':
             self.get_neg_items_reprs = self.get_item_desc
 
-    def _copy_dataset_args(self, dataset) -> None:
-        super()._copy_dataset_args(dataset)
+    def _copy_dataset_params(self, dataset):
+        super()._copy_dataset_params(dataset)
         self.items_as_desc = dataset.items_as_desc
 
-    def get_item_desc(self, items, *args):
+    def get_item_desc(self, items):
         return self.items_as_desc[items]

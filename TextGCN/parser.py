@@ -25,7 +25,7 @@ def parse_args(s=None):
                         nargs='*',
                         default=[])
     parser.add_argument('--data',
-                        default='data/small/',
+                        default='data/books/small/',
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
@@ -85,6 +85,9 @@ def parse_args(s=None):
                         type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
+    parser.add_argument('--tensorboard',
+                        action='store_true',
+                        help='whether to log to tensorboard')
     parser.add_argument('--seed',
                         default=0,
                         type=int,
@@ -158,18 +161,15 @@ def parse_args(s=None):
     #                         choices=['avg', 'kg'],
     #                         help='how to represent the negative items from the sampled triplets')
 
-
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     asserts(args)
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
-
     if args.uid is None:
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-    args.save_path = f'runs/{os.path.basename(os.path.dirname(args.data))}/{args.uid}'
-
+    args.save_path = os.path.join('runs/ratings/', os.path.basename(os.path.dirname(args.data)), args.uid)
     os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''

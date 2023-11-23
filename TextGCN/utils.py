@@ -35,15 +35,15 @@ def ndcg(row, k):
     return dcg(rel, k) / idcg
 
 
-def get_logger(args):
-    if args.quiet:
-        args.logging_level = 'error'
-    args.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[args.logging_level]
+def get_logger(params):
+    if params.quiet:
+        params.logging_level = 'error'
+    params.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[params.logging_level]
     logging.basicConfig(
-        level=(logging.ERROR if args.quiet else args.logging_level),
+        level=(logging.ERROR if params.quiet else params.logging_level),
         format='%(asctime)-10s - %(levelname)s: %(message)s',
         datefmt='%d/%m/%y %H:%M',
-        handlers=[logging.FileHandler(os.path.join(args.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
+        handlers=[logging.FileHandler(os.path.join(params.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
     )
     return logging.getLogger()
 

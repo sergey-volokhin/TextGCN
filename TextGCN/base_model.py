@@ -20,38 +20,40 @@ class BaseModel(nn.Module):
     also works as custom lgcn (vs 'lightgcn' from torch_geometric)
     '''
 
-    def __init__(self, args, dataset):
+    def __init__(self, params, dataset):
         super().__init__()
-        self._copy_args(args)
-        self._copy_dataset_args(dataset)
-        self._init_embeddings(args.emb_size)
-        self._add_vars(args)
+        self._copy_params(params)
+        self._copy_dataset_params(dataset)
+        self._init_embeddings(params.emb_size)
+        self._add_vars(params)
 
-        self.load_model(args.load)
-        self.to(args.device)
+        self.load_model(params.load)
+        self.to(params.device)
 
-    def _copy_args(self, args):
-        self.k = args.k
-        self.lr = args.lr
-        self.uid = args.uid
-        self.save = args.save
-        self.quiet = args.quiet
-        self.epochs = args.epochs
-        self.logger = args.logger
-        self.device = args.device
-        self.dropout = args.dropout
-        self.emb_size = args.emb_size
-        self.n_layers = args.n_layers
-        self.save_path = args.save_path
-        self.batch_size = args.batch_size
-        self.reg_lambda = args.reg_lambda
-        self.evaluate_every = args.evaluate_every
-        self.neg_samples = args.neg_samples
-        self.slurm = args.slurm or args.quiet
-        if args.single:
+    def _copy_params(self, params):
+        self.k = params.k
+        self.lr = params.lr
+        self.uid = params.uid
+        self.save = params.save
+        self.quiet = params.quiet
+        self.epochs = params.epochs
+        self.logger = params.logger
+        self.device = params.device
+        self.dropout = params.dropout
+        self.emb_size = params.emb_size
+        self.n_layers = params.n_layers
+        self.save_path = params.save_path
+        self.batch_size = params.batch_size
+        self.reg_lambda = params.reg_lambda
+        self.evaluate_every = params.evaluate_every
+        self.neg_samples = params.neg_samples
+        self.slurm = params.slurm or params.quiet
+        if not params.tensorboard:
+            self.writer = None
+        if params.single:
             self.layer_combination = self.layer_combination_single
 
-    def _copy_dataset_args(self, dataset):
+    def _copy_dataset_params(self, dataset):
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.norm_matrix = dataset.norm_matrix
@@ -69,12 +71,12 @@ class BaseModel(nn.Module):
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
 
-    def _add_vars(self, *args, **kwargs):
+    def _add_vars(self, params):
         ''' add remaining variables '''
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.training = False
-        self.writer = SummaryWriter(self.save_path)
+        self.writer = SummaryWriter(self.save_path) if params.tensorboard else False
 
     @property
     def _dropout_norm_matrix(self):
@@ -128,7 +130,8 @@ class BaseModel(nn.Module):
                 batch_loss.backward()
                 self.optimizer.step()
 
-            self.writer.add_scalar('training loss', epoch_loss, epoch)
+            if self.writer:
+                self.writer.add_scalar('training loss', epoch_loss, epoch)
 
             if epoch % self.evaluate_every:
                 continue
@@ -142,7 +145,8 @@ class BaseModel(nn.Module):
                 break
         else:
             self.checkpoint(self.epochs)
-        self.writer.close()
+        if self.writer:
+            self.writer.close()
 
     def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
@@ -169,14 +173,14 @@ class BaseModel(nn.Module):
         '''
         return vectors[-1]
 
-    def score_pairwise(self, users_emb, items_emb, *args, **kwargs):
+    def score_pairwise(self, users_emb, items_emb, users, items):
         '''
         calculate predicted user-item scores for a list of pairs (u, i):
             users_emb.shape == items_emb.shape
         '''
         return torch.sum(users_emb * items_emb, dim=1)
 
-    def score_batchwise(self, users_emb, items_emb, *args, **kwargs):
+    def score_batchwise(self, users_emb, items_emb, users):
         '''
         calculate predicted user-item scores batchwise (all-to-all):
             users_emb.shape = (batch_size, emb_size)
@@ -195,7 +199,7 @@ class BaseModel(nn.Module):
         users_emb = users_emb[users]
         pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos)
         loss = 0
-        for neg in negs:
+        for neg in negs:  # todo: vectorize
             neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg)
             loss += torch.mean(F.selu(neg_scores - pos_scores))
             # loss += torch.mean(F.softmax(neg_scores - pos_scores))
@@ -232,10 +236,11 @@ class BaseModel(nn.Module):
         for metric, values in results.items():
             for k_idx, k_val in enumerate(self.k):
                 metric_value_at_k = values[k_idx]  # Get the latest value for this 'k'
-                if epoch is not None:
-                    self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k, epoch)
-                else:
-                    self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k)
+                if self.writer:
+                    if epoch is not None:
+                        self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k, epoch)
+                    else:
+                        self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -280,8 +285,8 @@ class BaseModel(nn.Module):
             predictions_unmapped = [[self.item_mapping_dict[i] for i in row] for row in predictions]
             users_unmapped = [self.user_mapping_dict[u] for u in users]
             pred_df = pd.DataFrame({'user_id': users_unmapped, 'y_pred': predictions_unmapped, 'scores': scores})
-            pred_df.to_csv(f'{self.save_path}/predictions.tsv', sep='\t', index=False)
-            self.logger.info(f'Predictions are saved in `{self.save_path}/predictions.tsv`')
+            pred_df.to_csv(os.path.join(self.save_path, 'predictions.tsv'), sep='\t', index=False)
+            self.logger.info(f"Predictions are saved in `{os.path.join(self.save_path, 'predictions.tsv')}`")
         if with_scores:
             return predictions, scores
         return predictions
@@ -330,7 +335,7 @@ class BaseModel(nn.Module):
         ''' save current model and update the best one '''
         if not self.save:
             return
-        torch.save(self.state_dict(), f'{self.save_path}/latest_checkpoint.pkl')
+        torch.save(self.state_dict(), os.path.join(self.save_path, 'latest_checkpoint.pkl'))
         if self.metrics_logger[self.metrics[0]][:, 0].max() == self.metrics_logger[self.metrics[0]][-1][0]:
             self.logger.info(f'Updating best model at epoch {epoch}')
             shutil.copyfile(os.path.join(self.save_path, 'latest_checkpoint.pkl'),

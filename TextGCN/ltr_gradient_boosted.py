@@ -27,19 +27,19 @@ class LTRGradientBoosted(LTRBase):
         uses *ALL* unobserved entries as negatives
     '''
 
-    def _setup_layers(self, args):
-        self.type = args.model
-        if 'xgboost' in args.model:
+    def _setup_layers(self, params):
+        self.type = params.model
+        if 'xgboost' in params.model:
             self.tree = XGBRanker(
                 objective='rank:ndcg',
                 tree_method='gpu_hist',
                 predictor='gpu_predictor',
                 gpu_id=1,
 
-                # n_estimators=args.n_estimators,
-                # max_depth=args.max_depth,
-                # min_child_weight=args.min_child_weight,
-                # eta=args.ltr_eta,
+                # n_estimators=params.n_estimators,
+                # max_depth=params.max_depth,
+                # min_child_weight=params.min_child_weight,
+                # eta=params.ltr_eta,
                 # n_estimators=10,
                 n_estimators=75,
                 min_child_weight=15,
@@ -48,7 +48,7 @@ class LTRGradientBoosted(LTRBase):
                 eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
             )
             self.tree_fit = self.xgboost_fit
-        elif 'gbdt' in args.model:
+        elif 'gbdt' in params.model:
             self.tree = GBRT(
                 n_estimators=10,
                 max_depth=3,
@@ -99,14 +99,14 @@ class LTRGradientBoosted(LTRBase):
 class LTRGradientBoostedWPop(LTRGradientBoosted):
     ''' extends LTRLinear by adding popularity features '''
 
-    def _copy_dataset_args(self, dataset):
-        super()._copy_dataset_args(dataset)
+    def _copy_dataset_params(self, dataset):
+        super()._copy_dataset_params(dataset)
         self.popularity_users = dataset.popularity_users
         self.popularity_items = dataset.popularity_items
 
-    def _setup_layers(self, args):
+    def _setup_layers(self, params):
         self.feature_names += ['user popularity', 'item popularity']
-        super()._setup_layers(args)
+        super()._setup_layers(params)
 
     def fit(self, batches):
         self.training = True
@@ -156,9 +156,9 @@ class LTRGradientBoostedWPop(LTRGradientBoosted):
 
 class MarcusGradientBoosted(LTRGradientBoosted):
 
-    def _setup_layers(self, args):
-        args.model = 'xgboost'
-        super()._setup_layers(args)
+    def _setup_layers(self, params):
+        params.model = 'xgboost'
+        super()._setup_layers(params)
 
     def fit(self, batches):
         self.training = True

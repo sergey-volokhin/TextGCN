@@ -1,14 +1,16 @@
+from abc import ABC, abstractmethod
+
 import torch
 import torch.nn.functional as F
 
 from .base_model import BaseModel
 
 
-class TextBaseModel(BaseModel):
+class TextBaseModel(BaseModel, ABC):
     ''' models that use textual semantic, text-based loss in addition to BPR '''
 
-    def _copy_args(self, args):
-        super()._copy_args(args)
+    def _copy_params(self, args):
+        super()._copy_params(args)
         # weights specify which functions to use for semantic loss
         self.weight_key, self.distance_key = args.weight.split('_')
 
@@ -69,10 +71,10 @@ class TextBaseModel(BaseModel):
         ''' calculate similarity between textual representations of the sampled items '''
         return self.dist_fn(self.get_pos_items_reprs(pos, users), self.get_neg_items_reprs(neg, users)).to(self.device)
 
-    def get_pos_items_reprs(self, *args):
+    @abstractmethod
+    def get_pos_items_reprs(self, *args, **kwargs):
         ''' how do we represent positive items from sampled triplets '''
-        raise NotImplementedError
 
-    def get_neg_items_reprs(self, *args):
+    @abstractmethod
+    def get_neg_items_reprs(self, *args, **kwargs):
         ''' how do we represent negative items from sampled triplets '''
-        raise NotImplementedError

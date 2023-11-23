@@ -7,9 +7,9 @@ from .base_model import BaseModel
 class TorchGeometric(BaseModel):
     ''' models based on the layers from torch_geometric library '''
 
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
-        self._build_layers(args.emb_size, args.model, args.aggr)
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
+        self._build_layers(params.emb_size, params.model, params.aggr)
 
     def _build_layers(self, emb_size, model_name, aggr):
         LayerClass = {
@@ -20,7 +20,7 @@ class TorchGeometric(BaseModel):
             'lightgcn': LGConv,
         }[model_name]
         if model_name == 'lightgcn':
-            self.layers = [LayerClass().to(self.device) for i in range(self.n_layers)]
+            self.layers = [LayerClass().to(self.device) for _ in range(self.n_layers)]
         else:
             self.layers = [LayerClass(emb_size, emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
 
@@ -38,7 +38,7 @@ class TorchGeometric(BaseModel):
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
-    def layer_combination(self, vectors):
+    def layer_combination(self, vectors):  # todo: why is this here? isn't basemodel the same
         return torch.mean(torch.stack(vectors), axis=0)
 
 
@@ -48,16 +48,16 @@ class LTRCosine(BaseModel):
     concatenate LightGCN vectors with text during training
     '''
 
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
         self.users_text_repr = self.users_as_avg_reviews
         self.items_text_repr = {
             'ltr_reviews': self.items_as_avg_reviews,
             'ltr_kg': self.items_as_desc,
-        }[args.model]
+        }[params.model]
 
-    def _copy_dataset_args(self, dataset):
-        super()._copy_dataset_args(dataset)
+    def _copy_dataset_params(self, dataset):
+        super()._copy_dataset_params(dataset)
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
@@ -80,13 +80,13 @@ class LTRSimple(BaseModel):
     concatenates LightGCN vectors with text during inference
     '''
 
-    def __init__(self, args, dataset):
-        super().__init__(args, dataset)
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
         self.users_text_repr = self.users_as_avg_reviews
 
-    def _copy_dataset_args(self, dataset):
-        super()._copy_dataset_args(dataset)
-        self.reviews_df = dataset.reviews_df
+    def _copy_dataset_params(self, dataset):
+        super()._copy_dataset_params(dataset)
+        self.reviews_vectors = dataset.reviews_vectors
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.items_as_desc = dataset.items_as_desc
