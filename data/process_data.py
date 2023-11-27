@@ -107,11 +107,15 @@ def process_reviews(path):
             cleaned.append({k: row[k] for k in fields})
     df = (
         pd.DataFrame(cleaned)
-        .rename(columns={'reviewerID': 'user_id', 'reviewText': 'review', 'unixReviewTime': 'time'})
+        .rename(columns={
+            'reviewerID': 'user_id',
+            'reviewText': 'review',
+            'unixReviewTime': 'time',
+            'overall': 'rating'})
         .drop_duplicates(subset=['user_id', 'asin'])
         .replace(na_values, np.nan)
         .dropna()
-        .astype({'overall': int})
+        .astype({'rating': int})
     )
     df.review = clean_text_series(df.review)
     return df.dropna().reset_index(drop=True)

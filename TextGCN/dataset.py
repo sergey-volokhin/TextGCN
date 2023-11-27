@@ -27,7 +27,7 @@ class BaseDataset(Dataset):
     def _copy_params(self, params):
         self.path: str = params.data
         self.slurm: bool = params.slurm
-        self.device: str | torch.device = params.device
+        self.device = params.device
         self.batch_size: int = params.batch_size
         self.neg_samples: int = params.neg_samples
         self.seed: int = params.seed
@@ -42,8 +42,16 @@ class BaseDataset(Dataset):
             if not os.path.exists(os.path.join(folder, 'train.tsv')):
                 return self._reshuffle_train_test()
 
-        self.train_df = pd.read_table(os.path.join(folder, 'train.tsv'), dtype=str)
-        self.test_df = pd.read_table(os.path.join(folder, 'test.tsv'), dtype=str)
+        self.train_df = (
+            pd.read_table(os.path.join(folder, 'train.tsv'), dtype=str)
+            .sort_values(by=['user_id', 'asin'])
+            .reset_index(drop=True)
+        )
+        self.test_df = (
+            pd.read_table(os.path.join(folder, 'test.tsv'), dtype=str)
+            .sort_values(by=['user_id', 'asin'])
+            .reset_index(drop=True)
+        )
 
         items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
         assert not items_only_in_test, f"items {items_only_in_test} from test set don't appear in train set"
@@ -163,8 +171,9 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, idx: int):
         '''
-        each user has a continuous 'bucket' of self.n_train // self.n_users items,
-        incoming idx is the id of the element. to find the id of the bucket, divide by its length
+        to iterate over entire train_df per epoch, total length of the dataset should be n_train, not n_users
+        hence each user has a continuous 'bucket' of self.n_train // self.n_users items,
+        incoming idx is the id of the element. to find the id of the bucket (i.e. user), divide by its length
         '''
         idx //= self.bucket_len
 

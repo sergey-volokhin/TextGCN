@@ -48,7 +48,7 @@ def get_logger(params):
     return logging.getLogger()
 
 
-def early_stop(res: dict[str, list[float] | np.ndarray]) -> bool:
+def early_stop(res):
     '''
     returns True if:
      the difference between metrics from current and 2 previous epochs is less than 1e-4
@@ -91,7 +91,7 @@ def embed_text(
     path: str,
     bert_model: str,
     batch_size: int,
-    device: str | torch.device,
+    device,
 ) -> torch.Tensor:
     ''' calculate SentenceBERT embeddings '''
 
