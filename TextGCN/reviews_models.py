@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
@@ -63,29 +64,28 @@ class DatasetReviews(BaseDataset):
         ''' use average of reviews to represent items '''
 
         # number of reviews to use for representing items and users
-        group_user = self.reviews.groupby('user_id')
-        group_item = self.reviews.groupby('asin')
-        self.num_reviews = int(pd.concat([group_item['user_id'].agg(len),
-                                          group_user['asin'].agg(len)]).median())
+        num_reviews = int(
+            np.median(
+                pd.concat([self.reviews.groupby('asin')['user_id'].size(),
+                           self.reviews.groupby('user_id')['asin'].size()])
+            )
+        )
 
         # use only most recent reviews for representation
-        cut_reviews = []
-        for _, group in tqdm(group_user,
-                             leave=False,
-                             desc='selecting reviews',
-                             dynamic_ncols=True,
-                             disable=self.slurm):
-            cut_reviews.append(group.sort_values('time', ascending=False).head(self.num_reviews))
-        for _, group in tqdm(group_item,
-                             leave=False,
-                             desc='selecting reviews',
-                             dynamic_ncols=True,
-                             disable=self.slurm):
-            cut_reviews.append(group.sort_values('time', ascending=False).head(self.num_reviews))
+        top_reviews_by_user = (
+            self.reviews.sort_values(by=['user_id', 'time'], ascending=[True, False])
+            .groupby('user_id')
+            .head(num_reviews)
+        )
+        top_reviews_by_item = (
+            self.reviews.sort_values(by=['asin', 'time'], ascending=[True, False])
+            .groupby('asin')
+            .head(num_reviews)
+        )
 
         # saving top_med_reviews to model so we could extend LTR
         self.top_med_reviews = (
-            pd.concat(cut_reviews)
+            pd.concat([top_reviews_by_user, top_reviews_by_item])
             .drop_duplicates(subset=['asin', 'user_id'])
             .sort_values(['asin', 'user_id'])
             .reset_index(drop=True)
@@ -94,18 +94,18 @@ class DatasetReviews(BaseDataset):
         item_text_embs = {}
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
-        self.items_as_avg_reviews = torch.stack(items_as_avg_reviews).to(self.device)  # todo faster using numpy?
+        self.items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
+        self.items_as_avg_reviews = torch.stack(self.items_as_avg_reviews).to(self.device)
 
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
-        lengths = self.reviews.groupby('user_id')[['asin']].agg(len).sort_values('asin', ascending=False)
+        lengths = self.reviews.groupby('user_id')[['asin']].size().sort_values('asin', ascending=False)
         self.popularity_users = (
             torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0], dtype=torch.float)
             .to(self.device)
             .unsqueeze(1)
         )
-        lengths = self.reviews.groupby('asin')[['user_id']].agg(len).sort_values('user_id', ascending=False)
+        lengths = self.reviews.groupby('asin')[['user_id']].size().sort_values('user_id', ascending=False)
         self.popularity_items = (
             torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0], dtype=torch.float)
             .to(self.device)
