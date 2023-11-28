@@ -99,13 +99,12 @@ class DatasetReviews(BaseDataset):
 
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
-        lengths = self.reviews.groupby('user_id')[['asin']].size().sort_values('asin', ascending=False)
+        lengths = self.reviews.groupby('user_id')[['asin']].size().sort_values(ascending=False)
         self.popularity_users = (
             torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0], dtype=torch.float)
             .to(self.device)
             .unsqueeze(1)
         )
-        lengths = self.reviews.groupby('asin')[['user_id']].size().sort_values('user_id', ascending=False)
         self.popularity_items = (
             torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0], dtype=torch.float)
             .to(self.device)
