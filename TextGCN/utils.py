@@ -35,6 +35,36 @@ def ndcg(row, k):
     return dcg(rel, k) / idcg
 
 
+def calculate_metrics(df, metrics, ks):
+    ''' computes all metrics for predictions for all users '''
+    result = {i: [] for i in metrics}
+    df['y_true_len'] = df['y_true'].apply(len)
+
+    ''' calculate intersections of y_pred and y_test '''
+    for col in df.columns:
+        df[col] = df[col].apply(np.array)
+
+    for k in sorted(ks):
+        df[f'intersection_{k}'] = df.apply(lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
+        df[f'y_pred_{k}'] = df['y_pred'].apply(lambda x: x[:k])
+        df['intersecting_len'] = df[f'intersection_{k}'].apply(len)
+        rec = recall(df)
+        prec = precision(df, k)
+        result['recall'].append(rec.mean())
+        result['precision'].append(prec.mean())
+        result['hit'].append(hit(df).mean())
+        result['ndcg'].append(ndcg(df, k).mean())
+        numerator = rec * prec * 2
+        denominator = rec + prec
+        result['f1'].append(np.divide(
+            numerator,
+            denominator,
+            out=np.zeros_like(numerator),
+            where=denominator != 0,
+        ).mean())
+    return result
+
+
 def get_logger(params):
     if params.quiet:
         params.logging_level = 'error'
@@ -60,30 +90,6 @@ def early_stop(res):
     converged = all(np.allclose(m[-1], m[-2], atol=1e-4) for m in res.values()) and \
                 all(np.allclose(m[-1], m[-3], atol=1e-4) for m in res.values())
     return converged or declining
-
-
-def tokenize_text(
-    sentences: list[str],
-    bert_model: str,
-    batch_size: int,
-) -> list[dict[str, torch.Tensor]]:
-    tokenizer = AutoTokenizer.from_pretrained(bert_model, strip_accents=True)
-    token_batches = [sentences[j:j + batch_size] for j in range(0, len(sentences), batch_size)]
-
-    if len(token_batches[-1]) == 0:
-        token_batches = token_batches[:-1]
-    tokenization = []
-    for batch in tqdm(token_batches, desc='tokenization', dynamic_ncols=True):
-        tokenization.append(
-            tokenizer(
-                batch,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512,
-            ),
-        )
-    return tokenization
 
 
 def embed_text(

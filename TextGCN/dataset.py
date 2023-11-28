@@ -115,8 +115,6 @@ class BaseDataset(Dataset):
 
         # split test into batches once at init instead of at every predict
         test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
-        users = test_user_agg.index.to_list()
-        self.test_batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
 
         # list of lists with test samples (per user), used for evaluation
         self.true_test_lil = test_user_agg.values.tolist()

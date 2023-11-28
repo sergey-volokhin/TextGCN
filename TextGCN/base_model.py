@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm, trange
 
-from .utils import early_stop, hit, ndcg, precision, recall
+from .utils import early_stop, calculate_metrics
 
 
 class BaseModel(nn.Module):
@@ -48,8 +48,6 @@ class BaseModel(nn.Module):
         self.evaluate_every = params.evaluate_every
         self.neg_samples = params.neg_samples
         self.slurm = params.slurm or params.quiet
-        if not params.tensorboard:
-            self.writer = None
         if params.single:
             self.layer_combination = self.layer_combination_single
 
@@ -57,7 +55,6 @@ class BaseModel(nn.Module):
         self.n_users = dataset.n_users
         self.n_items = dataset.n_items
         self.norm_matrix = dataset.norm_matrix
-        self.test_batches = dataset.test_batches
         self.true_test_lil = dataset.true_test_lil
         self.train_user_dict = dataset.train_user_dict
         self.test_users = np.sort(dataset.test_df.user_id.unique())  # ids of people from test set
@@ -101,11 +98,11 @@ class BaseModel(nn.Module):
         combine layers into final representations
         '''
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
-        curent_lvl_emb_matrix = self.embedding_matrix
-        node_embed_cache = [curent_lvl_emb_matrix]
+        current_lvl_emb_matrix = self.embedding_matrix
+        node_embed_cache = [current_lvl_emb_matrix]
         for _ in range(self.n_layers):
-            curent_lvl_emb_matrix = self.layer_aggregation(norm_matrix, curent_lvl_emb_matrix)
-            node_embed_cache.append(curent_lvl_emb_matrix)
+            current_lvl_emb_matrix = self.layer_aggregation(norm_matrix, current_lvl_emb_matrix)
+            node_embed_cache.append(current_lvl_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
@@ -120,7 +117,6 @@ class BaseModel(nn.Module):
             epoch_loss = 0
             for data in tqdm(batches,
                              desc='train batches',
-                             leave=False,
                              dynamic_ncols=True,
                              disable=self.slurm):
                 self.optimizer.zero_grad()
@@ -232,7 +228,7 @@ class BaseModel(nn.Module):
             'scores': scores,
         })
 
-        results = self.calculate_metrics(predictions)
+        results = calculate_metrics(predictions, self.metrics, self.k)
         for metric, values in results.items():
             for k_idx, k_val in enumerate(self.k):
                 metric_value_at_k = values[k_idx]  # Get the latest value for this 'k'
@@ -290,35 +286,6 @@ class BaseModel(nn.Module):
         if with_scores:
             return predictions, scores
         return predictions
-
-    def calculate_metrics(self, df):
-        ''' computes all metrics for predictions for all users '''
-        result = {i: [] for i in self.metrics}
-        df['y_true_len'] = df['y_true'].apply(len)
-
-        ''' calculate intersections of y_pred and y_test '''
-        for col in df.columns:
-            df[col] = df[col].apply(np.array)
-
-        for k in sorted(self.k):
-            df[f'intersection_{k}'] = df.apply(lambda row: np.intersect1d(row['y_pred'][:k], row['y_true']), axis=1)
-            df[f'y_pred_{k}'] = df['y_pred'].apply(lambda x: x[:k])
-            df['intersecting_len'] = df[f'intersection_{k}'].apply(len)
-            rec = recall(df)
-            prec = precision(df, k)
-            result['recall'].append(rec.mean())
-            result['precision'].append(prec.mean())
-            result['hit'].append(hit(df).mean())
-            result['ndcg'].append(ndcg(df, k).mean())
-            numerator = rec * prec * 2
-            denominator = rec + prec
-            result['f1'].append(np.divide(
-                numerator,
-                denominator,
-                out=np.zeros_like(numerator),
-                where=denominator != 0,
-            ).mean())
-        return result
 
     def load_model(self, load_path):
         ''' load and eval model from file '''

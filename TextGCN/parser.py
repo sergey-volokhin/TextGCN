@@ -24,7 +24,7 @@ def parse_args(s=None):
                         type=int,
                         nargs='*',
                         default=[])
-    parser.add_argument('--data',
+    parser.add_argument('--data', '-d',
                         default='data/books/small/',
                         type=str,
                         help='folder with the train/test data')
@@ -95,7 +95,7 @@ def parse_args(s=None):
     parser.add_argument('--reshuffle',
                         action='store_true',
                         help='whether to reshuffle the train-test split or use the existing one')
-    parser.add_argument('--unfreeze',
+    parser.add_argument('--freeze',
                         action='store_true',
                         help='whether to freeze GNN embeddings when learning linear model on top (default: freeze)')
     parser.add_argument('--slurm',
@@ -182,6 +182,8 @@ def parse_args(s=None):
     if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
         if args.load_base is None and args.load is None:
             args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
+        if not args.freeze:
+            args.logger.warn('Base model not frozen for LTR model, this will degrade performance')
 
     if args.evaluate_every > args.epochs:
         args.logger.warn(
