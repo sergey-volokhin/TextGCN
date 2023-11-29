@@ -1,6 +1,7 @@
 import html
 import re
 import string
+import subprocess
 import sys
 import time
 from functools import wraps
@@ -10,7 +11,7 @@ import numpy as np
 import orjson as json
 import pandas as pd
 from sklearn.model_selection import train_test_split as tts
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from unidecode import unidecode
 
 printable = string.punctuation + string.ascii_letters + string.digits + ' '
@@ -40,6 +41,11 @@ def timeit(func):
     return wrapper
 
 
+def lines_in_file(path):
+    return int(subprocess.run(['wc', '-l', path], stdout=subprocess.PIPE).stdout.split()[0])
+
+
+@timeit
 def clean_text_series(series):
     def remove_html_tags(text):
         return re.sub(r'<[^<]+?>', '', text)
@@ -76,15 +82,15 @@ def process_metadata(path):
         ]
     )
     '''
-    metadata = open(path, 'r').read().split('\n')
     fields = ['title', 'description', 'asin']
     cleaned = []
-    for row in tqdm(metadata, desc='processing metadata', dynamic_ncols=True, leave=False):
-        if not row:
-            continue
-        row = json.loads(row)
-        if all(i in row for i in fields):
-            cleaned.append({k: row[k] for k in fields})
+    with open(path, 'r') as file:
+        for row in tqdm(file, desc='processing metadata', dynamic_ncols=True, total=lines_in_file(path)):
+            if not row:
+                continue
+            row = json.loads(row)
+            if all(i in row for i in fields):
+                cleaned.append({k: row[k] for k in fields})
     df = pd.DataFrame(cleaned).drop_duplicates('asin')
     df['description'] = clean_text_series(df['description'].apply(' '.join))
     return df.replace(na_values, np.nan).dropna().reset_index(drop=True)
@@ -96,16 +102,16 @@ def process_reviews(path):
     remove all unused fields from reviews,
     normalize textual fields
     '''
-    reviews = open(path, 'r').read().split('\n')
     fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime', 'overall']
     cleaned = []
-    for row in tqdm(reviews, desc='proc reviews', dynamic_ncols=True, leave=False):
-        if not row:
-            continue
-        row = json.loads(row)
-        if all(i in row for i in fields):
-            cleaned.append({k: row[k] for k in fields})
-    df = (
+    with open(path, 'r') as file:
+        for row in tqdm(file, desc='proc reviews', dynamic_ncols=True, total=lines_in_file(path)):
+            if not row:
+                continue
+            row = json.loads(row)
+            if all(i in row for i in fields):
+                cleaned.append({k: row[k] for k in fields})
+    df = core_n(
         pd.DataFrame(cleaned)
         .rename(columns={
             'reviewerID': 'user_id',
