@@ -39,7 +39,7 @@ class DatasetReviews(BaseDataset):
         emb_file = os.path.join(
             self.path,
             'embeddings',
-            f'item_full_reviews_loss_repr_{bert_model.split("/")[-1]}_{self.seed}-seed.torch',
+            f'item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch',
         )
         self.reviews['vector'] = (
             embed_text(

@@ -26,8 +26,6 @@ class BaseModel(nn.Module):
         self._copy_dataset_params(dataset)
         self._init_embeddings(params.emb_size)
         self._add_vars(params)
-
-        self.load_model(params.load)
         self.to(params.device)
 
     def _copy_params(self, params):
@@ -70,6 +68,7 @@ class BaseModel(nn.Module):
 
     def _add_vars(self, params):
         ''' add remaining variables '''
+        self.activation = F.selu  # F.softmax
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.training = False
@@ -117,6 +116,7 @@ class BaseModel(nn.Module):
             epoch_loss = 0
             for data in tqdm(batches,
                              desc='train batches',
+                             leave=False,
                              dynamic_ncols=True,
                              disable=self.slurm):
                 self.optimizer.zero_grad()
@@ -187,7 +187,12 @@ class BaseModel(nn.Module):
     def get_loss(self, data):
         ''' get total loss per batch of users '''
         users, pos, *negs = data.to(self.device).t()
-        return self.bpr_loss(users, pos, negs) + self.reg_loss(users, pos, negs)
+        bpr_loss = self.bpr_loss(users, pos, negs)
+        reg_loss = self.reg_loss(users, pos, negs)
+        self.logger.info(f'bpr_loss = {bpr_loss:.4f}')
+        self._loss_values['bpr'] += bpr_loss
+        self._loss_values['reg'] += reg_loss
+        return bpr_loss + reg_loss
 
     def bpr_loss(self, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
@@ -197,10 +202,8 @@ class BaseModel(nn.Module):
         loss = 0
         for neg in negs:  # todo: vectorize
             neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg)
-            loss += torch.mean(F.selu(neg_scores - pos_scores))
-            # loss += torch.mean(F.softmax(neg_scores - pos_scores))
+            loss += torch.mean(self.activation(neg_scores - pos_scores))
         loss /= len(negs)
-        self._loss_values['bpr'] += loss
         return loss
 
     def reg_loss(self, users, pos, negs):
@@ -212,7 +215,6 @@ class BaseModel(nn.Module):
         )
 
         res = self.reg_lambda * loss / len(users) / 2
-        self._loss_values['reg'] += res
         return res
 
     def evaluate(self, epoch=None):
@@ -289,13 +291,10 @@ class BaseModel(nn.Module):
 
     def load_model(self, load_path):
         ''' load and eval model from file '''
-        if load_path is None:
-            self.logger.info(f'Created model {self.uid}')
-            return
+        assert load_path is not None, 'No model path to load provided'
+
         self.logger.info(f'Loading model {load_path}')
         self.load_state_dict(torch.load(load_path, map_location=self.device))
-        self.logger.info('Performance of the loaded model:')
-        self.evaluate()
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}  # reset metrics logger
 
     def checkpoint(self, epoch):

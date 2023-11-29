@@ -36,6 +36,11 @@ if __name__ == '__main__':
     model = Model(args, dataset)
     model.logger.info(model)
 
+    if args.load:
+        model.load_model(args.load)
+        model.logger.info('Performance of the loaded model:')
+        model.evaluate()
+
     if not args.no_train:
         model.fit(loader)
 
