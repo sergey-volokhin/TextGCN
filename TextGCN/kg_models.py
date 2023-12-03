@@ -14,6 +14,7 @@ class DatasetKG(BaseDataset):
     def __init__(self, params):
         super().__init__(params)
         self._load_kg(params.bert_model, params.emb_batch_size, params.sep)
+        self._get_users_as_avg_desc()
 
     def _load_kg(
         self,
@@ -51,6 +52,18 @@ class DatasetKG(BaseDataset):
             emb_batch_size,
             self.device,
         )
+
+    def _get_users_as_avg_desc(self):
+        ''' use mean of descriptions to represent users '''
+        user_text_embs = {}
+        for user, group in self.top_med_reviews.groupby('user_id')['asin']:
+            user_text_embs[user] = self.items_as_desc[group.values].mean(axis=0).cpu()
+        self.users_as_avg_desc = torch.stack(
+            self.user_mapping['remap_id']
+            .map(user_text_embs)
+            .values
+            .tolist()
+        ).to(self.device)
 
 
 class TextModelKG(TextBaseModel):

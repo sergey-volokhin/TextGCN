@@ -6,6 +6,8 @@ from .base_model import BaseModel
 
 class TorchGeometric(BaseModel):
     ''' models based on the layers from torch_geometric library '''
+    # requires the following parameters in args:
+    #   aggr/aggregator: (mean, max, add)
 
     def __init__(self, params, dataset):
         super().__init__(params, dataset)

@@ -3,12 +3,10 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-from tqdm.auto import tqdm
 
 from .dataset import BaseDataset
 from .text_base_model import TextBaseModel
 from .utils import embed_text
-import time
 
 
 class DatasetReviews(BaseDataset):
@@ -18,6 +16,7 @@ class DatasetReviews(BaseDataset):
         self._load_reviews()
         self._calc_review_embs(params.emb_batch_size, params.bert_model)
         self._get_items_as_avg_reviews()
+        self._get_users_as_avg_reviews()
         self._calc_popularity()
 
     def _load_reviews(self):
@@ -61,6 +60,22 @@ class DatasetReviews(BaseDataset):
         self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
         self.reviews_vectors = self.reviews.set_index(['asin', 'user_id'])['vector']
 
+    def _calc_popularity(self):
+        ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
+
+        lengths = self.reviews.groupby('user_id')[['asin']].size().sort_values(ascending=False)
+        self.popularity_users = (
+            torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0], dtype=torch.float)
+            .to(self.device)
+            .unsqueeze(1)
+        )
+        lengths = self.reviews.groupby('asin')[['user_id']].size().sort_values(ascending=False)
+        self.popularity_items = (
+            torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0], dtype=torch.float)
+            .to(self.device)
+            .unsqueeze(1)
+        )
+
     def _get_items_as_avg_reviews(self):
         ''' use average of reviews to represent items '''
 
@@ -98,21 +113,17 @@ class DatasetReviews(BaseDataset):
         self.items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
         self.items_as_avg_reviews = torch.stack(self.items_as_avg_reviews).to(self.device)
 
-    def _calc_popularity(self):
-        ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
-
-        lengths = self.reviews.groupby('user_id')[['asin']].size().sort_values(ascending=False)
-        self.popularity_users = (
-            torch.tensor(lengths.reset_index()['user_id'].values / lengths.shape[0], dtype=torch.float)
-            .to(self.device)
-            .unsqueeze(1)
-        )
-        lengths = self.reviews.groupby('asin')[['user_id']].size().sort_values(ascending=False)
-        self.popularity_items = (
-            torch.tensor(lengths.reset_index()['asin'].values / lengths.shape[0], dtype=torch.float)
-            .to(self.device)
-            .unsqueeze(1)
-        )
+    def _get_users_as_avg_reviews(self):
+        ''' use average of reviews to represent users '''
+        user_text_embs = {}
+        for user, group in self.top_med_reviews.groupby('user_id')['vector']:
+            user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
+        self.users_as_avg_reviews = torch.stack(
+            self.user_mapping['remap_id']
+            .map(user_text_embs)
+            .values
+            .tolist()
+        ).to(self.device)
 
 
 class TextModelReviews(TextBaseModel):

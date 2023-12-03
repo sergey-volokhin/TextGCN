@@ -27,7 +27,7 @@ class BaseDataset(Dataset):
     def _copy_params(self, params):
         self.path: str = params.data
         self.slurm: bool = params.slurm
-        self.device = params.device
+        self.device: torch.device = params.device
         self.batch_size: int = params.batch_size
         self.neg_samples: int = params.neg_samples
         self.seed: int = params.seed
@@ -54,9 +54,9 @@ class BaseDataset(Dataset):
         )
 
         items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
-        assert not items_only_in_test, f"items {items_only_in_test} from test set don't appear in train set"
+        assert not items_only_in_test, f"test set contains items that are not in the train set: {items_only_in_test}"
         users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
-        assert not users_only_in_test, f"users {users_only_in_test} from test set doesn't appear in train set"
+        assert not users_only_in_test, f"test set contains users that are not in the train set: {users_only_in_test}"
 
     def _reshuffle_train_test(self, train_size: float = 0.8):
         self.logger.info('reshuffling train-test')
@@ -64,11 +64,10 @@ class BaseDataset(Dataset):
 
         train_df = pd.read_table(os.path.join(self.path, 'train.tsv'), dtype=str)
         test_df = pd.read_table(os.path.join(self.path, 'test.tsv'), dtype=str)
-
         df = pd.concat([train_df, test_df])
+
         group_sizes = df.groupby('user_id').size()
-        valid_groups = group_sizes[group_sizes >= 3].index
-        filtered_df = df[df['user_id'].isin(valid_groups)]
+        filtered_df = df[df['user_id'].isin(group_sizes[group_sizes >= 3].index)]
         self.train_df, self.test_df = tts(
             filtered_df,
             stratify=filtered_df['user_id'],
@@ -78,7 +77,7 @@ class BaseDataset(Dataset):
         self.train_df = self.train_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
         self.test_df = self.test_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
 
-        ''' remove items from test that don't appear in train '''
+        ''' remove items from test that do not appear in train '''
         self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
 
         self.train_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
@@ -105,7 +104,7 @@ class BaseDataset(Dataset):
         self.iterable_len = self.bucket_len * self.n_users  # length of torch Dataset we convert into
         self.all_items = range(self.n_items)  # this needs to be a python list for correct set conversion
 
-        self.cached_samplings = defaultdict(list)
+        self.cached_samplings = defaultdict(deque)
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
         self.positive_lists = [{
             'list': self.train_user_dict[u],  # list for faster random.choice
@@ -114,10 +113,8 @@ class BaseDataset(Dataset):
         } for u in range(self.n_users)]
 
         # split test into batches once at init instead of at every predict
-        test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
-
         # list of lists with test samples (per user), used for evaluation
-        self.true_test_lil = test_user_agg.values.tolist()
+        self.true_test_lil = self.test_df.groupby('user_id')['asin'].aggregate(list).values.tolist()
 
     def _precalculate_normalization(self):
         '''
@@ -158,11 +155,23 @@ class BaseDataset(Dataset):
 
     def _print_info(self):
         self.logger.info(f"n_train:    {self.n_train:-7}")
-        self.logger.info(f"n_test:     {self.test_df.shape[0]:-7}")
+        self.logger.info(f"n_test:     {self.n_test:-7}")
         self.logger.info(f"n_users:    {self.n_users:-7}")
         self.logger.info(f"n_items:    {self.n_items:-7}")
 
-    ''' this is done for compatibility w torch Dataset class '''
+    def _cache_samples(self, idx: int):
+        '''
+        precaching pos and neg samples for users to save time during iteration
+        sample exactly as many examples at the beginning of each epoch as we'll need per item
+        '''
+        positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
+        neg_samples = set()
+        while len(neg_samples) < self.bucket_len * self.neg_samples:
+            neg_sample = random.choice(self.all_items)
+            if neg_sample not in self.positive_lists[idx]['set']:
+                neg_samples.add(neg_sample)
+        negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
+        self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
 
     def __len__(self):
         return self.iterable_len
@@ -174,18 +183,6 @@ class BaseDataset(Dataset):
         incoming idx is the id of the element. to find the id of the bucket (i.e. user), divide by its length
         '''
         idx //= self.bucket_len
-
-        '''
-        precaching pos and neg samples for users to save time during iteration
-        sample exactly as many examples at the beginning of each epoch as we'll need per item
-        '''
         if not self.cached_samplings[idx]:
-            positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
-            neg_samples = set()
-            while len(neg_samples) < self.bucket_len * self.neg_samples:
-                neg_sample = random.choice(self.all_items)
-                if neg_sample not in self.positive_lists[idx]['set']:
-                    neg_samples.add(neg_sample)
-            negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
-            self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
+            self._cache_samples(idx)
         return self.cached_samplings[idx].pop()

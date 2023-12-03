@@ -3,34 +3,14 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-from .base_model import BaseModel
+from .BaseModel import BaseModel
 from .kg_models import DatasetKG
+from .LightGCN import LightGCN
 from .reviews_models import DatasetReviews
 
 
 class LTRDataset(DatasetKG, DatasetReviews):
     ''' combines KG and Reviews datasets '''
-
-    def __init__(self, params):
-        super().__init__(params)
-        self._get_users_as_avg_reviews()
-        self._get_users_as_avg_desc()
-
-    def _get_users_as_avg_reviews(self):
-        ''' use average of reviews to represent users '''
-        user_text_embs = {}
-        for user, group in self.top_med_reviews.groupby('user_id')['vector']:
-            user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.users_as_avg_reviews = torch.stack(self.user_mapping['remap_id'].map(
-            user_text_embs).values.tolist()).to(self.device)
-
-    def _get_users_as_avg_desc(self):
-        ''' use mean of descriptions to represent users '''
-        user_text_embs = {}
-        for user, group in self.top_med_reviews.groupby('user_id')['asin']:
-            user_text_embs[user] = self.items_as_desc[group.values].mean(axis=0).cpu()
-        self.users_as_avg_desc = torch.stack(self.user_mapping['remap_id'].map(
-            user_text_embs).values.tolist()).to(self.device)
 
 
 class LTRBase(BaseModel, ABC):
@@ -38,11 +18,10 @@ class LTRBase(BaseModel, ABC):
     base class for Learning-to-Rank models
     uses pre-trained LightGCN vectors and trains something on top
     '''
-
-    def _copy_params(self, params):
-        super()._copy_params(params)
-        self.load_base = params.load_base
-        self.unfreeze = params.unfreeze
+    def __init__(self, params, dataset):
+        super().__init__(params, dataset)
+        self._setup_layers(params)
+        self._load_base(params, dataset)
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -52,18 +31,21 @@ class LTRBase(BaseModel, ABC):
         self.items_as_desc = dataset.items_as_desc
         self.all_items = dataset.all_items
 
-    def _init_embeddings(self, emb_size):
-        super()._init_embeddings(emb_size)
-        if not self.unfreeze:
-            self.embedding_user.requires_grad_(False)
-            self.embedding_item.requires_grad_(False)
+    def _load_base(self, params, dataset):
+        ''' load the base model '''
+        self.LightGCN = LightGCN(params, dataset)
+        if params.load_base:
+            self.logger.info(f'Loading base LightGCN model from {params.load_base}.')
+            if not params.freeze:
+                self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
+            self.LightGCN.load(params.load_base)
+            base_results = self.LightGCN.evaluate()
+            self._print_last_metrics(base_results)
+        else:
+            self.logger.warn('Not using a pretrained base model leads to poor performance.')
 
-    def _add_vars(self, params):
-        super()._add_vars(params)
-
-        ''' load the base model before overwriting the scoring functions '''
-        if self.load_base:
-            self.load_model(self.load_base)
+    def _add_vars(self, *args, **kwargs):
+        super()._add_vars(*args, **kwargs)
 
         ''' features we are going to use'''
         self.feature_names = [
@@ -73,22 +55,36 @@ class LTRBase(BaseModel, ABC):
             'reviews-description',
             'description-reviews',
         ]
-        ''' build the trainable layer on top '''
-        self._setup_layers(params)
+
+    def get_loss(self, data):
+        users, pos, *negs = data.to(self.device).t()
+        bpr_loss = self.bpr_loss(users, pos, negs)
+        reg_loss = self.LightGCN.reg_loss(users, pos, negs)
+        self._loss_values['bpr'] += bpr_loss
+        self._loss_values['reg'] += reg_loss
+        return bpr_loss + reg_loss
+
+    def bpr_loss(self, users, pos, negs):
+        ''' Bayesian Personalized Ranking pairwise loss '''
+        users_emb, items_emb = self.representation
+        users_emb = users_emb[users]
+        pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos)
+        loss = 0
+        for neg in negs:  # todo: vectorize
+            neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg)
+            loss += torch.mean(self.activation(neg_scores - pos_scores))
+        loss /= len(negs)
+        return loss
+
+    @property
+    def representation(self):
+        return self.LightGCN.representation
 
     @abstractmethod
     def _setup_layers(self, *args, **kwargs):
         ''' build the top predictive layer that takes features from LightGCN '''
 
-    @abstractmethod
-    def score_batchwise_ltr(self, *args, **kwargs):
-        ''' analogue of score_batchwise in BaseModel that uses textual data '''
-
-    @abstractmethod
-    def score_pairwise_ltr(self, *args, **kwargs):
-        ''' analogue of score_pairwise in BaseModel that uses textual data '''
-
-    ''' utilities: representation functions '''
+    ''' representation functions '''
 
     def get_user_reviews_mean(self, u):
         ''' represent users as mean of their reviews '''
@@ -113,17 +109,19 @@ class LTRBase(BaseModel, ABC):
 
     def get_item_vectors(self, items_emb, items):
         ''' get vectors used to calculate textual representations dense features for items '''
-        vecs = {'emb': items_emb}
-        vecs['desc'] = self.get_item_desc(items)
-        vecs['reviews'] = self.get_item_reviews_mean(items)
-        return vecs
+        return {
+            'emb': items_emb,
+            'desc': self.get_item_desc(items),
+            'reviews': self.get_item_reviews_mean(items),
+        }
 
     def get_user_vectors(self, users_emb, users):
         ''' get vectors used to calculate textual representations dense features for users '''
-        vecs = {'emb': users_emb}
-        vecs['desc'] = self.get_user_desc(users)
-        vecs['reviews'] = self.get_user_reviews_mean(users)
-        return vecs
+        return {
+            'emb': users_emb,
+            'desc': self.get_user_desc(users),
+            'reviews': self.get_user_reviews_mean(users),
+        }
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
     def get_features_batchwise(self, u_vecs, i_vecs):
@@ -164,17 +162,8 @@ class LTRBase(BaseModel, ABC):
         )
 
 
-class LTRLinear(LTRBase):
+class LTRLinear(LTRBase, ABC):
     ''' trains a dense layer on top of LightGCN '''
-
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
-
-        ''' overwrite the scoring methods '''
-        # overwriting instead of inheritance because use old methods when evaluating loaded base in super.__init__
-        self.evaluate = self.evaluate_ltr
-        self.score_pairwise = self.score_pairwise_ltr
-        self.score_batchwise = self.score_batchwise_ltr
 
     def _setup_layers(self, params):
         '''
@@ -182,12 +171,10 @@ class LTRLinear(LTRBase):
         layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
         '''
         layer_sizes = [len(self.feature_names)] + params.ltr_layers + [1]
-        layers = []
-        for i, j in zip(layer_sizes, layer_sizes[1:]):
-            layers.append(nn.Linear(i, j))
+        layers = [nn.Linear(i, j) for i, j in zip(layer_sizes, layer_sizes[1:])]
         self.layers = nn.Sequential(*layers).to(self.device)
 
-    def evaluate_ltr(self, *args, **kwargs):
+    def evaluate(self, *args, **kwargs):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
         if len(self.layers) == 1:
             self.logger.info('Feature weights from the top layer:')
@@ -195,13 +182,13 @@ class LTRLinear(LTRBase):
                 self.logger.info(f'{f:<20} {w:.4}')
         return super().evaluate(*args, **kwargs)
 
-    def score_batchwise_ltr(self, users_emb, items_emb, users):
+    def score_batchwise(self, users_emb, items_emb, users):
         u_vecs = self.get_user_vectors(users_emb, users)
         i_vecs = self.get_item_vectors(items_emb, self.all_items)
         features = self.get_features_batchwise(u_vecs, i_vecs)
         return self.layers(features).squeeze()
 
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+    def score_pairwise(self, users_emb, items_emb, users, items):
         u_vecs = self.get_user_vectors(users_emb, users)
         i_vecs = self.get_item_vectors(items_emb, items)
         features = self.get_features_pairwise(u_vecs, i_vecs)
@@ -216,11 +203,11 @@ class LTRLinearWPop(LTRLinear):
         self.popularity_users = dataset.popularity_users
         self.popularity_items = dataset.popularity_items
 
-    def _setup_layers(self, params):
+    def _add_vars(self, *args, **kwargs):
+        super()._add_vars(*args, **kwargs)
         self.feature_names += ['user popularity', 'item popularity']
-        super()._setup_layers(params)
 
-    def score_batchwise_ltr(self, users_emb, items_emb, users):
+    def score_batchwise(self, users_emb, items_emb, users):
         u_vecs = self.get_user_vectors(users_emb, users)
         i_vecs = self.get_item_vectors(items_emb, self.all_items)
         features = self.get_features_batchwise(u_vecs, i_vecs)
@@ -228,7 +215,7 @@ class LTRLinearWPop(LTRLinear):
         pop_i = self.popularity_items.expand(len(users), self.n_items, 1)
         return self.layers(torch.cat([features, pop_u, pop_i], axis=-1)).squeeze()
 
-    def score_pairwise_ltr(self, users_emb, items_emb, users, items):
+    def score_pairwise(self, users_emb, items_emb, users, items):
         u_vecs = self.get_user_vectors(users_emb, users)
         i_vecs = self.get_item_vectors(items_emb, items)
         features = self.get_features_pairwise(u_vecs, i_vecs)

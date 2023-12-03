@@ -5,7 +5,7 @@ from TextGCN import (
     AdvSamplDataset,
     AdvSamplModel,
     BaseDataset,
-    BaseModel,
+    LightGCN,
     LTRDataset,
     LTRLinear,
     LTRLinearWPop,
@@ -15,14 +15,14 @@ from TextGCN.parser import parse_args
 
 def get_class(name):
     return {
-        'lgcn': [BaseDataset, BaseModel],
+        'LightGCN': [BaseDataset, LightGCN],
+        'LTRLinear': [LTRDataset, LTRLinear],
+        'LTRLinearWPop': [LTRDataset, LTRLinearWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
-        'ltr_linear': [LTRDataset, LTRLinear],
-        'ltr_pop': [LTRDataset, LTRLinearWPop],
     }[name]
 
 
-if __name__ == '__main__':
+def main():
 
     args = parse_args()
     set_seed(args.seed)
@@ -32,17 +32,22 @@ if __name__ == '__main__':
     args.logger.info(args)
 
     dataset = Dataset(args)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
     model = Model(args, dataset)
     model.logger.info(model)
 
     if args.load:
-        model.load_model(args.load)
+        model.load(args.load)
         model.logger.info('Performance of the loaded model:')
-        model.evaluate()
+        results = model.evaluate()
+        model.print_metrics(results)
 
     if not args.no_train:
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
         model.fit(loader)
 
     if args.predict:
         model.predict(range(dataset.n_users), with_scores=True, save=True)
+
+
+if __name__ == '__main__':
+    main()

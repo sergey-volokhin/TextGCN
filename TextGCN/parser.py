@@ -13,11 +13,10 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         required=True,
                         choices=[
-                            'lgcn',  # BaseModel, custom LightGCN
-                            'adv_sampling',  # dynamic negative sampling
-                            'text',
-                            'ltr_linear', 'ltr_pop',
-                            'xgboost', 'gbdt', 'xgboost_pop', 'gbdt_pop', 'gbdt_class',
+                            'LightGCN',
+                            'adv_sampling',  # LightGCN with dynamic negative sampling
+                            'LTRLinear', 'LTRLinearWPop',
+                            'ratings',
                         ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',
@@ -97,7 +96,7 @@ def parse_args(s=None):
                         help='whether to reshuffle the train-test split or use the existing one')
     parser.add_argument('--freeze',
                         action='store_true',
-                        help='whether to freeze GNN embeddings when learning linear model on top (default: freeze)')
+                        help='whether to freeze GNN embeddings when learning linear model on top')
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')
@@ -123,9 +122,6 @@ def parse_args(s=None):
                         action='store_true',
                         help="whether to use the 'single' verison of the model or not")
 
-    # parser.add_argument('--aggr', '--aggregator',
-    #                     choices=['mean', 'max', 'add'],
-    #                     help='neighbor node aggregation function used in torch_geometric models')
     text_hyper = parser.add_argument_group('text model hyperparams')
     text_hyper.add_argument('--emb_batch_size',
                             default=256,
@@ -146,21 +142,6 @@ def parse_args(s=None):
                             type=str,
                             dest='sep',
                             help='separator for table comprehension (KG model)')
-    # text_hyper.add_argument('--dist_fn',
-    #                         default='euclid',
-    #                         choices=['euclid', 'cosine_minus'],
-    #                         help='distance metric used in textual loss')
-    # text_hyper.add_argument('--weight',
-    #                         help='formula for semantic loss')
-    # text_hyper.add_argument('--pos',
-    #                         default='avg',
-    #                         choices=['user', 'avg', 'kg'],
-    #                         help='how to represent the positive items from the sampled triplets')
-    # text_hyper.add_argument('--neg',
-    #                         default='avg',
-    #                         choices=['avg', 'kg'],
-    #                         help='how to represent the negative items from the sampled triplets')
-
     args = parser.parse_args(s) if s is not None else parser.parse_args()
 
     asserts(args)
@@ -179,15 +160,11 @@ def parse_args(s=None):
     args.k = sorted(args.k)
     args.logger = get_logger(args)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
-    if args.model in ['ltr_linear', 'ltr_simple', 'ltr_linear_pop']:
-        if args.load_base is None and args.load is None:
-            args.logger.warn('Base model not loaded for LTR model, training it from scratch.')
-        if not args.freeze:
-            args.logger.warn('Base model not frozen for LTR model, this will degrade performance')
 
     if args.evaluate_every > args.epochs:
         args.logger.warn(
-            f'Supplied args.evaluate_every ({args.evaluate_every}) is greater than args.epochs ({args.epochs}). '
+            f'Supplied args.evaluate_every ({args.evaluate_every}) '
+            f'is greater than args.epochs ({args.epochs}). '
             'Setting args.evaluate_every to be args.epochs.',
         )
         args.evaluate_every = args.epochs
@@ -201,8 +178,4 @@ def asserts(args):
     elif args.model in ['text', 'reviews', 'kg']:
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
 
-    assert args.load is None or args.load_base is None, 'cannot load both base and trained model'
-
-    # # hack to run the medium baseline for marcus smoothly
-    # if args.load_base is not None and 'baseline' in args.load_base and ('medium' in args.data or 'subsampled' in args.data):
-    #     args.old = True
+    assert args.load is None or args.load_base is None, 'cannot both load base and load trained model'
