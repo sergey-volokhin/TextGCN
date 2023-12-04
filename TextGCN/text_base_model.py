@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn.functional as F
 
-from .base_model import BaseModel
+from .BaseModel import BaseModel
 
 
 class TextBaseModel(BaseModel, ABC):

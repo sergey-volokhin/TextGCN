@@ -120,7 +120,7 @@ class BaseModel(nn.Module, ABC):
         ''' show metrics in the log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
         for metric in results[self.k[0]]:
-            self.logger.info(f'{metric:11}' + ' '.join([f'{results[i][metric][-1]:.4f}' for i in self.k]))
+            self.logger.info(f'{metric:11}' + ' '.join([f'{results[i][metric]:.4f}' for i in self.k]))
 
     def predict(self, users, save: bool = False, with_scores: bool = False):
         '''
