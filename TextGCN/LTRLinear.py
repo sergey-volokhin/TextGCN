@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from .BaseModel import BaseModel
 from .kg_models import DatasetKG
@@ -40,12 +41,14 @@ class LTRBase(BaseModel, ABC):
                 self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
             self.LightGCN.load(params.load_base)
             base_results = self.LightGCN.evaluate()
-            self._print_last_metrics(base_results)
+            self.print_metrics(base_results)
         else:
             self.logger.warn('Not using a pretrained base model leads to poor performance.')
 
     def _add_vars(self, *args, **kwargs):
         super()._add_vars(*args, **kwargs)
+
+        self.activation = F.selu  # F.softmax
 
         ''' features we are going to use'''
         self.feature_names = [

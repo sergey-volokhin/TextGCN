@@ -48,6 +48,8 @@ class BaseModel(nn.Module, ABC):
     def _add_vars(self, params):
         ''' add remaining variables '''
         self.metrics_log = defaultdict(lambda: defaultdict(list))
+        self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
+        self.early_stop_mode = 'max'  # bigger metrics is better
         self.eval_epochs = []  # epochs at which evaluation was performed
         self.training = False
         self.writer = SummaryWriter(self.save_path) if params.tensorboard else False
@@ -87,7 +89,7 @@ class BaseModel(nn.Module, ABC):
             if self.save:
                 self.checkpoint()
 
-            if len(self.eval_epochs) > 2 and early_stop(self.metrics_log):
+            if len(self.eval_epochs) > 2 and early_stop(self.metrics_log, mode=self.early_stop_mode):
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
 
@@ -96,6 +98,7 @@ class BaseModel(nn.Module, ABC):
         if self.writer:
             self.writer.close()
 
+    @torch.no_grad()
     def evaluate(self):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
@@ -109,19 +112,7 @@ class BaseModel(nn.Module, ABC):
         })
         return calculate_metrics(predictions, self.k)
 
-    def _log_metrics(self, epoch, results):
-        ''' update metrics logger with new results '''
-        self.eval_epochs.append(epoch)
-        for k in results:
-            for metric in results[k]:
-                self.metrics_log[k][metric].append(results[k][metric])
-
-    def print_metrics(self, results):
-        ''' show metrics in the log '''
-        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
-        for metric in results[self.k[0]]:
-            self.logger.info(f'{metric:11}' + ' '.join([f'{results[i][metric]:.4f}' for i in self.k]))
-
+    @torch.no_grad()
     def predict(self, users, save: bool = False, with_scores: bool = False):
         '''
         returns a list of lists with predicted items for given list of user_ids
@@ -160,6 +151,7 @@ class BaseModel(nn.Module, ABC):
             pred_df = pd.DataFrame({'user_id': users_unmapped, 'y_pred': predictions_unmapped, 'scores': scores})
             pred_df.to_csv(os.path.join(self.save_path, 'predictions.tsv'), sep='\t', index=False)
             self.logger.info(f"Predictions are saved in `{os.path.join(self.save_path, 'predictions.tsv')}`")
+
         if with_scores:
             return predictions, scores
         return predictions
@@ -171,6 +163,26 @@ class BaseModel(nn.Module, ABC):
         if max(self.metrics_log[self.k[0]]['recall']) <= self.metrics_log[self.k[0]]['recall'][-1]:
             self.logger.info(f'Updating best model at epoch {self.eval_epochs[-1]}')
             shutil.copyfile(latest_checkpoint_path, os.path.join(self.save_path, 'best.pkl'))
+
+    def load(self, path):
+        assert path is not None, 'No model path to load provided'
+        if os.path.isdir(path):
+            path = os.path.join(path, 'best.pkl')
+        self.logger.info(f'Loading model {path}')
+        self.load_state_dict(torch.load(path, map_location=self.device))
+
+    def _log_metrics(self, epoch, results):
+        ''' update metrics logger with new results '''
+        self.eval_epochs.append(epoch)
+        for k in results:
+            for metric in results[k]:
+                self.metrics_log[k][metric].append(results[k][metric])
+
+    def print_metrics(self, results):
+        ''' show metrics in the log '''
+        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in results]))
+        for metric in self.metrics:
+            self.logger.info(f'{metric:11}' + ' '.join([f'{results[i][metric]:.4f}' for i in results]))
 
     @property
     @abstractmethod
@@ -192,13 +204,6 @@ class BaseModel(nn.Module, ABC):
     def score_batchwise(self, *args, **kwargs):
         '''
         calculate predicted user-item scores batchwise (all-to-all):
-            users_emb.shape = (batch_size, emb_size)
-            items_emb.shape = (n_items, emb_size)
+            users_emb.shape == (batch_size, emb_size)
+            items_emb.shape == (n_items, emb_size)
         '''
-
-    def load(self, path):
-        assert path is not None, 'No model path to load provided'
-        if os.path.isdir(path):
-            path = os.path.join(path, 'best.pkl')
-        self.logger.info(f'Loading model {path}')
-        self.load_state_dict(torch.load(path, map_location=self.device))

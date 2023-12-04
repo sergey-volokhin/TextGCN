@@ -16,11 +16,11 @@ def recall(row):
     return row['intersecting_len'] / row['y_true_len']
 
 
-def precision(row, k: int):
+def precision(row, k):
     return row['intersecting_len'] / k
 
 
-def dcg(rel, k: int):
+def dcg(rel, k):
     return np.sum((2 ** rel - 1) / np.log2(np.arange(2, k + 2)), axis=1)
 
 
@@ -85,15 +85,16 @@ def get_logger(params):
     return logging.getLogger()
 
 
-def early_stop(res):
+def early_stop(res, mode, patience=3, threshold=1e-4):
     '''
     returns True if:
      the difference between metrics from current and 2 previous epochs is less than 1e-4
      or the last 3 epochs are yielding strictly declining values for all metrics
     '''
-    declining = all(value[-1] < value[-2] < value[-3] for k in res for value in res[k].values())
-    converged = all(abs(value[-1] - value[-2]) < 1e-4 and abs(value[-3] - value[-2]) < 1e-4
-                    for k in res for value in res[k].values())
+    converged = all(abs(value[-i] - value[-i-1]) < threshold
+                    for k in res for value in res[k].values() for i in range(patience))
+    declining = all(value[-i-(mode=='min')] < value[-i-(mode=='max')]  # if latest is smaller or larger than previous
+                    for k in res for value in res[k].values() for i in range(patience))
     return converged or declining
 
 
