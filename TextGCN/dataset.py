@@ -132,7 +132,7 @@ class BaseDataset(Dataset):
         d_inv[np.isinf(d_inv)] = 0
         d_mat = sp.diags(d_inv)
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float64)
-        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
+        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce()
 
     def _adjacency_matrix(self):
         ''' create bipartite graph with initial vectors '''
@@ -151,7 +151,7 @@ class BaseDataset(Dataset):
         col = torch.Tensor(coo.col).long()
         index = torch.stack([row, col])
         data = torch.FloatTensor(coo.data)
-        return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
+        return torch.sparse_coo_tensor(index, data, torch.Size(coo.shape), device=self.device)
 
     def _print_info(self):
         self.logger.info(f"n_train:    {self.n_train:-7}")

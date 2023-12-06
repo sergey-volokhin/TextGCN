@@ -89,11 +89,17 @@ class LightGCN(BaseModel):
         ''' drop elements from adj table to help with overfitting '''
         indices = self.norm_matrix._indices()
         values = self.norm_matrix._values()
-        mask = (torch.rand(len(values)) < (1 - self.dropout)).to(self.device)
+
+        mask = (torch.rand(len(values), device=self.device) < (1 - self.dropout))
         indices = indices[:, mask]
         values = values[mask] / (1 - self.dropout)
-        matrix = torch.sparse_coo_tensor(indices, values, self.norm_matrix.size())
-        return matrix.coalesce().to(self.device)
+        return torch.sparse_coo_tensor(
+            indices=indices,
+            values=values,
+            size=self.norm_matrix.size(),
+            device=self.device,
+            is_coalesced=True
+        )
 
     @property
     def representation(self):

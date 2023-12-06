@@ -58,7 +58,7 @@ class BaseModel(nn.Module, ABC):
         ''' training function '''
 
         self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet, dynamic_ncols=True):
             self.train()
             self.training = True
             self._loss_values = defaultdict(float)
@@ -103,7 +103,7 @@ class BaseModel(nn.Module, ABC):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
         self.training = False
-        predictions, scores = self.predict(self.test_users, with_scores=True)
+        predictions, scores = self.predict(users=self.test_users, with_scores=True)
         predictions = pd.DataFrame.from_dict({
             'user_id': self.test_users,
             'y_true': self.true_test_lil,
@@ -123,24 +123,23 @@ class BaseModel(nn.Module, ABC):
         self.training = False
         y_probs, y_pred = [], []
         batches = [users[j:j + self.batch_size] for j in range(0, len(users), self.batch_size)]
-        with torch.no_grad():
-            users_emb, items_emb = self.representation
-            for batch_users in tqdm(batches,
-                                    desc='predict batches',
-                                    leave=False,
-                                    dynamic_ncols=True,
-                                    disable=self.slurm):
+        users_emb, items_emb = self.representation
+        for batch_users in tqdm(batches,
+                                desc='predict batches',
+                                leave=False,
+                                dynamic_ncols=True,
+                                disable=self.slurm):
 
-                rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
+            rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
 
-                ''' set scores for train items to be -inf so we don't recommend them. '''
-                exploded = self.train_user_dict[batch_users].reset_index(drop=True).explode()
-                rating[exploded.index, exploded.tolist()] = np.NINF
+            ''' set scores for train items to be -inf so we don't recommend them. '''
+            exploded = self.train_user_dict[batch_users].reset_index(drop=True).explode()
+            rating[exploded.index, exploded.tolist()] = np.NINF
 
-                ''' select top-k items with highest ratings '''
-                probs, rank_indices = torch.topk(rating, k=max(self.k))
-                y_pred.append(rank_indices)
-                y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
+            ''' select top-k items with highest ratings '''
+            probs, rank_indices = torch.topk(rating, k=max(self.k))
+            y_pred.append(rank_indices)
+            y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
 
         predictions = torch.cat(y_pred).tolist()
         scores = torch.cat(y_probs).tolist()

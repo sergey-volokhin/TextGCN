@@ -91,9 +91,9 @@ def early_stop(res, mode, patience=3, threshold=1e-4):
      the difference between metrics from current and 2 previous epochs is less than 1e-4
      or the last 3 epochs are yielding strictly declining values for all metrics
     '''
-    converged = all(abs(value[-i] - value[-i-1]) < threshold
+    converged = all(abs(value[-i] - value[-i - 1]) < threshold
                     for k in res for value in res[k].values() for i in range(patience))
-    declining = all(value[-i-(mode=='min')] < value[-i-(mode=='max')]  # if latest is smaller or larger than previous
+    declining = all(value[-i - (mode == 'min')] < value[-i - (mode == 'max')]  # if latest is smaller or larger than previous
                     for k in res for value in res[k].values() for i in range(patience))
     return converged or declining
 
@@ -134,17 +134,3 @@ def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     copied from stackoverflow. no clue how this works
     '''
     return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
-
-
-def profile(func):
-    ''' function profiler to monitor time it takes for each call '''
-
-    def wrapper(*args, **kwargs):
-        profiler = cProfile.Profile()
-        profiler.enable()
-        func(*args, **kwargs)
-        profiler.disable()
-        stats = pstats.Stats(profiler).sort_stats('cumtime')
-        stats.print_stats()
-
-    return wrapper
