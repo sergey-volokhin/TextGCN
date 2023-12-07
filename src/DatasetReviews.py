@@ -4,12 +4,16 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .dataset import BaseDataset
-from .text_base_model import TextBaseModel
+from .BaseDataset import BaseDataset
 from .utils import embed_text
 
 
 class DatasetReviews(BaseDataset):
+    '''
+    Dataset with textual reviews
+    calculates textual representations of items and users using reviews
+    also calculates popularity of items and users
+    '''
 
     def __init__(self, params):
         super().__init__(params)
@@ -124,32 +128,3 @@ class DatasetReviews(BaseDataset):
             .values
             .tolist()
         ).to(self.device)
-
-
-class TextModelReviews(TextBaseModel):
-
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
-
-        ''' how do we textually represent items in sampled triplets '''
-        if params.pos == 'avg' or params.model == 'reviews':
-            self.get_pos_items_reprs = self.get_item_reviews_mean
-        elif params.pos == 'user':
-            self.get_pos_items_reprs = self.get_item_reviews_user
-
-        if params.neg == 'avg' or params.model == 'reviews':
-            self.get_neg_items_reprs = self.get_item_reviews_mean
-
-    def _copy_dataset_params(self, dataset):
-        super()._copy_dataset_params(dataset)
-        self.reviews_vectors = dataset.reviews_vectors
-        self.items_as_avg_reviews = dataset.items_as_avg_reviews
-
-    def get_item_reviews_mean(self, items):
-        ''' represent items with mean of their reviews '''
-        return self.items_as_avg_reviews[items]
-
-    def get_item_reviews_user(self, items, users):
-        ''' represent items with the review of corresponding user '''
-        df = self.reviews_vectors.loc[torch.stack([items, users], axis=1).tolist()]
-        return torch.from_numpy(df.values).to(self.device)

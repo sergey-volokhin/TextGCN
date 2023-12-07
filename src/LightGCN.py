@@ -1,11 +1,17 @@
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from .BaseModel import BaseModel
+from .RankingModel import RankingModel
+from .ScoringModel import ScoringModel
 
 
 class LightGCN(BaseModel):
+    '''
+    LightGCN model from https://arxiv.org/pdf/2002.02126.pdf
+    without an objective function
+    uses only user-item interactions
+    '''
 
     def __init__(self, params, dataset):
         super().__init__(params, dataset)
@@ -26,15 +32,12 @@ class LightGCN(BaseModel):
         self.n_items = dataset.n_items
         self.norm_matrix = dataset.norm_matrix
 
-    def _add_vars(self, *args, **kwargs):
-        super()._add_vars(*args, **kwargs)
-        self.activation = F.selu  # F.softmax
-
     def _init_embeddings(self, emb_size, freeze):
         ''' randomly initialize entity embeddings '''
         self.embedding_user = nn.Embedding(num_embeddings=self.n_users, embedding_dim=emb_size).to(self.device)
         self.embedding_item = nn.Embedding(num_embeddings=self.n_items, embedding_dim=emb_size).to(self.device)
         nn.init.normal_(self.embedding_user.weight, std=0.1)
+        nn.init.normal_(self.embedding_item.weight, std=0.1)
         self.embedding_user.requires_grad_(not freeze)
         self.embedding_item.requires_grad_(not freeze)
 
@@ -50,34 +53,6 @@ class LightGCN(BaseModel):
         instead of combining all layers
         '''
         return vectors[-1]
-
-    def get_loss(self, data):
-        users, pos, *negs = data.to(self.device).t()
-        bpr_loss = self.bpr_loss(users, pos, negs)
-        reg_loss = self.reg_loss(users, pos, negs)
-        self._loss_values['bpr'] += bpr_loss
-        self._loss_values['reg'] += reg_loss
-        return bpr_loss + reg_loss
-
-    def bpr_loss(self, users, pos, negs):
-        ''' Bayesian Personalized Ranking pairwise loss '''
-        users_emb, items_emb = self.representation
-        users_emb = users_emb[users]
-        pos_scores = self.score_pairwise(users_emb, items_emb[pos], users, pos)
-        loss = 0
-        for neg in negs:  # todo: vectorize
-            neg_scores = self.score_pairwise(users_emb, items_emb[neg], users, neg)
-            loss += torch.mean(self.activation(neg_scores - pos_scores))
-        return loss / len(negs)
-
-    def reg_loss(self, users, pos, negs):
-        ''' regularization L2 loss '''
-        loss = (
-            self.embedding_user(users).norm(2).pow(2)
-            + self.embedding_item(pos).norm(2).pow(2)
-            + self.embedding_item(torch.stack(negs)).norm(2).pow(2).mean()
-        )
-        return self.reg_lambda * loss / len(users) / 2
 
     @property
     def embedding_matrix(self):
@@ -133,3 +108,36 @@ class LightGCN(BaseModel):
         default: mean of all layers
         '''
         return torch.mean(torch.stack(vectors), axis=0)
+
+
+class LightGCNRank(LightGCN, RankingModel):
+    '''
+    Ranking version of LightGCN
+    same objective as in original paper
+    '''
+
+    def reg_loss(self, users, pos, negs):
+        ''' regularization L2 loss '''
+        loss = (
+            self.embedding_user(users).norm(2).pow(2)
+            + self.embedding_item(pos).norm(2).pow(2)
+            + self.embedding_item(torch.stack(negs)).norm(2).pow(2).mean()
+        )
+        return self.reg_lambda * loss / len(users) / 2
+
+
+class LightGCNScore(LightGCN, ScoringModel):
+    '''
+    Scoring version LightGCN
+    different objective than the original paper
+    '''
+
+    def _init_embeddings(self, *args, **kwargs):
+        super()._init_embeddings(*args, **kwargs)
+        self.embedding_user.max_norm = 1.0
+        self.embedding_item.max_norm = 1.0
+
+    def reg_loss(self, users, items):
+        '''regularization L2 loss'''
+        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
+        return self.reg_lambda * loss / len(users) / 2

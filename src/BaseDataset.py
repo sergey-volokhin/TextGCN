@@ -21,8 +21,14 @@ class BaseDataset(Dataset):
         self._build_dicts()
         self._print_info()
         self._precalculate_normalization()
+        self._safety_checks()
 
-        assert self.n_items > max(params.k), f'all k must be less than number of items ({self.n_items}), got k={params.k}'
+    def _safety_checks(self):
+        # assert self.n_items > max(self.k), f'all k must be less than number of items ({self.n_items}), got k={self.k}'  # only relevant for ranking
+        items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
+        assert not items_only_in_test, f"test set contains items that are not in the train set: {items_only_in_test}"
+        users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
+        assert not users_only_in_test, f"test set contains users that are not in the train set: {users_only_in_test}"
 
     def _copy_params(self, params):
         self.path: str = params.data
@@ -53,10 +59,14 @@ class BaseDataset(Dataset):
             .reset_index(drop=True)
         )
 
-        items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
-        assert not items_only_in_test, f"test set contains items that are not in the train set: {items_only_in_test}"
-        users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
-        assert not users_only_in_test, f"test set contains users that are not in the train set: {users_only_in_test}"
+        if os.path.exists(os.path.join(self.path, 'valid.tsv')):
+            self.val_df = (
+                pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
+                .sort_values(by=['user_id', 'asin'])
+                .reset_index(drop=True)
+            )
+            self.test_df, self._actual_test_df = self.val_df, self.test_df  # hack to use validation set
+
 
     def _reshuffle_train_test(self, train_size: float = 0.8):
         self.logger.info('reshuffling train-test')
@@ -93,6 +103,10 @@ class BaseDataset(Dataset):
         self.test_df.user_id = self.test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
+
+        if hasattr(self, '_actual_test_df'):
+            self._actual_test_df.user_id = self._actual_test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+            self._actual_test_df.asin = self._actual_test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
     def _build_dicts(self):
         ''' build dicts for fast lookup '''

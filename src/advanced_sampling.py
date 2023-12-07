@@ -2,8 +2,8 @@ import random
 
 import torch
 
-from .LightGCN import LightGCN
-from .dataset import BaseDataset
+from .LightGCN import LightGCNRank
+from .BaseDataset import BaseDataset
 from .utils import subtract_tensor_as_set
 
 
@@ -22,7 +22,7 @@ class AdvSamplDataset(BaseDataset):
         return torch.tensor([idx // self.bucket_len] + random.sample(self.range_items, k=self.neg_samples))
 
 
-class AdvSamplModel(LightGCN):
+class AdvSamplModel(LightGCNRank):
     '''
         dynamic negative sampling
         ranks 1000 random items, removes positives, and returns top k negatives

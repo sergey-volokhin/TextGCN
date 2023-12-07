@@ -13,10 +13,10 @@ def parse_args(s=None):
     parser.add_argument('--model',
                         required=True,
                         choices=[
-                            'LightGCN',
-                            'adv_sampling',  # LightGCN with dynamic negative sampling
-                            'LTRLinear', 'LTRLinearWPop',
-                            'ratings',
+                            'LightGCNScore', 'LightGCNRank',
+                            'LTRLinearRank', 'LTRLinearWPop',
+                            'LTRLinearScore', 'LTRLinearScoreWPop',
+                            # 'adv_sampling',  # LightGCN with dynamic negative sampling
                         ],
                         help='which model to use')
     parser.add_argument('--ltr_layers',
@@ -24,7 +24,7 @@ def parse_args(s=None):
                         nargs='*',
                         default=[])
     parser.add_argument('--data', '-d',
-                        default='data/books/small/',
+                        required=True,
                         type=str,
                         help='folder with the train/test data')
     parser.add_argument('--epochs', '-e',
@@ -100,6 +100,9 @@ def parse_args(s=None):
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')
+    parser.add_argument('--classification',
+                        action='store_true',
+                        help='whether to round the predictions to the nearest integer')
 
     ''' hyperparameters '''
     parser.add_argument('--lr',

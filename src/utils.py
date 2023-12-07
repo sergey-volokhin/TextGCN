@@ -1,7 +1,5 @@
-import cProfile
 import logging
 import os
-import pstats
 
 import numpy as np
 import torch
@@ -33,7 +31,7 @@ def ndcg(row, k):
     return dcg(rel, k) / idcg
 
 
-def calculate_metrics(df, ks):
+def calculate_ranking_metrics(df, ks):
     '''
     computes all metrics for predictions for all users
     returns a dict of dicts with metrics for each k:
