@@ -6,7 +6,7 @@ Official repo with code for the ECIR'23 paper ["Augmenting Graph Convolutional N
 Using `python==3.10`
 
 To run the code:
-1. Create a separate environment and install [requirements.txt](requirements.txt). You might want to change the index paths to appropriate cuda versions for your machine.
+1. Create a separate environment and install [requirements.txt](requirements.txt). You might want to change the index paths to appropriate cuda versions for your machine. At the time of writing, DGL supports CUDA up to 11.8.
 2. Download the [amazon data](https://cseweb.ucsd.edu/~jmcauley/datasets/amazon_v2/) and put it into the [data](data) folder. I have used reviews and metadata from <b>"Per-category data"</b> table
 3. Clean the data using the [`process_data.py`](data/process_data.py) script. It
     * removes the unnecessary columns and features

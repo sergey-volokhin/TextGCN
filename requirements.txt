@@ -2,7 +2,12 @@ pandas==1.4.0
 sentence_transformers==2.2.2
 transformers==4.34
 unidecode
-tensorboard
-dgl==1.1.2 -f https://data.dgl.ai/wheels/cu118/repo.html
-dglgo==0.0.2 -f https://data.dgl.ai/wheels-test/repo.html
-torch==2.1.0 -i https://download.pytorch.org/whl/cu118
+
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.1.0
+
+--extra-index-url https://data.dgl.ai/wheels-test/repo.html
+dglgo==0.0.2
+
+--extra-index-url https://data.dgl.ai/wheels/cu118/repo.html
+dgl==1.1.2
