@@ -15,6 +15,7 @@ from torch.utils.data import Dataset
 class BaseDataset(Dataset):
 
     def __init__(self, params):
+        super().__init__()
         self._copy_params(params)
         self._load_files(params.reshuffle)
         self._convert_to_internal_ids()
@@ -60,13 +61,13 @@ class BaseDataset(Dataset):
         )
 
         if os.path.exists(os.path.join(self.path, 'valid.tsv')):
+            self.logger.info('loading validation set')
             self.val_df = (
                 pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
                 .sort_values(by=['user_id', 'asin'])
                 .reset_index(drop=True)
             )
             self.test_df, self._actual_test_df = self.val_df, self.test_df  # hack to use validation set
-
 
     def _reshuffle_train_test(self, train_size: float = 0.8):
         self.logger.info('reshuffling train-test')

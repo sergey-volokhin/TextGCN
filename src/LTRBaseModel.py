@@ -45,8 +45,10 @@ class LTRBaseModel(BaseModel, ABC):
             if not params.freeze:
                 self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
             self.foundation.load(params.load_base)
-            base_results = self.foundation.evaluate()
-            self.print_metrics(base_results)
+            results = self.foundation.evaluate()
+            self.metrics_log.update(results)
+            self.logger.info('Base model metrics:')
+            self.metrics_log.log()
         else:
             self.logger.warn('Not using a pretrained base model leads to poor performance.')
 
@@ -74,9 +76,8 @@ class LTRBaseModel(BaseModel, ABC):
     def reg_loss(self, *args, **kwargs):
         return self.foundation.reg_loss(*args, **kwargs)
 
-    @property
-    def representation(self):
-        return self.foundation.representation
+    def forward(self, *args, **kwargs):
+        return self.foundation.forward(*args, **kwargs)
 
     def score_batchwise(self, users_emb, items_emb, users):
         u_vecs = self.get_user_vectors(users_emb, users)

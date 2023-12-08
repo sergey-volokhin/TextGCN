@@ -76,8 +76,7 @@ class LightGCN(BaseModel):
             is_coalesced=True
         )
 
-    @property
-    def representation(self):
+    def forward(self):
         '''
         aggregate embeddings from neighbors for each layer,
         combine layers into final representations

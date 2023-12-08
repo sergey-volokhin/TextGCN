@@ -18,7 +18,7 @@ class DatasetRatings(BaseDataset):
         self._normalize_ratings()
 
     def _load_ratings(self):
-        ''' add ratings to train and test '''
+        ''' add ratings to train, val and test '''
         if 'rating' in self.train_df.columns:
             self.logger.info('Ratings already in train_df')
             self.train_df.rating = self.train_df.rating.astype(int)

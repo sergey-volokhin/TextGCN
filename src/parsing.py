@@ -66,6 +66,10 @@ def parse_args(s=None):
                         type=str,
                         help='path to the base model to load for training the textual layer on top (LTR models)')
 
+    parser.add_argument('--patience',
+                        default=5,
+                        type=int,
+                        help='number of epochs without improvement before stopping')
     parser.add_argument('--no_train',
                         action='store_true',
                         help='whether to train')
@@ -84,9 +88,6 @@ def parse_args(s=None):
                         type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
-    parser.add_argument('--tensorboard',
-                        action='store_true',
-                        help='whether to log to tensorboard')
     parser.add_argument('--seed',
                         default=0,
                         type=int,

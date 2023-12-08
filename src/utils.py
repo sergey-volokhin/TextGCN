@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import torch
+from torch.nn import functional as F
 from sentence_transformers import SentenceTransformer
 
 
@@ -55,19 +56,23 @@ def calculate_ranking_metrics(df, ks):
         numerator = rec * prec * 2
         denominator = rec + prec
 
-        result[k] = {
-            'recall': rec.mean(),
-            'precision': prec.mean(),
-            'hit': hit(df).mean(),
-            'ndcg': ndcg(df, k).mean(),
-            'f1': np.divide(
+        result.update({
+            f'recall@{k}': rec.mean(),
+            f'precision@{k}': prec.mean(),
+            f'hit@{k}': hit(df).mean(),
+            f'ndcg@{k}': ndcg(df, k).mean(),
+            f'f1@{k}': np.divide(
                 numerator,
                 denominator,
                 out=np.zeros_like(numerator),
                 where=denominator != 0,
             ).mean()
-        }
+        })
     return result
+
+
+def calculate_scoring_metrics(y_pred, y_true, split='Valid'):
+    return {f'{split} MSE': F.mse_loss(y_pred, y_true), f'{split} MAE': F.l1_loss(y_pred, y_true)}
 
 
 def get_logger(params):
@@ -81,19 +86,6 @@ def get_logger(params):
         handlers=[logging.FileHandler(os.path.join(params.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
     )
     return logging.getLogger()
-
-
-def early_stop(res, mode, patience=3, threshold=1e-4):
-    '''
-    returns True if:
-     the difference between metrics from current and 2 previous epochs is less than 1e-4
-     or the last 3 epochs are yielding strictly declining values for all metrics
-    '''
-    converged = all(abs(value[-i] - value[-i - 1]) < threshold
-                    for k in res for value in res[k].values() for i in range(patience))
-    declining = all(value[-i - (mode == 'min')] < value[-i - (mode == 'max')]  # if latest is smaller or larger than previous
-                    for k in res for value in res[k].values() for i in range(patience))
-    return converged or declining
 
 
 def embed_text(

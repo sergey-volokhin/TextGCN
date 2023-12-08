@@ -52,7 +52,7 @@ class AdvSamplModel(LightGCNRank):
             num pairs in final batch: 5 * k
         '''
 
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         data = data.to(self.device)
         users, items = data[:, 0], data[:, 1:]
         rankings = self.score_pairwise_adv(users_emb[users], items_emb[items])

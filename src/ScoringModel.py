@@ -4,9 +4,10 @@ from abc import abstractmethod
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from .BaseModel import BaseModel
+from .utils import calculate_scoring_metrics as calculate_metrics
+from .MetricsTracker import ScoringMetricsTracker
 
 
 class ScoringModel(BaseModel):
@@ -24,42 +25,29 @@ class ScoringModel(BaseModel):
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
         self.scalers = dataset.scalers
-        self.test_df = dataset.test_df
-        self.test_scores = torch.from_numpy(self.test_df['rating'].values).to(self.device)
+        self.val_df = dataset.test_df
+        self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
         if hasattr(dataset, '_actual_test_df'):
-            self._actual_test_df = dataset._actual_test_df
-            self._actual_test_scores = torch.from_numpy(self._actual_test_df['rating'].values).to(self.device)
+            self.test_df = dataset._actual_test_df
+            self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
 
     def _add_vars(self, *args, **kwargs):
         super()._add_vars(*args, **kwargs)
-        self.metrics = ['MSE', 'MAE']
-        self.early_stop_mode = 'min'  # lower metrics is better
+        self.metrics_log = ScoringMetricsTracker(self.logger, self.patience)
         self.loss = nn.MSELoss()
-        self.best_valid_mse = np.inf
-        self.best_valid_mae = np.inf
-        self.best_test_mse = np.inf
-        self.best_test_mae = np.inf
 
-    # def _normalize_ratings
-    def fit(self, *args, **kwargs):
-        super().fit(*args, **kwargs)
-        self.logger.info(f'Best valid MSE: {self.best_valid_mse:.4f}')
-        self.logger.info(f'Best valid MAE: {self.best_valid_mae:.4f}')
-        self.logger.info(f'Best test MSE:  {self.best_test_mse:.4f}')
-        self.logger.info(f'Best test MAE:  {self.best_test_mae:.4f}')
-
-    def _unnormalize_ratings(self, ratings_df):
+    def _unnormalize_ratings(self, df) -> torch.Tensor:
         ''' takes a dataframe with columns ['user_id', 'rating'] and returns a tensor of unnormalized ratings '''
 
         def unscale(group):
             scaler = self.scalers[group.name]
             return group.values * scaler['scale'] + scaler['mean']
 
-        result = torch.from_numpy(np.concatenate(ratings_df.groupby('user_id')['rating'].apply(unscale).values)).to(self.device)
+        res = torch.from_numpy(np.concatenate(df.groupby('user_id')['rating'].apply(unscale).values)).to(self.device)
 
         if self.classification:
-            return torch.round(result)
-        return result
+            return torch.round(res)
+        return res
 
     def get_loss(self, data):
         users, items, ratings = data.t()
@@ -73,51 +61,41 @@ class ScoringModel(BaseModel):
 
     def mse_loss(self, users, items, ratings):
         '''mean squared error loss'''
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         predictions = self.score_pairwise(users_emb[users], items_emb[items], users, items)
         return self.loss(predictions.flatten(), ratings)
 
     @abstractmethod
     def reg_loss(self, *args, **kwargs):
-        ''' regularization L2 loss '''
+        ''' regularization loss '''
 
     @torch.no_grad()
     def evaluate(self):
         self.eval()
-        self.training = False
-        predictions = self.predict()
-        scores = {'': {'MSE': F.mse_loss(predictions, self.test_scores).round(decimals=4),
-                       'MAE': F.l1_loss(predictions, self.test_scores).round(decimals=4)}}
-        if hasattr(self, '_actual_test_df') and scores['']['MSE'] < self.best_valid_mse:
-            self.best_valid_mse = scores['']['MSE']
-            self.best_valid_mae = scores['']['MAE']
-            test_scores = self.predict(self._actual_test_df)
-            self.best_test_mse = F.mse_loss(test_scores, self._actual_test_scores).round(decimals=4)
-            self.best_test_mae = F.l1_loss(test_scores, self._actual_test_scores).round(decimals=4)
-        return scores
+        val_preds = self.predict()
+        results = calculate_metrics(val_preds, self.val_true_score, 'Valid')
+        if hasattr(self, 'test_df') and results['Valid MSE'] < self.metrics_log.best_metrics['Valid MSE']:
+            test_preds = self.predict(self.test_df)
+            results.update(calculate_metrics(test_preds, self.test_true_score, 'Test '))
+        return results
 
     @torch.no_grad()
-    def predict(self, df=None, save: bool = False, *args, **kwargs):
-        '''
-        scores all user-item pairs from test_df
-        '''
-        self.training = False
+    def predict(self, df=None, save: bool = False, *args, **kwargs) -> torch.Tensor:
+        ''' scores all user-item pairs from val_df or from provided df '''
+        self.eval()
 
         if df is None:
-            df = self.test_df
+            df = self.val_df
 
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         users = torch.tensor(df['user_id'].values)
         items = torch.tensor(df['asin'].values)
-        df['predicted_score'] = self.score_pairwise(users_emb[users], items_emb[items], users, items).cpu().numpy()
-        predictions = self._unnormalize_ratings(df[['user_id', 'predicted_score']].rename(columns={'predicted_score': 'rating'}))
+        df['pred_score'] = self.score_pairwise(users_emb[users], items_emb[items], users, items).cpu().numpy()
+        predictions = self._unnormalize_ratings(df[['user_id', 'pred_score']].rename(columns={'pred_score': 'rating'}))
+        predictions = torch.clamp(predictions, min=1, max=5)
 
         if save:
-            df['predicted_score'] = predictions.cpu().numpy()
+            df['pred_score'] = predictions.cpu().numpy()
             df.to_csv(os.path.join(self.save_path, 'predicted_scores.tsv'), sep='\t', index=False)
-            df.drop(columns=['predicted_score'], inplace=True)
 
         return predictions
-
-    def _last_epoch_best(self):
-        return self.best_valid_mse == self.metrics_log['']['MSE'][-1]

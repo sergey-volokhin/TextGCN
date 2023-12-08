@@ -68,7 +68,7 @@ class LTRGradientBoosted(LTRBase):
 
     def fit(self, batches):
         self.training = True
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         i_vecs = self.get_item_vectors(items_emb, self.all_items)
         self.warm = False
         for data in tqdm(batches,
@@ -110,7 +110,7 @@ class LTRGradientBoostedWPop(LTRGradientBoosted):
 
     def fit(self, batches):
         self.training = True
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         i_vecs = self.get_item_vectors(items_emb, self.all_items)
         self.warm = False
         for data in tqdm(batches,
@@ -162,7 +162,7 @@ class MarcusGradientBoosted(LTRGradientBoosted):
 
     def fit(self, batches):
         self.training = True
-        users_emb, items_emb = self.representation
+        users_emb, items_emb = self.forward()
         i_vecs = self.get_item_vectors(items_emb, self.all_items)
         self.warm = False
         for epoch in trange(self.epochs, desc='training', leave=False, dynamic_ncols=True):

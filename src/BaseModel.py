@@ -6,10 +6,7 @@ from collections import defaultdict
 import torch
 import torch.optim as opt
 from torch import nn
-from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm, trange
-
-from .utils import early_stop
 
 
 class BaseModel(nn.Module, ABC):
@@ -35,6 +32,7 @@ class BaseModel(nn.Module, ABC):
         self.epochs = params.epochs
         self.logger = params.logger
         self.device = params.device
+        self.patience = params.patience
         self.save_path = params.save_path
         self.evaluate_every = params.evaluate_every
         self.slurm = params.slurm or params.quiet
@@ -44,10 +42,8 @@ class BaseModel(nn.Module, ABC):
 
     def _add_vars(self, params):
         ''' add remaining variables '''
-        self.training = False
         self.metrics_log = defaultdict(lambda: defaultdict(list))
-        self.eval_epochs = []  # epochs at which evaluation was performed
-        self.writer = SummaryWriter(self.save_path) if params.tensorboard else False
+        self.last_eval_epoch = -1  # last epoch at which evaluation was performed
 
     def fit(self, batches):
         ''' training function '''
@@ -55,7 +51,6 @@ class BaseModel(nn.Module, ABC):
         self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet, dynamic_ncols=True):
             self.train()
-            self.training = True
             self._loss_values = defaultdict(float)
             epoch_loss = 0
             for data in tqdm(batches,
@@ -65,40 +60,39 @@ class BaseModel(nn.Module, ABC):
                              disable=self.slurm):
                 self.optimizer.zero_grad()
                 batch_loss = self.get_loss(data)
-                assert not batch_loss.isnan(), f'loss is NA at epoch {epoch}'
                 epoch_loss += batch_loss
                 batch_loss.backward()
                 self.optimizer.step()
 
-            if self.writer:
-                self.writer.add_scalar('training loss', epoch_loss, epoch)
-
             if epoch % self.evaluate_every:
                 continue
 
-            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
+            self.last_eval_epoch = epoch
             results = self.evaluate()
-            self._log_metrics(epoch, results)
-            self.print_metrics(results)
+            self.metrics_log.update(results)
+
+            if self.metrics_log.this_epoch_best():
+                self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
+                self.metrics_log.log()
 
             if self.to_save:
                 self.save()
 
-            if len(self.eval_epochs) > 2 and early_stop(self.metrics_log, mode=self.early_stop_mode):
+            if self.metrics_log.should_stop():
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
 
-        if self.eval_epochs[-1] != self.epochs and self.to_save:
+        if self.last_eval_epoch != self.epochs and self.to_save:
             self.save()
-        if self.writer:
-            self.writer.close()
+
+        self.metrics_log.print_best_results()
 
     def save(self):
         ''' save current model and update the best one '''
         latest_checkpoint_path = os.path.join(self.save_path, 'latest_checkpoint.pkl')
         torch.save(self.state_dict(), latest_checkpoint_path)
-        if self._last_epoch_best():
-            self.logger.info(f'Updating best model at epoch {self.eval_epochs[-1]}')
+        if self.metrics_log.this_epoch_best():
+            self.logger.info(f'Updating best model at epoch {self.last_eval_epoch}')
             shutil.copyfile(latest_checkpoint_path, os.path.join(self.save_path, 'best.pkl'))
 
     def load(self, path):
@@ -108,33 +102,15 @@ class BaseModel(nn.Module, ABC):
         self.logger.info(f'Loading model {path}')
         self.load_state_dict(torch.load(path, map_location=self.device))
 
-    def _log_metrics(self, epoch, results):
-        ''' update metrics logger with new results '''
-        self.eval_epochs.append(epoch)
-        for k in results:
-            for metric in results[k]:
-                self.metrics_log[k][metric].append(results[k][metric])
-
-    def print_metrics(self, results):
-        ''' show metrics in the log '''
-        self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in results]))
-        for metric in self.metrics:
-            self.logger.info(f'{metric:11}' + ' '.join([f'{results[i][metric]:.4f}' for i in results]))
-
     @torch.no_grad()
     @abstractmethod
-    def evaluate(self):
-        ''' calculate and report metrics for test users against predictions '''
+    def evaluate(self, *args, **kwargs):
+        ''' calculate and report metrics for val/test users against predictions '''
 
     @torch.no_grad()
     @abstractmethod
     def predict(self, *args, **kwargs):
-        ''' return predictions for given users '''
-
-    @property
-    @abstractmethod
-    def representation(self, *args, **kwargs):
-        ''' return a tuple of user and item embeddings '''
+        ''' return predictions for provided users or dataframe '''
 
     @abstractmethod
     def get_loss(self, *args, **kwargs):
@@ -154,7 +130,3 @@ class BaseModel(nn.Module, ABC):
             users_emb.shape == (batch_size, emb_size)
             items_emb.shape == (n_items, emb_size)
         '''
-
-    @abstractmethod
-    def _last_epoch_best(self):
-        ''' check if the last epoch was the best one '''

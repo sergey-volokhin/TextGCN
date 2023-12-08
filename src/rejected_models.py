@@ -34,8 +34,7 @@ class TorchGeometric(BaseModel):
         else:
             self.layers = [LayerClass(emb_size, emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
 
-    @property
-    def representation(self):
+    def forward(self):
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         edge_index = torch.cat([norm_matrix.indices(), norm_matrix.indices().flip(dims=(0, 1))], axis=1)
         current_layer_emb_matrix = self.embedding_matrix
@@ -141,7 +140,7 @@ class TextBaseModel(BaseModel, ABC):
 
     def bpr_loss(self, users, pos, negs):
         # todo: could probably disjoin the bpr loss from semantic loss to be cleaner
-        users_emb, item_emb = self.representation
+        users_emb, item_emb = self.forward()
         users_emb = users_emb[users]
         pos_scores = self.score_pairwise(users_emb, item_emb[pos])
         loss = 0
@@ -271,22 +270,18 @@ class TestModel(TextModel):
                    self.representation_kg_kg,
                    self.representation_rev_kg,
                    self.representation_kg_rev]:
-            self.representation = fn
+            self.forward = fn
             self.evaluate()
         exit()
 
-    @property
     def representation_kg_kg(self):
         return self.users_as_avg_desc, self.items_as_desc
 
-    @property
     def representation_rev_kg(self):
         return self.users_as_avg_reviews, self.items_as_desc
 
-    @property
     def representation_kg_rev(self):
         return self.users_as_avg_desc, self.items_as_avg_reviews
 
-    @property
     def representation_rev_rev(self):
         return self.users_as_avg_reviews, self.items_as_avg_reviews
