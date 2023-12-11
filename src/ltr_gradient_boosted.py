@@ -27,19 +27,19 @@ class LTRGradientBoosted(LTRBase):
         uses *ALL* unobserved entries as negatives
     '''
 
-    def _setup_layers(self, params):
-        self.type = params.model
-        if 'xgboost' in params.model:
+    def _setup_layers(self, config):
+        self.type = config.model
+        if 'xgboost' in config.model:
             self.tree = XGBRanker(
                 objective='rank:ndcg',
                 tree_method='gpu_hist',
                 predictor='gpu_predictor',
                 gpu_id=1,
 
-                # n_estimators=params.n_estimators,
-                # max_depth=params.max_depth,
-                # min_child_weight=params.min_child_weight,
-                # eta=params.ltr_eta,
+                # n_estimators=config.n_estimators,
+                # max_depth=config.max_depth,
+                # min_child_weight=config.min_child_weight,
+                # eta=config.ltr_eta,
                 # n_estimators=10,
                 n_estimators=75,
                 min_child_weight=15,
@@ -48,7 +48,7 @@ class LTRGradientBoosted(LTRBase):
                 eval_metric=['auc', 'ndcg@20', 'aucpr', 'map@20'],
             )
             self.tree_fit = self.xgboost_fit
-        elif 'gbdt' in params.model:
+        elif 'gbdt' in config.model:
             self.tree = GBRT(
                 n_estimators=10,
                 max_depth=3,
@@ -104,9 +104,9 @@ class LTRGradientBoostedWPop(LTRGradientBoosted):
         self.popularity_users = dataset.popularity_users
         self.popularity_items = dataset.popularity_items
 
-    def _setup_layers(self, params):
+    def _setup_layers(self, config):
         self.feature_names += ['user popularity', 'item popularity']
-        super()._setup_layers(params)
+        super()._setup_layers(config)
 
     def fit(self, batches):
         self.training = True
@@ -156,9 +156,9 @@ class LTRGradientBoostedWPop(LTRGradientBoosted):
 
 class MarcusGradientBoosted(LTRGradientBoosted):
 
-    def _setup_layers(self, params):
-        params.model = 'xgboost'
-        super()._setup_layers(params)
+    def _setup_layers(self, config):
+        config.model = 'xgboost'
+        super()._setup_layers(config)
 
     def fit(self, batches):
         self.training = True

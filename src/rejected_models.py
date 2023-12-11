@@ -17,9 +17,9 @@ class TorchGeometric(BaseModel):
     # requires the following parameters in args:
     #   aggr/aggregator: (mean, max, add)
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
-        self._build_layers(params.emb_size, params.model, params.aggr)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
+        self._build_layers(config.emb_size, config.model, config.aggr)
 
     def _build_layers(self, emb_size, model_name, aggr):
         LayerClass = {
@@ -57,13 +57,13 @@ class LTRCosine(BaseModel):
     concatenate LightGCN vectors with text during training
     '''
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
         self.users_text_repr = self.users_as_avg_reviews
         self.items_text_repr = {
             'ltr_reviews': self.items_as_avg_reviews,
             'ltr_kg': self.items_as_desc,
-        }[params.model]
+        }[config.model]
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -89,8 +89,8 @@ class LTRSimple(BaseModel):
     concatenates LightGCN vectors with text during inference
     '''
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
         self.users_text_repr = self.users_as_avg_reviews
 
     def _copy_dataset_params(self, dataset):
@@ -126,17 +126,17 @@ class TextBaseModel(BaseModel, ABC):
     #   pos: how to represent the positive items from the sampled triplets (user, avg, kg)
     #   neg: how to represent the negative items from the sampled triplets (avg, kg)
 
-    def _copy_params(self, args):
-        super()._copy_params(args)
+    def _copy_params(self, config):
+        super()._copy_params(config)
         # weights specify which functions to use for semantic loss
-        self.weight_key, self.distance_key = args.weight.split('_')
+        self.weight_key, self.distance_key = config.weight.split('_')
 
-    def _add_vars(self, args):
-        super()._add_vars(args)
+    def _add_vars(self, config):
+        super()._add_vars(config)
         self.dist_fn = {
             'euclid': F.pairwise_distance,
             'cosine_minus': lambda x, y: -F.cosine_similarity(x, y),
-        }[args.dist_fn]
+        }[config.dist_fn]
 
     def bpr_loss(self, users, pos, negs):
         # todo: could probably disjoin the bpr loss from semantic loss to be cleaner
@@ -205,14 +205,14 @@ class TextBaseModel(BaseModel, ABC):
 
 class TextModelKG(TextBaseModel):
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
 
         ''' all items are represented with their descriptions '''
 
-        if params.pos == 'kg' or params.model == 'kg':
+        if config.pos == 'kg' or config.model == 'kg':
             self.get_pos_items_reprs = self.get_item_desc
-        if params.neg == 'kg' or params.model == 'kg':
+        if config.neg == 'kg' or config.model == 'kg':
             self.get_neg_items_reprs = self.get_item_desc
 
     def _copy_dataset_params(self, dataset):
@@ -225,16 +225,16 @@ class TextModelKG(TextBaseModel):
 
 class TextModelReviews(TextBaseModel):
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
 
         ''' how do we textually represent items in sampled triplets '''
-        if params.pos == 'avg' or params.model == 'reviews':
+        if config.pos == 'avg' or config.model == 'reviews':
             self.get_pos_items_reprs = self.get_item_reviews_mean
-        elif params.pos == 'user':
+        elif config.pos == 'user':
             self.get_pos_items_reprs = self.get_item_reviews_user
 
-        if params.neg == 'avg' or params.model == 'reviews':
+        if config.neg == 'avg' or config.model == 'reviews':
             self.get_neg_items_reprs = self.get_item_reviews_mean
 
     def _copy_dataset_params(self, dataset):
@@ -259,8 +259,8 @@ class TextModel(TextModelReviews, TextModelKG):
 class TestModel(TextModel):
     ''' evaluate the Simple models (concat text emb at inference) '''
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
         self.items_as_avg_reviews = dataset.items_as_avg_reviews
         self.users_as_avg_reviews = dataset.users_as_avg_reviews
         self.users_as_avg_desc = dataset.users_as_avg_desc

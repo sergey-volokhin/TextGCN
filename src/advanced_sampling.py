@@ -12,8 +12,8 @@ class AdvSamplDataset(BaseDataset):
     pos_samples = 5
     max_neg_samples = 1000
 
-    def __init__(self, params):
-        super().__init__(params)
+    def __init__(self, config):
+        super().__init__(config)
         # is creating and referencing range faster than recreating range every time when sampling?
         self.range_items = range(self.n_items)
         self.neg_samples = min(len(self.range_items), self.max_neg_samples)

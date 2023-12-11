@@ -1,5 +1,3 @@
-from abc import ABC, abstractmethod
-
 import torch
 from torch import nn
 
@@ -17,17 +15,17 @@ class LTRDatasetScore(DatasetKG, DatasetReviews, DatasetRatings):
     ''' combines KG, Reviews and Ratings datasets '''
 
 
-class LTRBaseModel(BaseModel, ABC):
+class LTRBaseModel(BaseModel):
     '''
     Objective-agnostic model that joins GCN model
     with textual features (reviews and descriptions)
     trains something on top
     '''
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
-        self._setup_layers(params)
-        self._load_base(params, dataset)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
+        self._setup_layers(config)
+        self._load_base(config, dataset)
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -37,14 +35,14 @@ class LTRBaseModel(BaseModel, ABC):
         self.items_as_desc = dataset.items_as_desc
         self.all_items = dataset.all_items
 
-    def _load_base(self, params, dataset):
+    def _load_base(self, config, dataset):
         ''' load the base model '''
-        self.foundation = self.foundation_class(params, dataset)
-        if params.load_base:
-            self.logger.info(f'Loading base LightGCN model from {params.load_base}.')
-            if not params.freeze:
+        self.foundation = self.foundation_class(config, dataset)
+        if config.load_base:
+            self.logger.info(f'Loading base LightGCN model from {config.load_base}.')
+            if not config.freeze:
                 self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
-            self.foundation.load(params.load_base)
+            self.foundation.load(config.load_base)
             results = self.foundation.evaluate()
             self.metrics_log.update(results)
             self.logger.info('Base model metrics:')
@@ -52,8 +50,8 @@ class LTRBaseModel(BaseModel, ABC):
         else:
             self.logger.warn('Not using a pretrained base model leads to poor performance.')
 
-    def _add_vars(self, *args, **kwargs):
-        super()._add_vars(*args, **kwargs)
+    def _add_vars(self, config):
+        super()._add_vars(config)
 
         ''' features we are going to use'''
         self.feature_names = [
@@ -64,12 +62,15 @@ class LTRBaseModel(BaseModel, ABC):
             'description-reviews',
         ]
 
-    def _setup_layers(self, params):
+        ''' foundation class (LightGCN with ranking or scoring) '''
+        self.foundation_class = config.foundation_class
+
+    def _setup_layers(self, config):
         '''
         dense layers that combine all the scores from different node representations
         layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
         '''
-        layer_sizes = [len(self.feature_names)] + params.ltr_layers + [1]
+        layer_sizes = [len(self.feature_names)] + config.ltr_layers + [1]
         layers = [nn.Linear(i, j) for i, j in zip(layer_sizes, layer_sizes[1:])]
         self.layers = nn.Sequential(*layers).to(self.device)
 
@@ -185,8 +186,8 @@ class LTRBaseWPop(LTRBaseModel):
         self.popularity_users = dataset.popularity_users
         self.popularity_items = dataset.popularity_items
 
-    def _add_vars(self, *args, **kwargs):
-        super()._add_vars(*args, **kwargs)
+    def _add_vars(self, config):
+        super()._add_vars(config)
         self.feature_names += ['user popularity', 'item popularity']
 
     def score_batchwise(self, users_emb, items_emb, users):

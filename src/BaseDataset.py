@@ -14,10 +14,10 @@ from torch.utils.data import Dataset
 
 class BaseDataset(Dataset):
 
-    def __init__(self, params):
+    def __init__(self, config):
         super().__init__()
-        self._copy_params(params)
-        self._load_files(params.reshuffle)
+        self._copy_params(config)
+        self._load_files(config.reshuffle)
         self._convert_to_internal_ids()
         self._build_dicts()
         self._print_info()
@@ -31,14 +31,14 @@ class BaseDataset(Dataset):
         users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
         assert not users_only_in_test, f"test set contains users that are not in the train set: {users_only_in_test}"
 
-    def _copy_params(self, params):
-        self.path: str = params.data
-        self.slurm: bool = params.slurm
-        self.device: torch.device = params.device
-        self.batch_size: int = params.batch_size
-        self.neg_samples: int = params.neg_samples
-        self.seed: int = params.seed
-        self.logger = params.logger
+    def _copy_params(self, config):
+        self.path: str = config.data
+        self.slurm: bool = config.slurm
+        self.device: torch.device = config.device
+        self.batch_size: int = config.batch_size
+        self.neg_samples: int = config.neg_samples
+        self.seed: int = config.seed
+        self.logger = config.logger
 
     def _load_files(self, reshuffle: bool):
         self.logger.info('loading data')
@@ -154,10 +154,10 @@ class BaseDataset(Dataset):
         graph = dgl.heterograph({
             ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
             ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-        })
-        user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
-        item_ids = torch.tensor(range(self.n_items), dtype=torch.long)
-        graph.ndata['id'] = {'user': user_ids, 'item': item_ids}
+        }, device=self.device)
+        self.user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long, device=self.device)
+        self.item_ids = torch.tensor(range(self.n_items), dtype=torch.long, device=self.device)
+        graph.ndata['id'] = {'user': self.user_ids, 'item': self.item_ids}
         return graph.adj_external(etype='bought', scipy_fmt='coo', ctx=self.device)
 
     def _convert_sp_mat_to_sp_tensor(self, coo):

@@ -22,10 +22,10 @@ class RankingModel(BaseModel):
     evaluation using Recall, Precision, Hit Rate, NDCG, F1
     '''
 
-    def _copy_params(self, params):
-        super()._copy_params(params)
-        self.k = params.k
-        self.batch_size = params.batch_size
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.k = config.k
+        self.batch_size = config.batch_size
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -35,8 +35,8 @@ class RankingModel(BaseModel):
         self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
         self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
 
-    def _add_vars(self, *args, **kwargs):
-        super()._add_vars(*args, **kwargs)
+    def _add_vars(self, config):
+        super()._add_vars(config)
         self.metrics_log = RankingMetricsTracker(self.logger, self.k, self.patience)
         self.activation = F.selu  # F.softmax
 
@@ -44,7 +44,7 @@ class RankingModel(BaseModel):
         users, pos, *negs = data.to(self.device).t()
         users_emb, items_emb = self.forward()
         bpr_loss = self.bpr_loss(users_emb, items_emb, users, pos, negs)
-        reg_loss = self.reg_loss(users, pos, negs)
+        reg_loss = self.reg_loss(users, torch.stack([pos] + negs))
         self._loss_values['bpr'] += bpr_loss
         self._loss_values['reg'] += reg_loss
         return bpr_loss + reg_loss
@@ -57,10 +57,6 @@ class RankingModel(BaseModel):
             neg_scores = self.score_pairwise(users_emb[users], items_emb[neg], users, neg)
             loss += torch.mean(self.activation(neg_scores - pos_scores))
         return loss / len(negs)
-
-    @abstractmethod
-    def reg_loss(self, *args, **kwargs):
-        ''' regularization loss '''
 
     @torch.no_grad()
     def evaluate(self):

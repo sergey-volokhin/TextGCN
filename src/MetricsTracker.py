@@ -55,7 +55,7 @@ class RankingMetricsTracker(MetricsTracker):
         super().__init__(logger, *args, **kwargs)
         self.ks = sorted(k)
         self.main_metric = f"recall@{self.ks[0]}"
-        self.metric_names = ['precision', 'recall', 'hit', 'f1', 'ndcg']
+        self.metric_names = ['recall', 'precision', 'hit', 'f1', 'ndcg']
         self.best_metrics = {self.main_metric: -np.inf}
         self.metrics = {f"{metric}@{k}": [] for metric in self.metric_names for k in self.ks}
 

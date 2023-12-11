@@ -29,27 +29,27 @@ def get_class(name):
 
 def main():
 
-    args = parse_args()
-    set_seed(args.seed)
-    Dataset, Model = get_class(args.model)
-    args.logger.info(f'Class: {Model}')
-    args.logger.info(args)
+    config = parse_args()
+    set_seed(config.seed)
+    Dataset, Model = get_class(config.model)
+    config.logger.info(f'Class: {Model}')
+    config.logger.info(config)
 
-    dataset = Dataset(args)
-    model = Model(args, dataset)
+    dataset = Dataset(config)
+    model = Model(config, dataset)
     model.logger.info(model)
 
-    if args.load:
-        model.load(args.load)
+    if config.load:
+        model.load(config.load)
         model.logger.info('Performance of the loaded model:')
         results = model.evaluate()
         model.print_metrics(results)
 
-    if not args.no_train:
-        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    if not config.no_train:
+        loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
         model.fit(loader)
 
-    if args.predict:
+    if config.predict:
         model.predict(users=range(dataset.n_users), save=True, with_scores=True)
 
 

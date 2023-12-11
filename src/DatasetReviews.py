@@ -15,10 +15,10 @@ class DatasetReviews(BaseDataset):
     also calculates popularity of items and users
     '''
 
-    def __init__(self, params):
-        super().__init__(params)
+    def __init__(self, config):
+        super().__init__(config)
         self._load_reviews()
-        self._calc_review_embs(params.emb_batch_size, params.bert_model)
+        self._calc_review_embs(config.emb_batch_size, config.bert_model)
         self._get_items_as_avg_reviews()
         self._get_users_as_avg_reviews()
         self._calc_popularity()

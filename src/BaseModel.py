@@ -18,31 +18,30 @@ class BaseModel(nn.Module, ABC):
         - logging metrics
     '''
 
-    def __init__(self, params, dataset):
+    def __init__(self, config, dataset):
         super().__init__()
-        self._copy_params(params)
+        self._copy_params(config)
         self._copy_dataset_params(dataset)
-        self._add_vars(params)
+        self._add_vars(config)
         self.to(self.device)
 
-    def _copy_params(self, params):
-        self.lr = params.lr
-        self.to_save = params.save
-        self.quiet = params.quiet
-        self.epochs = params.epochs
-        self.logger = params.logger
-        self.device = params.device
-        self.patience = params.patience
-        self.save_path = params.save_path
-        self.evaluate_every = params.evaluate_every
-        self.slurm = params.slurm or params.quiet
+    def _copy_params(self, config):
+        self.lr = config.lr
+        self.to_save = config.save
+        self.quiet = config.quiet
+        self.epochs = config.epochs
+        self.logger = config.logger
+        self.device = config.device
+        self.patience = config.patience
+        self.save_path = config.save_path
+        self.evaluate_every = config.evaluate_every
+        self.slurm = config.slurm or config.quiet
 
     def _copy_dataset_params(self, dataset):
         ...
 
-    def _add_vars(self, params):
+    def _add_vars(self, config):
         ''' add remaining variables '''
-        self.metrics_log = defaultdict(lambda: defaultdict(list))
         self.last_eval_epoch = -1  # last epoch at which evaluation was performed
 
     def fit(self, batches):

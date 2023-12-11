@@ -18,9 +18,9 @@ class ScoringModel(BaseModel):
     evaluation using MSE, MAE
     '''
 
-    def _copy_params(self, params):
-        super()._copy_params(params)
-        self.classification = params.classification
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.classification = config.classification
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -31,8 +31,8 @@ class ScoringModel(BaseModel):
             self.test_df = dataset._actual_test_df
             self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
 
-    def _add_vars(self, *args, **kwargs):
-        super()._add_vars(*args, **kwargs)
+    def _add_vars(self, config):
+        super()._add_vars(config)
         self.metrics_log = ScoringMetricsTracker(self.logger, self.patience)
         self.loss = nn.MSELoss()
 
@@ -64,10 +64,6 @@ class ScoringModel(BaseModel):
         users_emb, items_emb = self.forward()
         predictions = self.score_pairwise(users_emb[users], items_emb[items], users, items)
         return self.loss(predictions.flatten(), ratings)
-
-    @abstractmethod
-    def reg_loss(self, *args, **kwargs):
-        ''' regularization loss '''
 
     @torch.no_grad()
     def evaluate(self):

@@ -14,9 +14,9 @@ class DatasetKG(BaseDataset):
     calculates textual representations of items and users using item's descriptions
     '''
 
-    def __init__(self, params):
-        super().__init__(params)
-        self._load_kg(params.bert_model, params.emb_batch_size, params.sep)
+    def __init__(self, config):
+        super().__init__(config)
+        self._load_kg(config.bert_model, config.emb_batch_size, config.sep)
         self._get_users_as_avg_desc()
 
     def _load_kg(

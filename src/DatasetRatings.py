@@ -12,8 +12,8 @@ from .BaseDataset import BaseDataset
 
 class DatasetRatings(BaseDataset):
 
-    def __init__(self, params):
-        super().__init__(params)
+    def __init__(self, config):
+        super().__init__(config)
         self._load_ratings()
         self._normalize_ratings()
 
@@ -21,10 +21,10 @@ class DatasetRatings(BaseDataset):
         ''' add ratings to train, val and test '''
         if 'rating' in self.train_df.columns:
             self.logger.info('Ratings already in train_df')
-            self.train_df.rating = self.train_df.rating.astype(int)
-            self.test_df.rating = self.test_df.rating.astype(int)
+            self.train_df.rating = self.train_df.rating.astype(float).astype(int)
+            self.test_df.rating = self.test_df.rating.astype(float).astype(int)
             if hasattr(self, '_actual_test_df'):
-                self._actual_test_df.rating = self._actual_test_df.rating.astype(int)
+                self._actual_test_df.rating = self._actual_test_df.rating.astype(float).astype(int)
             return
 
         self.logger.info('Loading ratings')
@@ -33,7 +33,7 @@ class DatasetRatings(BaseDataset):
             usecols=['asin', 'user_id', 'rating'],
             dtype=str,
         )
-        overall = ratings.set_index(['asin', 'user_id'])['rating'].astype(int)
+        overall = ratings.set_index(['asin', 'user_id'])['rating'].astype(float).astype(int)
 
         train_indexed = self.train_df.set_index(['asin', 'user_id'])
         train_indexed['rating'] = overall

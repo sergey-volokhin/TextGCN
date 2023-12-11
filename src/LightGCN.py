@@ -13,17 +13,17 @@ class LightGCN(BaseModel):
     uses only user-item interactions
     '''
 
-    def __init__(self, params, dataset):
-        super().__init__(params, dataset)
-        self._init_embeddings(params.emb_size, params.freeze)
+    def __init__(self, config, dataset):
+        super().__init__(config, dataset)
+        self._init_embeddings(config.emb_size, config.freeze)
 
-    def _copy_params(self, params):
-        super()._copy_params(params)
-        self.dropout = params.dropout
-        self.emb_size = params.emb_size
-        self.n_layers = params.n_layers
-        self.reg_lambda = params.reg_lambda
-        if params.single:
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.dropout = config.dropout
+        self.emb_size = config.emb_size
+        self.n_layers = config.n_layers
+        self.reg_lambda = config.reg_lambda
+        if config.single:
             self.layer_combination = self.layer_combination_single
 
     def _copy_dataset_params(self, dataset):
@@ -34,12 +34,20 @@ class LightGCN(BaseModel):
 
     def _init_embeddings(self, emb_size, freeze):
         ''' randomly initialize entity embeddings '''
-        self.embedding_user = nn.Embedding(num_embeddings=self.n_users, embedding_dim=emb_size).to(self.device)
-        self.embedding_item = nn.Embedding(num_embeddings=self.n_items, embedding_dim=emb_size).to(self.device)
+        self.embedding_user = nn.Embedding(
+            num_embeddings=self.n_users,
+            embedding_dim=emb_size,
+            device=self.device,
+            _freeze=freeze,
+        )
+        self.embedding_item = nn.Embedding(
+            num_embeddings=self.n_items,
+            embedding_dim=emb_size,
+            device=self.device,
+            _freeze=freeze,
+        )
         nn.init.normal_(self.embedding_user.weight, std=0.1)
         nn.init.normal_(self.embedding_item.weight, std=0.1)
-        self.embedding_user.requires_grad_(not freeze)
-        self.embedding_item.requires_grad_(not freeze)
 
     def score_pairwise(self, users_emb, items_emb, *args, **kwargs):
         return torch.sum(users_emb * items_emb, dim=1)
@@ -73,7 +81,7 @@ class LightGCN(BaseModel):
             values=values,
             size=self.norm_matrix.size(),
             device=self.device,
-            is_coalesced=True
+            is_coalesced=True,
         )
 
     def forward(self):
@@ -89,6 +97,11 @@ class LightGCN(BaseModel):
             node_embed_cache.append(current_lvl_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
+
+    def reg_loss(self, users, items):
+        ''' regularization L2 loss '''
+        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
+        return self.reg_lambda * loss / len(users) / 2
 
     def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
@@ -115,15 +128,6 @@ class LightGCNRank(LightGCN, RankingModel):
     same objective as in original paper
     '''
 
-    def reg_loss(self, users, pos, negs):
-        ''' regularization L2 loss '''
-        loss = (
-            self.embedding_user(users).norm(2).pow(2)
-            + self.embedding_item(pos).norm(2).pow(2)
-            + self.embedding_item(torch.stack(negs)).norm(2).pow(2).mean()
-        )
-        return self.reg_lambda * loss / len(users) / 2
-
 
 class LightGCNScore(LightGCN, ScoringModel):
     '''
@@ -135,8 +139,3 @@ class LightGCNScore(LightGCN, ScoringModel):
         super()._init_embeddings(*args, **kwargs)
         self.embedding_user.max_norm = 1.0
         self.embedding_item.max_norm = 1.0
-
-    def reg_loss(self, users, items):
-        '''regularization L2 loss'''
-        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
-        return self.reg_lambda * loss / len(users) / 2
