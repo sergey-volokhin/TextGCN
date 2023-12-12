@@ -1,11 +1,8 @@
 import os
 import random
 
-import numpy as np
 import pandas as pd
 import torch
-from sklearn.preprocessing import StandardScaler
-from tqdm.auto import tqdm
 
 from .BaseDataset import BaseDataset
 
@@ -53,19 +50,19 @@ class DatasetRatings(BaseDataset):
 
         self.logger.info('Normalizing ratings')
 
-        def sklearn_scale(rating):
-            scaler = StandardScaler()
-            scores = scaler.fit_transform(rating.values)
-            return scores, {'scale': scaler.scale_[0], 'mean': scaler.mean_[0]}
+        groupped = self.train_df.groupby('user_id')
+        user_means = groupped['rating'].transform('mean')
+        user_stds = groupped['rating'].transform('std').fillna(0)
+        self.train_df['normal_rating'] = ((self.train_df['rating'] - user_means) / user_stds).fillna(0)
 
-        tqdm.pandas(desc='normalizing ratings', dynamic_ncols=True, disable=self.slurm)
-        normalized_scores, scalers = zip(*self.train_df.groupby('user_id')[['rating']].progress_apply(sklearn_scale))
-        self.train_df['normal_rating'] = np.concatenate(normalized_scores)
-        self.scalers = dict(zip(self.train_df['user_id'].unique(), scalers))
+        groupped = self.train_df.groupby('user_id')
+        scalers = groupped.agg({'rating': ['mean', 'std']}).fillna(0)
+        scalers.columns = scalers.columns.droplevel()
+        self.scalers = scalers.to_dict(orient='index')
 
         self.train_df_user_groupped = {  # for faster __getitem__
-            group: data[['user_id', 'asin', 'normal_rating']].values
-            for group, data in self.train_df.groupby('user_id')
+            user_id: data[['user_id', 'asin', 'normal_rating']].values
+            for user_id, data in groupped
         }
 
     def __getitem__(self, idx: int):

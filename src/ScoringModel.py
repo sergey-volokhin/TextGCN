@@ -41,7 +41,7 @@ class ScoringModel(BaseModel):
 
         def unscale(group):
             scaler = self.scalers[group.name]
-            return group.values * scaler['scale'] + scaler['mean']
+            return group.values * scaler['std'] + scaler['mean']
 
         res = torch.from_numpy(np.concatenate(df.groupby('user_id')['rating'].apply(unscale).values)).to(self.device)
 

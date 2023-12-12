@@ -16,7 +16,7 @@ class MetricsTracker(ABC):
 
     @property
     def last_result(self):
-        return {metric: values[-1] for metric, values in self.metrics.items()}
+        return {metric: values[-1] for metric, values in self.metrics.items() if values}
 
     def should_stop(self):
         return self.epochs_no_improve >= self.patience
@@ -54,8 +54,8 @@ class RankingMetricsTracker(MetricsTracker):
     def __init__(self, logger, k, *args, **kwargs):
         super().__init__(logger, *args, **kwargs)
         self.ks = sorted(k)
-        self.main_metric = f"recall@{self.ks[0]}"
         self.metric_names = ['recall', 'precision', 'hit', 'f1', 'ndcg']
+        self.main_metric = f"recall@{self.ks[0]}"
         self.best_metrics = {self.main_metric: -np.inf}
         self.metrics = {f"{metric}@{k}": [] for metric in self.metric_names for k in self.ks}
 

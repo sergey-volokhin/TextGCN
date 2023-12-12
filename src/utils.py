@@ -75,15 +75,15 @@ def calculate_scoring_metrics(y_pred, y_true, split='Valid'):
     return {f'{split} MSE': F.mse_loss(y_pred, y_true), f'{split} MAE': F.l1_loss(y_pred, y_true)}
 
 
-def get_logger(params):
-    if params.quiet:
-        params.logging_level = 'error'
-    params.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[params.logging_level]
+def get_logger(config):
+    if config.quiet:
+        config.logging_level = 'error'
+    config.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[config.logging_level]
     logging.basicConfig(
-        level=(logging.ERROR if params.quiet else params.logging_level),
+        level=(logging.ERROR if config.quiet else config.logging_level),
         format='%(asctime)-10s - %(levelname)s: %(message)s',
         datefmt='%d/%m/%y %H:%M',
-        handlers=[logging.FileHandler(os.path.join(params.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
+        handlers=[logging.FileHandler(os.path.join(config.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
     )
     return logging.getLogger()
 
