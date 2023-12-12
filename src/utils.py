@@ -71,8 +71,8 @@ def calculate_ranking_metrics(df, ks):
     return result
 
 
-def calculate_scoring_metrics(y_pred, y_true, split='Valid'):
-    return {f'{split} MSE': F.mse_loss(y_pred, y_true), f'{split} MAE': F.l1_loss(y_pred, y_true)}
+def calculate_scoring_metrics(y_pred, y_true):
+    return {'mse': F.mse_loss(y_pred, y_true), 'mae': F.l1_loss(y_pred, y_true)}
 
 
 def get_logger(config):

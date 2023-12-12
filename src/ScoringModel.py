@@ -67,12 +67,13 @@ class ScoringModel(BaseModel):
 
     @torch.no_grad()
     def evaluate(self):
+        ''' returns a dict of metrics for val and test sets: {"split metric": value} '''
         self.eval()
         val_preds = self.predict()
-        results = calculate_metrics(val_preds, self.val_true_score, 'Valid')
-        if hasattr(self, 'test_df') and results['Valid MSE'] < self.metrics_log.best_metrics['Valid MSE']:
+        results = {f'valid_{k}': v for k, v in calculate_metrics(val_preds, self.val_true_score).items()}
+        if hasattr(self, 'test_df') and self.metrics_log._is_better(results):
             test_preds = self.predict(self.test_df)
-            results.update(calculate_metrics(test_preds, self.test_true_score, 'Test '))
+            results.update({f'test_{k}': v for k, v in calculate_metrics(test_preds, self.test_true_score).items()})
         return results
 
     @torch.no_grad()

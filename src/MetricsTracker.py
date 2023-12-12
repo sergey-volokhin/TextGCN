@@ -8,6 +8,8 @@ class MetricsTracker(ABC):
         self.logger = logger
         self.patience = patience
         self.epochs_no_improve = 0
+        self.metrics = {}
+        self.best_metrics = {}
 
     def update(self, results):
         for metric in results:
@@ -26,23 +28,36 @@ class MetricsTracker(ABC):
         self.log(self.best_metrics)
 
     def log(self, results=None):
-        ''' save metrics from results in the logger '''
+        ''' write metrics in the logger '''
         for i in self._report(results).split('\n'):
             self.logger.info(i)
 
-    def this_epoch_best(self):
+    def last_epoch_best(self):
+        ''' check if results from the last epoch are the best '''
         return self.metrics[self.main_metric][-1] == self.best_metrics[self.main_metric]
 
     def _check_best_metrics(self, result):
-        if self._is_better(result[self.main_metric], self.best_metrics[self.main_metric]):
-            self.best_metrics = result
+        '''
+        update best metrics if
+            current result is better than best metrics
+            or best metrics don't exist yet
+        '''
+        if not self.best_metrics or self._is_better(result):
+            self.best_metrics = {k: result[k] for k in self.metrics.keys()}
             self.epochs_no_improve = 0
         else:
             self.epochs_no_improve += 1
 
+    def _is_better(self, result):
+        ''' check if result is better than best metrics '''
+        return self._metric_is_better(result[self.main_metric], self.best_metrics[self.main_metric])
+
     @abstractmethod
-    def _is_better(self, a, b):
-        ''' return True if a metric value is better than b '''
+    def _metric_is_better(self, a, b):
+        '''
+        return True if 'a' metric value is better than 'b'
+            i.e. "higher is better" or "lower is better"
+        '''
 
     @abstractmethod
     def _report(self, results=None):
@@ -56,14 +71,14 @@ class RankingMetricsTracker(MetricsTracker):
         self.ks = sorted(k)
         self.metric_names = ['recall', 'precision', 'hit', 'f1', 'ndcg']
         self.main_metric = f"recall@{self.ks[0]}"
-        self.best_metrics = {self.main_metric: -np.inf}
         self.metrics = {f"{metric}@{k}": [] for metric in self.metric_names for k in self.ks}
+        self.best_metrics = {m: -np.inf for m in self.metrics}
 
-    def _is_better(self, a, b):
+    @staticmethod
+    def _metric_is_better(a, b):
         return a > b
 
     def _report(self, results=None):
-        ''' return a mostring with metrics for each k '''
         if results is None:
             results = self.last_result
         rows = ["           " + " ".join([f"@{k:<6}" for k in self.ks])]
@@ -76,14 +91,15 @@ class ScoringMetricsTracker(MetricsTracker):
 
     def __init__(self, logger, *args, **kwargs):
         super().__init__(logger, *args, **kwargs)
-        self.main_metric = "Valid MSE"
-        self.best_metrics = {self.main_metric: np.inf}
-        self.metrics = {"Valid MSE": [], "Valid MAE": [], "Test  MSE": [], "Test  MAE": []}
+        self.main_metric = "valid_mse"
+        self.metrics = {"valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
+        self.best_metrics = {m: np.inf for m in self.metrics}
 
-    def _is_better(self, a, b):
+    @staticmethod
+    def _metric_is_better(a, b):
         return a < b
 
     def _report(self, results=None):
         if results is None:
-            results = {k: v for k, v in self.last_result.items() if 'Valid' in k}
-        return "\n".join([f"{metric}: {values:.4f}" for metric, values in results.items()])
+            results = {k: v for k, v in self.last_result.items() if 'valid' in k}
+        return "\n".join([f"{metric:9} {values:.4f}" for metric, values in results.items()])

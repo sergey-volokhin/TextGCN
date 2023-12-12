@@ -62,9 +62,6 @@ class LTRBaseModel(BaseModel):
             'description-reviews',
         ]
 
-        ''' foundation class (LightGCN with ranking or scoring) '''
-        self.foundation_class = config.foundation_class
-
     def _setup_layers(self, config):
         '''
         dense layers that combine all the scores from different node representations
