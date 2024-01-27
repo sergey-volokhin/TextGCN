@@ -69,7 +69,7 @@ def parse_args(s=None):
                         action='store_true',
                         help='supress textual output in terminal (equivalent to error logging level)')
     parser.add_argument('--logging_level',
-                        default='info',
+                        default='debug',
                         type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
@@ -90,7 +90,7 @@ def parse_args(s=None):
                         type=float,
                         help='Learning rate.')
     parser.add_argument('--reg_lambda',
-                        default=1e-4,
+                        default=0.001,
                         type=float,
                         help='the weight decay for L2 normalizaton')
     parser.add_argument('--dropout',
@@ -134,10 +134,10 @@ def parse_args(s=None):
                              default=256,
                              type=int,
                              help='batch size for calculating embeddings for textual data')
-    text_params.add_argument('--bert_model',
+    text_params.add_argument('--encoder',
                              default='all-MiniLM-L6-v2',
                              type=str,
-                             help='version of BERT to use. for example: '
+                             help='which encoder from SentenceTransformers is used to embed text. for example: '
                                   'google/bert_uncased_L-2_H-128_A-2 '
                                   'all-MiniLM-L6-v2 '
                                   'microsoft/deberta-v3-base '
@@ -149,25 +149,15 @@ def parse_args(s=None):
                              dest='sep',
                              help='separator for table comprehension (KG model)')
 
-    args = parser.parse_args(s) if s is not None else parser.parse_args()
+    args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
+    return process_args(args)
 
-    asserts(args)
 
-    ''' paths '''
-    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
-    if args.uid is None:
-        args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-    args.save_path = os.path.join('runs/', os.path.basename(os.path.dirname(os.path.dirname(args.data))), args.model, args.uid)
-    os.makedirs(args.save_path, exist_ok=True)
-
-    ''' cuda '''
+def process_args(args):
+    args.k = sorted(args.k)
+    sys.setrecursionlimit(15000)  # this fixes tqdm bug
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu else "cpu")
-
-    args.k = sorted(args.k)
-    args.logger = get_logger(args)
-    sys.setrecursionlimit(15000)  # this fixes tqdm bug
-
     if args.evaluate_every > args.epochs:
         args.logger.warn(
             f'Supplied args.evaluate_every ({args.evaluate_every}) '
@@ -176,13 +166,26 @@ def parse_args(s=None):
         )
         args.evaluate_every = args.epochs
 
-    return args
-
-
-def asserts(args):
-    if args.model in ['gat', 'gatv2', 'gcn', 'graphsage']:
-        assert args.aggr is not None, 'set up the aggregator function for torch_geometric model'
-    elif args.model in ['text', 'reviews', 'kg']:
-        assert args.weight is not None, 'set the weight for model that uses semantic loss'
-
+    ''' paths '''
+    args.data = os.path.join(args.data, '')  # make sure path ends with '/'
+    if args.uid is None:
+        args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
+    args.save_path = os.path.join(
+        'runs',
+        os.path.basename(os.path.dirname(os.path.dirname(args.data))),
+        args.model,
+        args.uid,
+    )
+    os.makedirs(args.save_path, exist_ok=True)
+    args.logger = get_logger(args)
     assert args.load is None or args.load_base is None, 'cannot both load base and load trained model'
+    if args.load is not None and os.path.isdir(args.load):
+        if os.path.exists(os.path.join(args.load, 'best.pkl')):
+            args.load = os.path.join(args.load, 'best.pkl')
+        elif os.path.exists(os.path.join(args.load, 'latest_checkpoint.pkl')):
+            args.load = os.path.join(args.load, 'latest_checkpoint.pkl')
+        else:
+            args.logger.warn(f'No model to load found in {args.load}. Continuing without loading.')
+            args.load = None
+
+    return args

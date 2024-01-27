@@ -1,5 +1,4 @@
 import os
-from abc import abstractmethod
 
 import numpy as np
 import torch
@@ -20,11 +19,14 @@ class ScoringModel(BaseModel):
 
     def _copy_params(self, config):
         super()._copy_params(config)
+        self.reg_lambda = config.reg_lambda
         self.classification = config.classification
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
         self.scalers = dataset.scalers
+        self.train_df = dataset.train_df
+        self.train_true_score = torch.from_numpy(self.train_df['rating'].values).to(self.device)
         self.val_df = dataset.test_df
         self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
         if hasattr(dataset, '_actual_test_df'):
@@ -54,7 +56,7 @@ class ScoringModel(BaseModel):
         users = users.long()
         items = items.long()
         mse_loss = self.mse_loss(users, items, ratings.float())
-        reg_loss = self.reg_loss(users, items)
+        reg_loss = self.reg_lambda * self.reg_loss(users, items)
         self._loss_values['mse'] += mse_loss
         self._loss_values['reg'] += reg_loss
         return mse_loss + reg_loss
@@ -70,9 +72,12 @@ class ScoringModel(BaseModel):
         ''' returns a dict of metrics for val and test sets: {"split metric": value} '''
         self.eval()
         val_preds = self.predict()
-        results = {f'valid_{k}': v for k, v in calculate_metrics(val_preds, self.val_true_score).items()}
+
+        results = {f'train_{k}': v for k, v in calculate_metrics(self.predict(self.train_df), self.train_true_score).items()}
+        results.update({f'valid_{k}': v for k, v in calculate_metrics(val_preds, self.val_true_score).items()})
+
         if hasattr(self, 'test_df') and self.metrics_log._is_better(results):
-            test_preds = self.predict(self.test_df)
+            test_preds = self.predict(df=self.test_df)
             results.update({f'test_{k}': v for k, v in calculate_metrics(test_preds, self.test_true_score).items()})
         return results
 

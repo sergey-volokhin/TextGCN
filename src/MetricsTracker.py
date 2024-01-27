@@ -43,7 +43,7 @@ class MetricsTracker(ABC):
             or best metrics don't exist yet
         '''
         if not self.best_metrics or self._is_better(result):
-            self.best_metrics = {k: result[k] for k in self.metrics.keys()}
+            self.best_metrics = {k: result[k] for k in self.metrics.keys()}  # todo: breaks when no val set
             self.epochs_no_improve = 0
         else:
             self.epochs_no_improve += 1
@@ -92,7 +92,7 @@ class ScoringMetricsTracker(MetricsTracker):
     def __init__(self, logger, *args, **kwargs):
         super().__init__(logger, *args, **kwargs)
         self.main_metric = "valid_mse"
-        self.metrics = {"valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
+        self.metrics = {'train_mse': [], 'train_mae': [], "valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
         self.best_metrics = {m: np.inf for m in self.metrics}
 
     @staticmethod
@@ -101,5 +101,5 @@ class ScoringMetricsTracker(MetricsTracker):
 
     def _report(self, results=None):
         if results is None:
-            results = {k: v for k, v in self.last_result.items() if 'valid' in k}
+            results = {k: v for k, v in self.last_result.items() if 'test' not in k}
         return "\n".join([f"{metric:9} {values:.4f}" for metric, values in results.items()])

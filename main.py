@@ -32,7 +32,7 @@ def main():
     config = parse_args()
     set_seed(config.seed)
     Dataset, Model = get_class(config.model)
-    config.logger.info(f'Class: {Model}')
+    config.logger.info(f'Class: {Model.__name__}')
     config.logger.info(config)
 
     dataset = Dataset(config)
@@ -43,7 +43,7 @@ def main():
         model.load(config.load)
         model.logger.info('Performance of the loaded model:')
         results = model.evaluate()
-        model.print_metrics(results)
+        model.metrics_log.log(results)
 
     if not config.no_train:
         loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)

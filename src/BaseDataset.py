@@ -41,7 +41,7 @@ class BaseDataset(Dataset):
         self.logger = config.logger
 
     def _load_files(self, reshuffle: bool):
-        self.logger.info('loading data')
+        self.logger.debug('loading data')
 
         folder = self.path
         if reshuffle:
@@ -53,29 +53,34 @@ class BaseDataset(Dataset):
             pd.read_table(os.path.join(folder, 'train.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
+            .astype({'user_id': str, 'asin': str})
         )
         self.test_df = (
             pd.read_table(os.path.join(folder, 'test.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
+            .astype({'user_id': str, 'asin': str})
         )
 
         if os.path.exists(os.path.join(self.path, 'valid.tsv')):
-            self.logger.info('loading validation set')
-            self.val_df = (
+            self.logger.debug('loading validation set')
+            self._actual_test_df = self.test_df  # hack to use validation set
+            self.test_df = (
                 pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
                 .sort_values(by=['user_id', 'asin'])
                 .reset_index(drop=True)
             )
-            self.test_df, self._actual_test_df = self.val_df, self.test_df  # hack to use validation set
 
     def _reshuffle_train_test(self, train_size: float = 0.8):
-        self.logger.info('reshuffling train-test')
+        self.logger.debug('reshuffling train-test')
         os.makedirs(os.path.join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
 
         train_df = pd.read_table(os.path.join(self.path, 'train.tsv'), dtype=str)
         test_df = pd.read_table(os.path.join(self.path, 'test.tsv'), dtype=str)
         df = pd.concat([train_df, test_df])
+        if os.path.exists(os.path.join(self.path, 'valid.tsv')):
+            val_df = pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
+            df = pd.concat([df, val_df])
 
         group_sizes = df.groupby('user_id').size()
         filtered_df = df[df['user_id'].isin(group_sizes[group_sizes >= 3].index)]
@@ -155,7 +160,7 @@ class BaseDataset(Dataset):
             ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
             ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
         }, device=self.device)
-        self.user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long, device=self.device)
+        self.user_ids = torch.tensor(range(self.n_users), dtype=torch.long, device=self.device)
         self.item_ids = torch.tensor(range(self.n_items), dtype=torch.long, device=self.device)
         graph.ndata['id'] = {'user': self.user_ids, 'item': self.item_ids}
         return graph.adj_external(etype='bought', scipy_fmt='coo', ctx=self.device)
@@ -174,7 +179,7 @@ class BaseDataset(Dataset):
         self.logger.info(f"n_users:    {self.n_users:-7}")
         self.logger.info(f"n_items:    {self.n_items:-7}")
 
-    def _cache_samples(self, idx: int):
+    def _cache_samples(self, idx: int):  # todo: add structured_negative_sampling from torch_geom
         '''
         precaching pos and neg samples for users to save time during iteration
         sample exactly as many examples at the beginning of each epoch as we'll need per item

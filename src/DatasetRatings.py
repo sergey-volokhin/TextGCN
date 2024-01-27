@@ -17,14 +17,14 @@ class DatasetRatings(BaseDataset):
     def _load_ratings(self):
         ''' add ratings to train, val and test '''
         if 'rating' in self.train_df.columns:
-            self.logger.info('Ratings already in train_df')
+            self.logger.debug('ratings already in train_df')
             self.train_df.rating = self.train_df.rating.astype(float).astype(int)
             self.test_df.rating = self.test_df.rating.astype(float).astype(int)
             if hasattr(self, '_actual_test_df'):
                 self._actual_test_df.rating = self._actual_test_df.rating.astype(float).astype(int)
             return
 
-        self.logger.info('Loading ratings')
+        self.logger.debug('loading ratings')
         ratings = pd.read_table(
             os.path.join(self.path, 'reviews_text.tsv'),
             usecols=['asin', 'user_id', 'rating'],
@@ -46,9 +46,9 @@ class DatasetRatings(BaseDataset):
             self._actual_test_df = actual_test_indexed.reset_index()
 
     def _normalize_ratings(self):
-        ''' normalize ratings user-wise using sklearn scaler '''
+        ''' normalize ratings user-wise by mean and std '''
 
-        self.logger.info('Normalizing ratings')
+        self.logger.debug('normalizing ratings')
 
         groupped = self.train_df.groupby('user_id')
         user_means = groupped['rating'].transform('mean')
@@ -61,8 +61,8 @@ class DatasetRatings(BaseDataset):
         self.scalers = scalers.to_dict(orient='index')
 
         self.train_df_user_groupped = {  # for faster __getitem__
-            user_id: data[['user_id', 'asin', 'normal_rating']].values
-            for user_id, data in groupped
+            user_id: data.values
+            for user_id, data in groupped[['user_id', 'asin', 'normal_rating']]
         }
 
     def __getitem__(self, idx: int):

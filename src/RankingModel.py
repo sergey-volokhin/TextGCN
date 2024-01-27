@@ -26,6 +26,7 @@ class RankingModel(BaseModel):
         super()._copy_params(config)
         self.k = config.k
         self.batch_size = config.batch_size
+        self.reg_lambda = config.reg_lambda
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -44,7 +45,7 @@ class RankingModel(BaseModel):
         users, pos, *negs = data.to(self.device).t()
         users_emb, items_emb = self.forward()
         bpr_loss = self.bpr_loss(users_emb, items_emb, users, pos, negs)
-        reg_loss = self.reg_loss(users, torch.stack([pos] + negs))
+        reg_loss = self.reg_lambda * self.reg_loss(users, torch.stack([pos] + negs))
         self._loss_values['bpr'] += bpr_loss
         self._loss_values['reg'] += reg_loss
         return bpr_loss + reg_loss

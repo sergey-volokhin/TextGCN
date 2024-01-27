@@ -10,8 +10,24 @@ from .DatasetRatings import DatasetRatings
 class LTRDatasetRank(DatasetKG, DatasetReviews):
     ''' combines KG and Reviews datasets '''
 
+    def __init__(self, config):
+        super().__init__(config)
+        self._get_users_as_avg_desc()
 
-class LTRDatasetScore(DatasetKG, DatasetReviews, DatasetRatings):
+    def _get_users_as_avg_desc(self):
+        ''' use mean of descriptions of items reviewed to represent users '''
+        user_text_embs = {}
+        for user, group in self.top_med_reviews.groupby('user_id')['asin']:
+            user_text_embs[user] = self.items_as_desc[group.values].mean(axis=0).cpu()
+        self.users_as_avg_desc = torch.stack(
+            self.user_mapping['remap_id']
+            .map(user_text_embs)
+            .values
+            .tolist()
+        ).to(self.device)
+
+
+class LTRDatasetScore(LTRDatasetRank, DatasetRatings):
     ''' combines KG, Reviews and Ratings datasets '''
 
 
@@ -53,14 +69,17 @@ class LTRBaseModel(BaseModel):
     def _add_vars(self, config):
         super()._add_vars(config)
 
-        ''' features we are going to use'''
+        ''' features we are going to use '''
         self.feature_names = [
-            'base_model_score',
-            'reviews',
-            'desc',
-            'reviews-description',
-            'description-reviews',
+            ('base_model_score', ('emb', 'emb')),
+            ('reviews', ('reviews', 'reviews')),
+            ('desc', ('desc', 'desc')),
+            ('reviews-description', ('reviews', 'desc')),
+            ('description-reviews', ('desc', 'reviews')),
         ]
+
+        self.feature_build = [i[1] for i in self.feature_names]
+        self.feature_names = [i[0] for i in self.feature_names]
 
     def _setup_layers(self, config):
         '''
@@ -143,16 +162,7 @@ class LTRBaseModel(BaseModel):
         vectors['users_emb'].shape = (batch_size, emb_size)
         vectors['items_emb'].shape = (n_items, emb_size)
         '''
-        return torch.cat(
-            [
-                (u_vecs['emb'] @ i_vecs['emb'].T).unsqueeze(-1),
-                (u_vecs['reviews'] @ i_vecs['reviews'].T).unsqueeze(-1),
-                (u_vecs['desc'] @ i_vecs['desc'].T).unsqueeze(-1),
-                (u_vecs['reviews'] @ i_vecs['desc'].T).unsqueeze(-1),
-                (u_vecs['desc'] @ i_vecs['reviews'].T).unsqueeze(-1),
-            ],
-            axis=-1,
-        )
+        return torch.cat([(u_vecs[i[0]] @ i_vecs[i[1]].T).unsqueeze(-1) for i in self.feature_build], axis=-1)
 
     def get_features_pairwise(self, u_vecs, i_vecs):
         '''
@@ -163,20 +173,12 @@ class LTRBaseModel(BaseModel):
         def sum_mul(x, y):
             return (x * y).sum(dim=1).unsqueeze(1)
 
-        return torch.cat(
-            [
-                sum_mul(u_vecs['emb'], i_vecs['emb']),
-                sum_mul(u_vecs['reviews'], i_vecs['reviews']),
-                sum_mul(u_vecs['desc'], i_vecs['desc']),
-                sum_mul(u_vecs['reviews'], i_vecs['desc']),
-                sum_mul(u_vecs['desc'], i_vecs['reviews']),
-            ],
-            axis=1,
-        )
+        return torch.cat([(sum_mul(u_vecs[i[0]], i_vecs[i[1]])) for i in self.feature_build], axis=1)
 
 
 class LTRBaseWPop(LTRBaseModel):
     ''' extends LTRLinear by adding popularity features '''
+    # popularity feature is not calculated as a similarity, hence not including it in feature_build
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)

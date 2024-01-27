@@ -22,7 +22,6 @@ class LightGCN(BaseModel):
         self.dropout = config.dropout
         self.emb_size = config.emb_size
         self.n_layers = config.n_layers
-        self.reg_lambda = config.reg_lambda
         if config.single:
             self.layer_combination = self.layer_combination_single
 
@@ -101,7 +100,7 @@ class LightGCN(BaseModel):
     def reg_loss(self, users, items):
         ''' regularization L2 loss '''
         loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
-        return self.reg_lambda * loss / len(users) / 2
+        return loss / (len(users) + len(items))
 
     def layer_aggregation(self, norm_matrix, emb_matrix):
         '''

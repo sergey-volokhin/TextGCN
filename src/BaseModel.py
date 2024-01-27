@@ -66,25 +66,31 @@ class BaseModel(nn.Module, ABC):
             if epoch % self.evaluate_every:
                 continue
 
-            self.last_eval_epoch = epoch
-            results = self.evaluate()
-            self.metrics_log.update(results)
-
-            if self.metrics_log.last_epoch_best():
-                self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
-                self.metrics_log.log()
-
-            if self.to_save:
-                self.save()
-
+            self.evaluate_and_log(epoch)
             if self.metrics_log.should_stop():
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
 
         if self.last_eval_epoch != self.epochs and self.to_save:
-            self.save()
-
+            self.evaluate_and_log(self.epochs)
         self.metrics_log.print_best_results()
+
+    def evaluate_and_log(self, epoch):
+        '''
+        evaluate and log metrics
+        called every eval_every epochs during training
+        and once at the end if epochs % eval_every != 0
+        '''
+        self.last_eval_epoch = epoch
+        results = self.evaluate()
+        self.metrics_log.update(results)
+
+        if self.metrics_log.last_epoch_best():
+            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
+            self.metrics_log.log()
+
+        if self.to_save:
+            self.save()
 
     def save(self):
         ''' save current model and update the best one '''

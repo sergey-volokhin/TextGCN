@@ -18,7 +18,7 @@ class DatasetReviews(BaseDataset):
     def __init__(self, config):
         super().__init__(config)
         self._load_reviews()
-        self._calc_review_embs(config.emb_batch_size, config.bert_model)
+        self._calc_review_embs(encoder=config.encoder, emb_batch_size=config.emb_batch_size)
         self._get_items_as_avg_reviews()
         self._get_users_as_avg_reviews()
         self._calc_popularity()
@@ -33,22 +33,19 @@ class DatasetReviews(BaseDataset):
         self.reviews = self.reviews.dropna()
         self.reviews[['asin', 'user_id']] = self.reviews[['asin', 'user_id']].astype(int)
 
-    def _calc_review_embs(
-        self,
-        emb_batch_size: int,
-        bert_model: str,
-    ):
+    def _calc_review_embs(self, encoder: str, emb_batch_size: int = 64):
+        self.logger.debug('getting review embeddings')
         ''' load/calc embeddings of the reviews and setup the dicts '''
         emb_file = os.path.join(
             self.path,
             'embeddings',
-            f'item_full_reviews_loss_repr_{bert_model.split("/")[-1]}.torch',
+            f'item_full_reviews_loss_repr_{encoder.split("/")[-1]}.torch',
         )
         self.reviews['vector'] = (
             embed_text(
                 self.reviews['review'],
                 emb_file,
-                bert_model,
+                encoder,
                 emb_batch_size,
                 self.device,
             )

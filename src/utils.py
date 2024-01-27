@@ -91,7 +91,7 @@ def get_logger(config):
 def embed_text(
     sentences,
     path: str,
-    bert_model: str,
+    encoder: str,
     batch_size: int,
     device,
 ) -> torch.Tensor:
@@ -104,7 +104,7 @@ def embed_text(
         return sorted(line.unique().tolist(), key=lambda x: (len(x.split()), x), reverse=True)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    model = SentenceTransformer(bert_model, device=device)
+    model = SentenceTransformer(encoder, device=device)
     sentences_to_embed = dedup_and_sort(sentences)
 
     embeddings = model.encode(sentences_to_embed, batch_size=batch_size)
