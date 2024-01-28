@@ -2,9 +2,11 @@ import logging
 import os
 
 import numpy as np
+import pandas as pd
 import torch
-from torch.nn import functional as F
 from sentence_transformers import SentenceTransformer
+from torch.nn import functional as F
+from tqdm.auto import tqdm
 
 
 def hit(row):
@@ -78,7 +80,7 @@ def calculate_scoring_metrics(y_pred, y_true):
 def get_logger(config):
     if config.quiet:
         config.logging_level = 'error'
-    config.logging_level = {'debug': 10, 'info': 20, 'warn': 30, 'error': 40}[config.logging_level]
+    config.logging_level = logging._nameToLevel[config.logging_level.upper()]
     logging.basicConfig(
         level=(logging.ERROR if config.quiet else config.logging_level),
         format='%(asctime)-10s - %(levelname)s: %(message)s',
@@ -110,7 +112,7 @@ def embed_text(
     embeddings = model.encode(sentences_to_embed, batch_size=batch_size)
     del model
 
-    mapping = {i: emb for i, emb in zip(sentences_to_embed, embeddings)}
+    mapping = dict(zip(sentences_to_embed, embeddings))
     result = torch.from_numpy(np.stack(sentences.map(mapping).values)).to(device=device)
     torch.save(result, path)
     return result
@@ -124,3 +126,28 @@ def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     copied from stackoverflow. no clue how this works
     '''
     return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
+
+
+def train_test_split_stratified(df, column='user_id', train_size=0.8, seed=42):
+    """
+    Splits the DataFrame into train, test, and val s.t.
+    each set contains every unique value from the column
+
+    1. remove users with less than 3 entries
+    2. choose train_size s.t. at least 2 elements remain unchosen
+    3. split the remaining elements equally between test and val
+    """
+    train_dfs = []
+    test_dfs = []
+    val_dfs = []
+
+    for _, group in tqdm(df.groupby(column)):
+        group = group.sample(frac=1, random_state=seed)
+        train_end = min(int(train_size * len(group)), len(group) - 2)
+        test_size = (len(group) - train_end) // 2
+
+        train_dfs.append(group.iloc[:train_end])
+        val_dfs.append(group.iloc[train_end:train_end + test_size])
+        test_dfs.append(group.iloc[train_end + test_size:])
+
+    return pd.concat(train_dfs), pd.concat(val_dfs), pd.concat(test_dfs)

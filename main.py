@@ -2,8 +2,8 @@ from torch.utils.data import DataLoader
 from transformers import set_seed
 
 from src.advanced_sampling import AdvSamplDataset, AdvSamplModel
-from src.BaseDataset import BaseDataset
-from src.DatasetRatings import DatasetRatings
+from src.DatasetRanking import DatasetRanking
+from src.DatasetScoring import DatasetScoring
 from src.LightGCN import LightGCNRank, LightGCNScore
 from src.LTRBaseModel import LTRDatasetRank, LTRDatasetScore
 from src.LTRLinear import (
@@ -17,8 +17,8 @@ from src.parsing import parse_args
 
 def get_class(name):
     return {
-        'LightGCNRank': [BaseDataset, LightGCNRank],
-        'LightGCNScore': [DatasetRatings, LightGCNScore],
+        'LightGCNRank': [DatasetRanking, LightGCNRank],
+        'LightGCNScore': [DatasetScoring, LightGCNScore],
         'LTRLinearRank': [LTRDatasetRank, LTRLinearRank],
         'LTRLinearRankWPop': [LTRDatasetRank, LTRLinearRankWPop],
         'LTRLinearScore': [LTRDatasetScore, LTRLinearScore],
@@ -33,7 +33,10 @@ def main():
     set_seed(config.seed)
     Dataset, Model = get_class(config.model)
     config.logger.info(f'Class: {Model.__name__}')
-    config.logger.info(config)
+    config.logger.info('Parameters:')
+    for key, value in vars(config).items():
+        config.logger.info(f'  {key}: {value}')
+    config.logger.info('')
 
     dataset = Dataset(config)
     model = Model(config, dataset)

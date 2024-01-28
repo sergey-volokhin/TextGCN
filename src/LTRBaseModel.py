@@ -3,11 +3,12 @@ from torch import nn
 
 from .BaseModel import BaseModel
 from .DatasetKG import DatasetKG
+from .DatasetRanking import DatasetRanking
 from .DatasetReviews import DatasetReviews
-from .DatasetRatings import DatasetRatings
+from .DatasetScoring import DatasetScoring
 
 
-class LTRDatasetRank(DatasetKG, DatasetReviews):
+class LTRDataset(DatasetKG, DatasetReviews):
     ''' combines KG and Reviews datasets '''
 
     def __init__(self, config):
@@ -27,8 +28,12 @@ class LTRDatasetRank(DatasetKG, DatasetReviews):
         ).to(self.device)
 
 
-class LTRDatasetScore(LTRDatasetRank, DatasetRatings):
-    ''' combines KG, Reviews and Ratings datasets '''
+class LTRDatasetRank(LTRDataset, DatasetRanking):
+    ''' combines KG and Reviews datasets and ranking dataset '''
+
+
+class LTRDatasetScore(LTRDataset, DatasetScoring):
+    ''' combines KG and Reviews datasets with scoring dataset '''
 
 
 class LTRBaseModel(BaseModel):
@@ -60,7 +65,7 @@ class LTRBaseModel(BaseModel):
                 self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
             self.foundation.load(config.load_base)
             results = self.foundation.evaluate()
-            self.metrics_log.update(results)
+            self.metrics_log += results
             self.logger.info('Base model metrics:')
             self.metrics_log.log()
         else:

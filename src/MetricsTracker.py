@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -11,10 +12,12 @@ class MetricsTracker(ABC):
         self.metrics = {}
         self.best_metrics = {}
 
-    def update(self, results):
+    def __iadd__(self, results):
+        ''' appends new results to self.metrics '''
         for metric in results:
             self.metrics[metric].append(results[metric])
-        self._check_best_metrics(results)
+        self._update_best_metrics(results)
+        return self
 
     @property
     def last_result(self):
@@ -24,26 +27,26 @@ class MetricsTracker(ABC):
         return self.epochs_no_improve >= self.patience
 
     def print_best_results(self):
-        self.logger.info("Best results:")
-        self.log(self.best_metrics)
+        self.logger.warn("Best results:")
+        self.log(self.best_metrics, level='warn')
 
-    def log(self, results=None):
+    def log(self, results=None, level='info'):
         ''' write metrics in the logger '''
         for i in self._report(results).split('\n'):
-            self.logger.info(i)
+            self.logger.log(msg=i, level=logging._nameToLevel[level.upper()])
 
     def last_epoch_best(self):
         ''' check if results from the last epoch are the best '''
         return self.metrics[self.main_metric][-1] == self.best_metrics[self.main_metric]
 
-    def _check_best_metrics(self, result):
+    def _update_best_metrics(self, result):
         '''
-        update best metrics if
-            current result is better than best metrics
-            or best metrics don't exist yet
+        update best metrics if:
+            1. current result is better than best metrics
+            2. or best metrics don't exist yet
         '''
         if not self.best_metrics or self._is_better(result):
-            self.best_metrics = {k: result[k] for k in self.metrics.keys()}  # todo: breaks when no val set
+            self.best_metrics.update(result)  # todo: breaks when no val set
             self.epochs_no_improve = 0
         else:
             self.epochs_no_improve += 1
@@ -60,7 +63,7 @@ class MetricsTracker(ABC):
         '''
 
     @abstractmethod
-    def _report(self, results=None):
+    def _report(self, results):
         ''' return a string representing the metrics from results '''
 
 
@@ -92,6 +95,7 @@ class ScoringMetricsTracker(MetricsTracker):
     def __init__(self, logger, *args, **kwargs):
         super().__init__(logger, *args, **kwargs)
         self.main_metric = "valid_mse"
+        # self.main_metric = "valid_mae"
         self.metrics = {'train_mse': [], 'train_mae': [], "valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
         self.best_metrics = {m: np.inf for m in self.metrics}
 

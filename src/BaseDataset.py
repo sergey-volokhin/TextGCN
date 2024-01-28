@@ -2,13 +2,13 @@ import os
 import random
 from collections import defaultdict, deque
 from itertools import repeat
+from os.path import join
 
 import dgl
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import torch
-from sklearn.model_selection import train_test_split as tts
 from torch.utils.data import Dataset
 
 
@@ -25,11 +25,10 @@ class BaseDataset(Dataset):
         self._safety_checks()
 
     def _safety_checks(self):
-        # assert self.n_items > max(self.k), f'all k must be less than number of items ({self.n_items}), got k={self.k}'  # only relevant for ranking
-        items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
-        assert not items_only_in_test, f"test set contains items that are not in the train set: {items_only_in_test}"
-        users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
-        assert not users_only_in_test, f"test set contains users that are not in the train set: {users_only_in_test}"
+        items_not_in_train = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
+        assert not items_not_in_train, f"test set contains items that are not in the train set: {items_not_in_train}"
+        users_not_in_train = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
+        assert not users_not_in_train, f"test set contains users that are not in the train set: {users_not_in_train}"
 
     def _copy_params(self, config):
         self.path: str = config.data
@@ -41,63 +40,66 @@ class BaseDataset(Dataset):
         self.logger = config.logger
 
     def _load_files(self, reshuffle: bool):
+        ''' if valid doesn't exist, use test as valid set and not have test set '''
         self.logger.debug('loading data')
 
         folder = self.path
         if reshuffle:
-            folder = os.path.join(self.path, f'reshuffle_{self.seed}')
-            if not os.path.exists(os.path.join(folder, 'train.tsv')):
+            folder = join(self.path, f'reshuffle_{self.seed}')
+            if not os.path.exists(join(folder, 'train.tsv')):
                 return self._reshuffle_train_test()
 
         self.train_df = (
-            pd.read_table(os.path.join(folder, 'train.tsv'), dtype=str)
+            pd.read_table(join(folder, 'train.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
             .astype({'user_id': str, 'asin': str})
         )
         self.test_df = (
-            pd.read_table(os.path.join(folder, 'test.tsv'), dtype=str)
+            pd.read_table(join(folder, 'test.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
             .astype({'user_id': str, 'asin': str})
         )
 
-        if os.path.exists(os.path.join(self.path, 'valid.tsv')):
-            self.logger.debug('loading validation set')
-            self._actual_test_df = self.test_df  # hack to use validation set
-            self.test_df = (
-                pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
-                .sort_values(by=['user_id', 'asin'])
-                .reset_index(drop=True)
-            )
+    def _read_full_data_to_reshuffle(self):
+        '''
+        read and return full data for reshuffling
+        files train, test, and valid if they exist, reviews_text.tsv otherwise
+        filter to have at least 3 items per user
+        '''
+        if not os.path.exists(join(self.path, 'train.tsv')):
+            df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str)[['user_id', 'asin', 'rating']]
+        else:
+            train_df = pd.read_table(join(self.path, 'train.tsv'), dtype=str)
+            test_df = pd.read_table(join(self.path, 'test.tsv'), dtype=str)
+            df = pd.concat([train_df, test_df])
+            if os.path.exists(join(self.path, 'valid.tsv')):
+                val_df = pd.read_table(join(self.path, 'valid.tsv'), dtype=str)
+                df = pd.concat([df, val_df])
 
-    def _reshuffle_train_test(self, train_size: float = 0.8):
+        vc = df['user_id'].value_counts()
+        return df[df['user_id'].isin(vc[vc > 2].index)]
+
+    def _train_test_split(self, df):
+        ''' split df into train-test or train-val-test depending on objective '''
+        raise NotImplementedError
+
+    def _reshuffle_train_test(self):
         self.logger.debug('reshuffling train-test')
-        os.makedirs(os.path.join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
+        os.makedirs(join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
 
-        train_df = pd.read_table(os.path.join(self.path, 'train.tsv'), dtype=str)
-        test_df = pd.read_table(os.path.join(self.path, 'test.tsv'), dtype=str)
-        df = pd.concat([train_df, test_df])
-        if os.path.exists(os.path.join(self.path, 'valid.tsv')):
-            val_df = pd.read_table(os.path.join(self.path, 'valid.tsv'), dtype=str)
-            df = pd.concat([df, val_df])
+        df = self._read_full_data_to_reshuffle()
+        self._train_test_split(df)
 
-        group_sizes = df.groupby('user_id').size()
-        filtered_df = df[df['user_id'].isin(group_sizes[group_sizes >= 3].index)]
-        self.train_df, self.test_df = tts(
-            filtered_df,
-            stratify=filtered_df['user_id'],
-            train_size=train_size,
-            random_state=self.seed,
-        )
         self.train_df = self.train_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
         self.test_df = self.test_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
 
         ''' remove items from test that do not appear in train '''
         self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
 
-        self.train_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
-        self.test_df.to_csv(os.path.join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
+        self.train_df.to_csv(join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
+        self.test_df.to_csv(join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
 
     def _convert_to_internal_ids(self):
         self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
@@ -110,10 +112,6 @@ class BaseDataset(Dataset):
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
-        if hasattr(self, '_actual_test_df'):
-            self._actual_test_df.user_id = self._actual_test_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
-            self._actual_test_df.asin = self._actual_test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
-
     def _build_dicts(self):
         ''' build dicts for fast lookup '''
         self.n_users = self.train_df.user_id.nunique()
@@ -125,16 +123,13 @@ class BaseDataset(Dataset):
         self.all_items = range(self.n_items)  # this needs to be a python list for correct set conversion
 
         self.cached_samplings = defaultdict(deque)
+
         self.train_user_dict = self.train_df.groupby('user_id')['asin'].aggregate(list)
         self.positive_lists = [{
             'list': self.train_user_dict[u],  # list for faster random.choice
             'set': set(self.train_user_dict[u]),  # set for faster "x in y" check
             'tensor': torch.tensor(self.train_user_dict[u]).to(self.device),  # tensor for faster set difference
         } for u in range(self.n_users)]
-
-        # split test into batches once at init instead of at every predict
-        # list of lists with test samples (per user), used for evaluation
-        self.true_test_lil = self.test_df.groupby('user_id')['asin'].aggregate(list).values.tolist()
 
     def _precalculate_normalization(self):
         '''

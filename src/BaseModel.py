@@ -82,8 +82,7 @@ class BaseModel(nn.Module, ABC):
         and once at the end if epochs % eval_every != 0
         '''
         self.last_eval_epoch = epoch
-        results = self.evaluate()
-        self.metrics_log.update(results)
+        self.metrics_log += self.evaluate()
 
         if self.metrics_log.last_epoch_best():
             self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")

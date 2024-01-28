@@ -26,12 +26,12 @@ class ScoringModel(BaseModel):
         super()._copy_dataset_params(dataset)
         self.scalers = dataset.scalers
         self.train_df = dataset.train_df
-        self.train_true_score = torch.from_numpy(self.train_df['rating'].values).to(self.device)
         self.val_df = dataset.test_df
+        self.test_df = dataset._actual_test_df
+
+        self.train_true_score = torch.from_numpy(self.train_df['rating'].values).to(self.device)
         self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
-        if hasattr(dataset, '_actual_test_df'):
-            self.test_df = dataset._actual_test_df
-            self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
+        self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
 
     def _add_vars(self, config):
         super()._add_vars(config)
@@ -69,26 +69,25 @@ class ScoringModel(BaseModel):
 
     @torch.no_grad()
     def evaluate(self):
-        ''' returns a dict of metrics for val and test sets: {"split metric": value} '''
+        '''
+        returns a dict of metrics for train and val
+        also for test if val result is new best
+        returns: {"split_metric": value}  # backwards compat w metrictracker?
+        '''
         self.eval()
-        val_preds = self.predict()
-
-        results = {f'train_{k}': v for k, v in calculate_metrics(self.predict(self.train_df), self.train_true_score).items()}
-        results.update({f'valid_{k}': v for k, v in calculate_metrics(val_preds, self.val_true_score).items()})
-
-        if hasattr(self, 'test_df') and self.metrics_log._is_better(results):
+        results = {
+            **{f'train_{k}': v for k, v in calculate_metrics(self.predict(self.train_df), self.train_true_score).items()},
+            **{f'valid_{k}': v for k, v in calculate_metrics(self.predict(self.val_df), self.val_true_score).items()},
+        }
+        if self.metrics_log._is_better(results):
             test_preds = self.predict(df=self.test_df)
             results.update({f'test_{k}': v for k, v in calculate_metrics(test_preds, self.test_true_score).items()})
         return results
 
     @torch.no_grad()
-    def predict(self, df=None, save: bool = False, *args, **kwargs) -> torch.Tensor:
+    def predict(self, df, save: bool = False) -> torch.Tensor:
         ''' scores all user-item pairs from val_df or from provided df '''
         self.eval()
-
-        if df is None:
-            df = self.val_df
-
         users_emb, items_emb = self.forward()
         users = torch.tensor(df['user_id'].values)
         items = torch.tensor(df['asin'].values)
