@@ -25,13 +25,14 @@ class ScoringModel(BaseModel):
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
         self.scalers = dataset.scalers
+
         self.train_df = dataset.train_df
-        self.val_df = dataset.test_df
-        self.test_df = dataset._actual_test_df
+        self.test_df = dataset.test_df
+        self.val_df = dataset.val_df
 
         self.train_true_score = torch.from_numpy(self.train_df['rating'].values).to(self.device)
-        self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
         self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
+        self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
 
     def _add_vars(self, config):
         super()._add_vars(config)

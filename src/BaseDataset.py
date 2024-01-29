@@ -30,6 +30,12 @@ class BaseDataset(Dataset):
         users_not_in_train = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
         assert not users_not_in_train, f"test set contains users that are not in the train set: {users_not_in_train}"
 
+        if hasattr(self, 'val_df'):
+            items_not_in_train = set(self.val_df['asin'].unique()) - set(self.train_df['asin'].unique())
+            assert not items_not_in_train, f"test has items that are not in the train set: {items_not_in_train}"
+            users_not_in_train = set(self.val_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
+            assert not users_not_in_train, f"test has users that are not in the train set: {users_not_in_train}"
+
     def _copy_params(self, config):
         self.path: str = config.data
         self.slurm: bool = config.slurm
@@ -53,16 +59,22 @@ class BaseDataset(Dataset):
             pd.read_table(join(folder, 'train.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
-            .astype({'user_id': str, 'asin': str})
         )
         self.test_df = (
             pd.read_table(join(folder, 'test.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
-            .astype({'user_id': str, 'asin': str})
         )
 
-    def _read_full_data_to_reshuffle(self):
+        if os.path.exists(join(self.path, 'valid.tsv')):
+            self.logger.debug('loading validation set')
+            self.val_df = (
+                pd.read_table(join(self.path, 'valid.tsv'), dtype=str)
+                .sort_values(by=['user_id', 'asin'])
+                .reset_index(drop=True)
+            )
+
+    def _read_data_to_reshuffle(self):
         '''
         read and return full data for reshuffling
         files train, test, and valid if they exist, reviews_text.tsv otherwise
@@ -89,17 +101,20 @@ class BaseDataset(Dataset):
         self.logger.debug('reshuffling train-test')
         os.makedirs(join(self.path, f'reshuffle_{self.seed}'), exist_ok=True)
 
-        df = self._read_full_data_to_reshuffle()
+        df = self._read_data_to_reshuffle()
         self._train_test_split(df)
 
         self.train_df = self.train_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
-        self.test_df = self.test_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
-
-        ''' remove items from test that do not appear in train '''
-        self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
-
         self.train_df.to_csv(join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
+
+        self.test_df = self.test_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
+        self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
         self.test_df.to_csv(join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
+
+        if hasattr(self, 'val_df'):
+            self.val_df = self.val_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
+            self.val_df = self.val_df[self.val_df['asin'].isin(self.train_df['asin'].unique())]
+            self.val_df.to_csv(join(self.path, f'reshuffle_{self.seed}/valid.tsv'), sep='\t', index=False)
 
     def _convert_to_internal_ids(self):
         self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])
@@ -112,12 +127,18 @@ class BaseDataset(Dataset):
         self.train_df.asin = self.train_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.test_df.asin = self.test_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
 
+        if hasattr(self, 'val_df'):
+            self.val_df.user_id = self.val_df.user_id.map(dict(self.user_mapping[['org_id', 'remap_id']].values))
+            self.val_df.asin = self.val_df.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
+
     def _build_dicts(self):
         ''' build dicts for fast lookup '''
         self.n_users = self.train_df.user_id.nunique()
         self.n_items = self.train_df.asin.nunique()
         self.n_train = self.train_df.shape[0]
         self.n_test = self.test_df.shape[0]
+        if hasattr(self, 'val_df'):
+            self.n_val = self.val_df.shape[0]
         self.bucket_len = self.n_train // self.n_users  # number of samples per user
         self.iterable_len = self.bucket_len * self.n_users  # length of torch Dataset we convert into
         self.all_items = range(self.n_items)  # this needs to be a python list for correct set conversion
@@ -170,6 +191,8 @@ class BaseDataset(Dataset):
 
     def _print_info(self):
         self.logger.info(f"n_train:    {self.n_train:-7}")
+        if hasattr(self, 'n_val'):
+            self.logger.info(f"n_val:      {self.n_val:-7}")
         self.logger.info(f"n_test:     {self.n_test:-7}")
         self.logger.info(f"n_users:    {self.n_users:-7}")
         self.logger.info(f"n_items:    {self.n_items:-7}")

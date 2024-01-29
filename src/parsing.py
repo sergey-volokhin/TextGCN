@@ -42,9 +42,10 @@ def parse_args(s=None):
     parser.add_argument('--uid',
                         type=str,
                         help="optional name for the model instead of generated uid")
-    parser.add_argument('--save',
+    parser.add_argument('--no_save',
                         action='store_false',
-                        help='whether to save the model (yes by default)')
+                        dest='save',
+                        help='whether to save the model (yes by default, no when specified --no_save)')
     parser.add_argument('--load',
                         type=str,
                         help='path to the model to load (continue training or predict)')

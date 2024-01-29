@@ -57,9 +57,15 @@ class DatasetReviews(BaseDataset):
         ''' dropping testset reviews '''
         # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
         reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
+
         test_indexed = self.test_df.set_index(['asin', 'user_id'])
-        self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
-        self.reviews_vectors = self.reviews.set_index(['asin', 'user_id'])['vector']
+        reviews_indexed.drop(test_indexed.index, inplace=True)
+        if hasattr(self, 'val_df'):
+            val_indexed = self.val_df.set_index(['asin', 'user_id'])
+            reviews_indexed.drop(val_indexed.index, inplace=True)
+
+        self.reviews = reviews_indexed.reset_index()
+        self.reviews_vectors = reviews_indexed['vector']
 
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
