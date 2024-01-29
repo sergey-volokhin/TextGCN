@@ -36,7 +36,7 @@ class ScoringModel(BaseModel):
 
     def _add_vars(self, config):
         super()._add_vars(config)
-        self.metrics_log = ScoringMetricsTracker(self.logger, self.patience)
+        self.metrics_log = ScoringMetricsTracker(logger=self.logger, patience=self.patience)
         self.loss = nn.MSELoss()
 
     def _unnormalize_ratings(self, df) -> torch.Tensor:

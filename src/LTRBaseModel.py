@@ -19,8 +19,8 @@ class LTRDataset(DatasetKG, DatasetReviews):
         ''' use mean of descriptions of items reviewed to represent users '''
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['asin']:
-            user_text_embs[user] = self.items_as_desc[group.values].mean(axis=0).cpu()
-        self.users_as_avg_desc = torch.stack(
+            user_text_embs[user] = self.item_representations['desc'][group.values].mean(axis=0).cpu()
+        self.user_representations['desc'] = torch.stack(
             self.user_mapping['remap_id']
             .map(user_text_embs)
             .values
@@ -50,10 +50,8 @@ class LTRBaseModel(BaseModel):
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
-        self.items_as_avg_reviews = dataset.items_as_avg_reviews
-        self.users_as_avg_reviews = dataset.users_as_avg_reviews
-        self.users_as_avg_desc = dataset.users_as_avg_desc
-        self.items_as_desc = dataset.items_as_desc
+        self.user_representations = dataset.user_representations
+        self.item_representations = dataset.item_representations
         self.all_items = dataset.all_items
 
     def _load_base(self, config, dataset):
@@ -74,17 +72,20 @@ class LTRBaseModel(BaseModel):
     def _add_vars(self, config):
         super()._add_vars(config)
 
-        ''' features we are going to use '''
-        self.feature_names = [
-            ('base_model_score', ('emb', 'emb')),
-            ('reviews', ('reviews', 'reviews')),
-            ('desc', ('desc', 'desc')),
-            ('reviews-description', ('reviews', 'desc')),
-            ('description-reviews', ('desc', 'reviews')),
-        ]
-
-        self.feature_build = [i[1] for i in self.feature_names]
-        self.feature_names = [i[0] for i in self.feature_names]
+        '''
+        features we are going to use, comprise of user and item representations,
+        which are then dot-producted to get the similarity score between those representations
+        user_rep and item_rep keys have to be in user_vectors and item_vectors dictionaries, defined in
+        `self.get_user_vectors` and `self.get_item_vectors` functions
+        '''
+        self.features = {
+            'base_model_score': {'user_rep': 'emb', 'item_rep': 'emb'},
+            'reviews': {'user_rep': 'reviews', 'item_rep': 'reviews'},
+            'desc': {'user_rep': 'desc', 'item_rep': 'desc'},
+            'reviews-description': {'user_rep': 'reviews', 'item_rep': 'desc'},
+            'description-reviews': {'user_rep': 'desc', 'item_rep': 'reviews'},
+        }
+        self.feature_names, self.feature_build = list(zip(*self.features.items()))
 
     def _setup_layers(self, config):
         '''
@@ -121,26 +122,8 @@ class LTRBaseModel(BaseModel):
                 self.logger.info(f'{f:<20} {w:.4}')
         return super().evaluate(*args, **kwargs)
 
-    ''' representation functions '''
-
-    def get_user_reviews_mean(self, u):
-        ''' represent users as mean of their reviews '''
-        return self.users_as_avg_reviews[u]
-
-    def get_user_desc(self, u):
-        ''' represent users as mean of descriptions of items they reviewed '''
-        return self.users_as_avg_desc[u]
-
-    def get_item_reviews_mean(self, i):
-        ''' represent items as mean of their reviews '''
-        return self.items_as_avg_reviews[i]
-
-    def get_item_desc(self, i):
-        ''' represent items as their description '''
-        return self.items_as_desc[i]
-
-    def get_item_reviews_user(self, i, u):
-        ''' represent items as the review of corresponding user '''
+    def get_item_reviews_user(self, i, u):  # not used
+        ''' represent items as the reviews of corresponding user '''
         df = self.reviews_vectors.loc[torch.stack([i, u], axis=1).tolist()]
         return torch.tensor(df.values.tolist()).to(self.device)
 
@@ -148,16 +131,16 @@ class LTRBaseModel(BaseModel):
         ''' get vectors used to calculate textual representations dense features for items '''
         return {
             'emb': items_emb,
-            'desc': self.get_item_desc(items),
-            'reviews': self.get_item_reviews_mean(items),
+            'desc': self.item_representations['desc'][items],  # items as their description
+            'reviews': self.item_representations['reviews'][items],  # items as mean of their reviews
         }
 
     def get_user_vectors(self, users_emb, users):
         ''' get vectors used to calculate textual representations dense features for users '''
         return {
             'emb': users_emb,
-            'desc': self.get_user_desc(users),
-            'reviews': self.get_user_reviews_mean(users),
+            'desc': self.user_representations['desc'][users],  # users as mean of descriptions of items they reviewed
+            'reviews': self.user_representations['reviews'][users],  #users as mean of their reviews
         }
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
@@ -167,7 +150,7 @@ class LTRBaseModel(BaseModel):
         vectors['users_emb'].shape = (batch_size, emb_size)
         vectors['items_emb'].shape = (n_items, emb_size)
         '''
-        return torch.cat([(u_vecs[i[0]] @ i_vecs[i[1]].T).unsqueeze(-1) for i in self.feature_build], axis=-1)
+        return torch.cat([(u_vecs[i['user_rep']] @ i_vecs[i['item_rep']].T).unsqueeze(-1) for i in self.feature_build], axis=-1)
 
     def get_features_pairwise(self, u_vecs, i_vecs):
         '''
@@ -178,12 +161,13 @@ class LTRBaseModel(BaseModel):
         def sum_mul(x, y):
             return (x * y).sum(dim=1).unsqueeze(1)
 
-        return torch.cat([(sum_mul(u_vecs[i[0]], i_vecs[i[1]])) for i in self.feature_build], axis=1)
+        return torch.cat([(sum_mul(u_vecs[i['user_rep']], i_vecs[i['item_rep']])) for i in self.feature_build], axis=1)
 
 
 class LTRBaseWPop(LTRBaseModel):
     ''' extends LTRLinear by adding popularity features '''
-    # popularity feature is not calculated as a similarity, hence not including it in feature_build
+    # popularity feature is not calculated as a similarity
+    # hence not including it in feature_build
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)

@@ -31,7 +31,7 @@ class DatasetKG(BaseDataset):
             f'item_kg_repr_{encoder.split("/")[-1]}_{self.seed}-seed.torch',
         )
         if os.path.exists(emb_file):
-            self.items_as_desc = torch.load(emb_file, map_location=self.device)
+            self.item_representations['desc'] = torch.load(emb_file, map_location=self.device)
             return
 
         kg_df_text = pd.read_table(os.path.join(self.path, 'kg_readable.tsv'),
@@ -46,7 +46,7 @@ class DatasetKG(BaseDataset):
             item_text_dict[asin] = f' {sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in group.values])
 
         self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
-        self.items_as_desc = embed_text(
+        self.item_representations['desc'] = embed_text(
             self.item_mapping['text'],
             emb_file,
             encoder,

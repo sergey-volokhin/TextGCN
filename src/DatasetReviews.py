@@ -19,6 +19,7 @@ class DatasetReviews(BaseDataset):
         super().__init__(config)
         self._load_reviews()
         self._calc_review_embs(encoder=config.encoder, emb_batch_size=config.emb_batch_size)
+        self._cut_reviews_to_median()
         self._get_items_as_avg_reviews()
         self._get_users_as_avg_reviews()
         self._calc_popularity()
@@ -32,6 +33,33 @@ class DatasetReviews(BaseDataset):
         self.reviews.asin = self.reviews.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.reviews = self.reviews.dropna()
         self.reviews[['asin', 'user_id']] = self.reviews[['asin', 'user_id']].astype(int)
+
+    def _cut_reviews_to_median(self):
+        # number of reviews to use for representing items and users
+        num_reviews = int(np.median(
+            pd.concat([self.reviews.groupby('asin')['user_id'].size(),
+                       self.reviews.groupby('user_id')['asin'].size()])
+        ))
+
+        # use only most recent reviews for representation
+        top_reviews_by_user = (
+            self.reviews.sort_values(by=['user_id', 'time'], ascending=[True, False])
+            .groupby('user_id')
+            .head(num_reviews)
+        )
+        top_reviews_by_item = (
+            self.reviews.sort_values(by=['asin', 'time'], ascending=[True, False])
+            .groupby('asin')
+            .head(num_reviews)
+        )
+
+        # saving top_med_reviews to model so we could extend LTR
+        self.top_med_reviews = (
+            pd.concat([top_reviews_by_user, top_reviews_by_item])
+            .drop_duplicates(subset=['asin', 'user_id'])
+            .sort_values(['asin', 'user_id'])
+            .reset_index(drop=True)
+        )
 
     def _calc_review_embs(self, encoder: str, emb_batch_size: int = 64):
         self.logger.debug('getting review embeddings')
@@ -85,47 +113,22 @@ class DatasetReviews(BaseDataset):
 
     def _get_items_as_avg_reviews(self):
         ''' use average of reviews to represent items '''
-
-        # number of reviews to use for representing items and users
-        num_reviews = int(
-            np.median(
-                pd.concat([self.reviews.groupby('asin')['user_id'].size(),
-                           self.reviews.groupby('user_id')['asin'].size()])
-            )
-        )
-
-        # use only most recent reviews for representation
-        top_reviews_by_user = (
-            self.reviews.sort_values(by=['user_id', 'time'], ascending=[True, False])
-            .groupby('user_id')
-            .head(num_reviews)
-        )
-        top_reviews_by_item = (
-            self.reviews.sort_values(by=['asin', 'time'], ascending=[True, False])
-            .groupby('asin')
-            .head(num_reviews)
-        )
-
-        # saving top_med_reviews to model so we could extend LTR
-        self.top_med_reviews = (
-            pd.concat([top_reviews_by_user, top_reviews_by_item])
-            .drop_duplicates(subset=['asin', 'user_id'])
-            .sort_values(['asin', 'user_id'])
-            .reset_index(drop=True)
-        )
-
         item_text_embs = {}
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.items_as_avg_reviews = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
-        self.items_as_avg_reviews = torch.stack(self.items_as_avg_reviews).to(self.device)
+        self.item_representations['reviews'] = torch.stack(
+            self.item_mapping['remap_id']
+            .map(item_text_embs)
+            .values
+            .tolist()
+        ).to(self.device)
 
     def _get_users_as_avg_reviews(self):
         ''' use average of reviews to represent users '''
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['vector']:
             user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.users_as_avg_reviews = torch.stack(
+        self.user_representations['reviews'] = torch.stack(
             self.user_mapping['remap_id']
             .map(user_text_embs)
             .values

@@ -38,7 +38,7 @@ class RankingModel(BaseModel):
 
     def _add_vars(self, config):
         super()._add_vars(config)
-        self.metrics_log = RankingMetricsTracker(self.logger, self.k, self.patience)
+        self.metrics_log = RankingMetricsTracker(logger=self.logger, patience=self.patience, k=self.k)
         self.activation = F.selu  # F.softmax
 
     def get_loss(self, data):
