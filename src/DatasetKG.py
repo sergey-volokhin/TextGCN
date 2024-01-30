@@ -36,7 +36,7 @@ class DatasetKG(BaseDataset):
         )
 
         kg = pd.read_table(
-            os.path.join(self.path, 'kg_readable.tsv'),
+            os.path.join(self.path, 'kg_readable_w_gen_desc_v1.tsv'),
             usecols=['asin', 'relation', 'attribute'],
             dtype=str,
         ).pivot(index='asin', columns='relation', values='attribute')
@@ -47,7 +47,7 @@ class DatasetKG(BaseDataset):
         # create "base description" column from title and seller-provided description if it exists
         kg['desc'] = 'Title: "' + kg['title'] + ('"\nDescription: "' + kg['description'] + '"').fillna('')
         # remove columns that won't be embedded
-        kg_to_encode = kg[['desc'] + [i for i in kg.columns if i.startswith('generated_')]]
+        kg_to_encode = kg[['desc'] + [i for i in kg.columns if i.startswith('gen_')]]
 
         assert not kg_to_encode.isna().any().any(), f'missing values in kg_to_encode: {kg_to_encode.isna().any()}'
 

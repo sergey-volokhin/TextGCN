@@ -206,7 +206,7 @@ class LTRBaseLLM(LTRBaseModel):
     def _add_vars(self, config):
         super()._add_vars(config)
         self.features.update({
-            'reviews-gen_desc': {'user_rep': 'reviews', 'item_rep': 'gen_desc'},
+            'reviews-gen_desc': {'user_rep': 'reviews', 'item_rep': 'gen_description'},
             'reviews-gen_usecases': {'user_rep': 'reviews', 'item_rep': 'gen_usecases'},
             'reviews-gen_expert': {'user_rep': 'reviews', 'item_rep': 'gen_expert'},
         })
@@ -214,7 +214,7 @@ class LTRBaseLLM(LTRBaseModel):
 
     def get_item_vectors(self, items_emb, items):
         update = {
-            'gen_desc': self.item_representations['gen_desc'][items],
+            'gen_description': self.item_representations['gen_description'][items],
             'gen_usecases': self.item_representations['gen_usecases'][items],
             'gen_expert': self.item_representations['gen_expert'][items],
         }
