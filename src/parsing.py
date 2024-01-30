@@ -145,11 +145,6 @@ def parse_args(s=None):
                                   'microsoft/deberta-v3-xsmall '
                                   'roberta-large '
                                   'text-embedding-3-large')
-    text_params.add_argument('--separator', '--sep',
-                             default='[SEP]',
-                             type=str,
-                             dest='sep',
-                             help='separator for table comprehension (KG model)')
 
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
