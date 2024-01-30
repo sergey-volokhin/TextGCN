@@ -16,6 +16,7 @@ def parse_args(s=None):
                             'LightGCNScore', 'LightGCNRank',
                             'LTRLinearRank', 'LTRLinearWPop',
                             'LTRLinearScore', 'LTRLinearScoreWPop',
+                            'LTRLinearRankLLM', 'LTRBaseScoreLLM',
                             # 'adv_sampling',  # LightGCN with dynamic negative sampling
                         ],
                         help='which model to use')
