@@ -1,11 +1,14 @@
+import tiktoken
 import logging
 import os
 import pickle
+import time
 
 import numpy as np
 import openai
 import pandas as pd
 import torch
+from more_itertools import chunked
 from sentence_transformers import SentenceTransformer
 from torch.nn import functional as F
 from tqdm.auto import tqdm
@@ -92,6 +95,13 @@ def get_logger(config):
     return logging.getLogger()
 
 
+def num_tokens_from_list(strings: list[str], encoding_name="cl100k_base") -> int:
+    """Returns the number of tokens in a text string."""
+    encoding = tiktoken.get_encoding(encoding_name)
+    num_tokens = sum([len(encoding.encode(string)) for string in strings])
+    return num_tokens
+
+
 def embed_text(
     sentences: list[str],
     path: str,
@@ -110,8 +120,14 @@ def embed_text(
 
     if model_name.startswith('text-embedding-3'):
         client = openai.OpenAI()
-        embeddings = client.embeddings.create(input=sentences, model=model_name, dimensions=dimensions)
-        result = torch.tensor([i.embedding for i in embeddings.data])
+        batches = list(chunked(sentences, 8000))
+        lengths = [num_tokens_from_list(batch) for batch in batches]
+        assert all(i < 5_000_000 for i in lengths), f'batches too large: {lengths}'
+        embeddings = []
+        for batch in tqdm(batches, 'Embedding openai batches'):
+            embeddings += [i.embedding for i in client.embeddings.create(input=batch, model=model_name, dimensions=dimensions).data]
+            time.sleep(1)
+        result = torch.tensor(embeddings)
     elif model_name.startswith('all-'):
         model = SentenceTransformer(model_name, device=device)
         result = model.encode(sentences, batch_size=batch_size, convert_to_tensor=True)
