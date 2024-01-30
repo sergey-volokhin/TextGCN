@@ -152,8 +152,8 @@ class BaseDataset(Dataset):
             'tensor': torch.tensor(self.train_user_dict[u]).to(self.device),  # tensor for faster set difference
         } for u in range(self.n_users)]
 
-        self.user_representations = {}
-        self.item_representations = {}
+        self.user_representations = {}  # todo: where should this be?
+        self.item_representations = {}  # todo: where should this be?
 
     def _precalculate_normalization(self):
         '''

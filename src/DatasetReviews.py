@@ -18,7 +18,7 @@ class DatasetReviews(BaseDataset):
     def __init__(self, config):
         super().__init__(config)
         self._load_reviews()
-        self._calc_review_embs(encoder=config.encoder, emb_batch_size=config.emb_batch_size)
+        self._calc_review_embs(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
         self._cut_reviews_to_median()
         self._get_items_as_avg_reviews()
         self._get_users_as_avg_reviews()
@@ -61,21 +61,21 @@ class DatasetReviews(BaseDataset):
             .reset_index(drop=True)
         )
 
-    def _calc_review_embs(self, encoder: str, emb_batch_size: int = 64):
+    def _calc_review_embs(self, model_name: str, emb_batch_size: int = 64):
         self.logger.debug('getting review embeddings')
         ''' load/calc embeddings of the reviews and setup the dicts '''
         emb_file = os.path.join(
             self.path,
             'embeddings',
-            f'item_full_reviews_loss_repr_{encoder.split("/")[-1]}.torch',
+            f'item_full_reviews_loss_repr_{model_name.split("/")[-1]}.pkl',
         )
         self.reviews['vector'] = (
             embed_text(
-                self.reviews['review'],
-                emb_file,
-                encoder,
-                emb_batch_size,
-                self.device,
+                sentences=self.reviews['review'].tolist(),
+                path=emb_file,
+                model_name=model_name,
+                batch_size=emb_batch_size,
+                device=self.device,
             )
             .cpu()
             .numpy()

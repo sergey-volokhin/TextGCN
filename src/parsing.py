@@ -132,7 +132,7 @@ def parse_args(s=None):
                              action='store_true',
                              help='whether to freeze GNN embeddings when learning linear model on top')
     text_params.add_argument('--emb_batch_size',
-                             default=256,
+                             default=2048,
                              type=int,
                              help='batch size for calculating embeddings for textual data')
     text_params.add_argument('--encoder',
@@ -143,7 +143,8 @@ def parse_args(s=None):
                                   'all-MiniLM-L6-v2 '
                                   'microsoft/deberta-v3-base '
                                   'microsoft/deberta-v3-xsmall '
-                                  'roberta-large')
+                                  'roberta-large '
+                                  'text-embedding-3-large')
     text_params.add_argument('--separator', '--sep',
                              default='[SEP]',
                              type=str,

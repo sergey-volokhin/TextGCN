@@ -1,7 +1,9 @@
 import logging
 import os
+import pickle
 
 import numpy as np
+import openai
 import pandas as pd
 import torch
 from sentence_transformers import SentenceTransformer
@@ -91,31 +93,33 @@ def get_logger(config):
 
 
 def embed_text(
-    sentences,
+    sentences: list[str],
     path: str,
-    encoder: str,
+    model_name: str,
     batch_size: int,
     device,
+    dimensions: int = 256,
 ) -> torch.Tensor:
-    ''' calculate SentenceBERT embeddings '''
+    ''' calculate text embeddings, save as dict into pkl '''
 
     if os.path.exists(path):
-        return torch.load(path, map_location=device)
-
-    def dedup_and_sort(line):  # sort by num tokens, split collisions by lexicographical order
-        return sorted(line.unique().tolist(), key=lambda x: (len(x.split()), x), reverse=True)
+        mapping = pickle.load(open(path, 'rb'))
+        return torch.tensor([mapping[i] for i in sentences], device=device)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    model = SentenceTransformer(encoder, device=device)
-    sentences_to_embed = dedup_and_sort(sentences)
 
-    embeddings = model.encode(sentences_to_embed, batch_size=batch_size)
-    del model
+    if model_name.startswith('text-embedding-3'):
+        client = openai.OpenAI()
+        embeddings = client.embeddings.create(input=sentences, model=model_name, dimensions=dimensions)
+        result = torch.tensor([i.embedding for i in embeddings.data])
+    elif model_name.startswith('all-'):
+        model = SentenceTransformer(model_name, device=device)
+        result = model.encode(sentences, batch_size=batch_size, convert_to_tensor=True)
+    else:
+        raise ValueError(f'Unknown encoder: {model_name}')
 
-    mapping = dict(zip(sentences_to_embed, embeddings))
-    result = torch.from_numpy(np.stack(sentences.map(mapping).values)).to(device=device)
-    torch.save(result, path)
-    return result
+    pickle.dump(dict(zip(sentences, result.tolist())), open(path, 'wb'))
+    return result.to(device)
 
 
 def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
