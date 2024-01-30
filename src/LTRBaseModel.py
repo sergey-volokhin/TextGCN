@@ -195,3 +195,27 @@ class LTRBaseWPop(LTRBaseModel):
             self.popularity_users[users],
             self.popularity_items[items],
         ], axis=-1))
+
+
+class LTRBaseLLM(LTRBaseModel):
+    '''
+    in addition to LTRBaseModel representations
+    add item representations based on texts generated with LLMs
+    '''
+
+    def _add_vars(self, config):
+        super()._add_vars(config)
+        self.features.update({
+            'reviews-gen_desc': {'user_rep': 'reviews', 'item_rep': 'gen_desc'},
+            'reviews-gen_usecases': {'user_rep': 'reviews', 'item_rep': 'gen_usecases'},
+            'reviews-gen_expert': {'user_rep': 'reviews', 'item_rep': 'gen_expert'},
+        })
+        self.feature_names, self.feature_build = list(zip(*self.features.items()))
+
+    def get_item_vectors(self, items_emb, items):
+        update = {
+            'gen_desc': self.item_representations['gen_desc'][items],
+            'gen_usecases': self.item_representations['gen_usecases'][items],
+            'gen_expert': self.item_representations['gen_expert'][items],
+        }
+        return {**super().get_item_vectors(items_emb, items), **update}

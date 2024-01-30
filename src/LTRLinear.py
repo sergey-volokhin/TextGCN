@@ -1,7 +1,6 @@
-from .LightGCN import LightGCNRank
+from .LightGCN import LightGCNRank, LightGCNScore
+from .LTRBaseModel import LTRBaseLLM, LTRBaseModel, LTRBaseWPop
 from .RankingModel import RankingModel
-from .LTRBaseModel import LTRBaseModel, LTRBaseWPop
-from .LightGCN import LightGCNScore
 from .ScoringModel import ScoringModel
 
 
@@ -16,6 +15,10 @@ class LTRLinearRankWPop(LTRBaseWPop, LTRLinearRank):
     ...
 
 
+class LTRLinearRankLLM(LTRBaseLLM, LTRLinearRank):
+    ...
+
+
 class LTRLinearScore(LTRBaseModel, ScoringModel):
 
     def _add_vars(self, config):
@@ -24,4 +27,8 @@ class LTRLinearScore(LTRBaseModel, ScoringModel):
 
 
 class LTRLinearScoreWPop(LTRBaseWPop, LTRLinearScore):
+    ...
+
+
+class LTRLinearScoreLLM(LTRBaseLLM, LTRLinearScore):
     ...

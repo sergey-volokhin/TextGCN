@@ -8,8 +8,10 @@ from src.LightGCN import LightGCNRank, LightGCNScore
 from src.LTRBaseModel import LTRDatasetRank, LTRDatasetScore
 from src.LTRLinear import (
     LTRLinearRank,
+    LTRLinearRankLLM,
     LTRLinearRankWPop,
     LTRLinearScore,
+    LTRLinearScoreLLM,
     LTRLinearScoreWPop,
 )
 from src.parsing import parse_args
@@ -23,6 +25,8 @@ def get_class(name):
         'LTRLinearRankWPop': [LTRDatasetRank, LTRLinearRankWPop],
         'LTRLinearScore': [LTRDatasetScore, LTRLinearScore],
         'LTRLinearScoreWPop': [LTRDatasetScore, LTRLinearScoreWPop],
+        'LTRLinearRankLLM': [LTRDatasetRank, LTRLinearRankLLM],
+        'LTRBaseScoreLLM': [LTRDatasetScore, LTRLinearScoreLLM],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
     }[name]
 
