@@ -16,16 +16,19 @@ class LTRDataset(DatasetKG, DatasetReviews):
         self._get_users_as_avg_desc()
 
     def _get_users_as_avg_desc(self):
-        ''' use mean of descriptions of items reviewed to represent users '''
-        user_text_embs = {}
+        ''' use mean of kg features of items reviewed to represent users '''
+        kg_feat_user_text_embs = {i: {} for i in self.kg_features}
         for user, group in self.top_med_reviews.groupby('user_id')['asin']:
-            user_text_embs[user] = self.item_representations['desc'][group.values].mean(axis=0).cpu()
-        self.user_representations['desc'] = torch.stack(
-            self.user_mapping['remap_id']
-            .map(user_text_embs)
-            .values
-            .tolist()
-        ).to(self.device)
+            for feature in self.kg_features:
+                kg_feat_user_text_embs[feature][user] = self.item_representations[feature][group.values].mean(axis=0).cpu()
+
+        for feature in self.kg_features:
+            self.user_representations[feature] = torch.stack(
+                self.user_mapping['remap_id']
+                .map(kg_feat_user_text_embs[feature])
+                .values
+                .tolist()
+            ).to(self.device)
 
 
 class LTRDatasetRank(LTRDataset, DatasetRanking):
@@ -47,6 +50,11 @@ class LTRBaseModel(BaseModel):
         super().__init__(config, dataset)
         self._setup_layers(config)
         self._load_base(config, dataset)
+
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.features = config.ltr_text_features  # all textual features used (usr_repr-item_repr)
+        self.kg_features = config.kg_features
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -78,13 +86,8 @@ class LTRBaseModel(BaseModel):
         user_rep and item_rep keys have to be in user_vectors and item_vectors dictionaries, defined in
         `self.get_user_vectors` and `self.get_item_vectors` functions
         '''
-        self.features = {
-            'base_model_score': {'user_rep': 'emb', 'item_rep': 'emb'},
-            'reviews': {'user_rep': 'reviews', 'item_rep': 'reviews'},
-            'desc': {'user_rep': 'desc', 'item_rep': 'desc'},
-            'reviews-description': {'user_rep': 'reviews', 'item_rep': 'desc'},
-            'description-reviews': {'user_rep': 'desc', 'item_rep': 'reviews'},
-        }
+        self.features = {i: {'user_rep': i.split('-')[0], 'item_rep': i.split('-')[1]} for i in self.features}
+        self.features['base_model_score'] = {'user_rep': 'emb', 'item_rep': 'emb'}
         self.feature_names, self.feature_build = list(zip(*self.features.items()))
 
     def _setup_layers(self, config):
@@ -131,16 +134,16 @@ class LTRBaseModel(BaseModel):
         ''' get vectors used to calculate textual representations dense features for items '''
         return {
             'emb': items_emb,
-            'desc': self.item_representations['desc'][items],  # items as their description
             'reviews': self.item_representations['reviews'][items],  # items as mean of their reviews
+            **{i: self.item_representations[i][items] for i in self.kg_features},  # all other kg features
         }
 
     def get_user_vectors(self, users_emb, users):
         ''' get vectors used to calculate textual representations dense features for users '''
         return {
             'emb': users_emb,
-            'desc': self.user_representations['desc'][users],  # users as mean of descriptions of items they reviewed
-            'reviews': self.user_representations['reviews'][users],  #users as mean of their reviews
+            'reviews': self.user_representations['reviews'][users],  # users as mean of their reviews
+            **{i: self.user_representations[i][users] for i in self.kg_features},  # all other kg features
         }
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
@@ -195,27 +198,3 @@ class LTRBaseWPop(LTRBaseModel):
             self.popularity_users[users],
             self.popularity_items[items],
         ], axis=-1))
-
-
-class LTRBaseLLM(LTRBaseModel):
-    '''
-    in addition to LTRBaseModel representations
-    add item representations based on texts generated with LLMs
-    '''
-
-    def _add_vars(self, config):
-        super()._add_vars(config)
-        self.features.update({
-            'reviews-gen_desc': {'user_rep': 'reviews', 'item_rep': 'gen_description'},
-            'reviews-gen_usecases': {'user_rep': 'reviews', 'item_rep': 'gen_usecases'},
-            'reviews-gen_expert': {'user_rep': 'reviews', 'item_rep': 'gen_expert'},
-        })
-        self.feature_names, self.feature_build = list(zip(*self.features.items()))
-
-    def get_item_vectors(self, items_emb, items):
-        update = {
-            'gen_description': self.item_representations['gen_description'][items],
-            'gen_usecases': self.item_representations['gen_usecases'][items],
-            'gen_expert': self.item_representations['gen_expert'][items],
-        }
-        return {**super().get_item_vectors(items_emb, items), **update}

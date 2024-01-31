@@ -1,17 +1,28 @@
-import tiktoken
 import logging
 import os
 import pickle
 import time
+from functools import wraps
 
 import numpy as np
 import openai
 import pandas as pd
+import tiktoken
 import torch
 from more_itertools import chunked
 from sentence_transformers import SentenceTransformer
 from torch.nn import functional as F
 from tqdm.auto import tqdm
+
+
+def timeit(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        res = func(*args, **kwargs)
+        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec')
+        return res
+    return wrapper
 
 
 def hit(row):
@@ -102,6 +113,7 @@ def num_tokens_from_list(strings: list[str], encoding_name="cl100k_base") -> int
     return num_tokens
 
 
+@timeit
 def embed_text(
     sentences: list[str],
     path: str,

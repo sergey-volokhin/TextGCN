@@ -9,6 +9,7 @@ from .utils import get_logger
 
 
 def parse_args(s=None):
+    kg_features_choices = ['base_desc', 'usecases', 'expert', 'description']
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         required=True,
@@ -16,7 +17,6 @@ def parse_args(s=None):
                             'LightGCNScore', 'LightGCNRank',
                             'LTRLinearRank', 'LTRLinearWPop',
                             'LTRLinearScore', 'LTRLinearScoreWPop',
-                            'LTRLinearRankLLM', 'LTRBaseScoreLLM',
                             # 'adv_sampling',  # LightGCN with dynamic negative sampling
                         ],
                         help='which model to use')
@@ -146,6 +146,12 @@ def parse_args(s=None):
                                   'microsoft/deberta-v3-xsmall '
                                   'roberta-large '
                                   'text-embedding-3-large')
+    text_params.add_argument('--ltr_text_features',
+                             type=str,
+                             nargs='*',
+                             choices=[f'{u}-{i}' for u in ['reviews'] + kg_features_choices for i in ['reviews'] + kg_features_choices],
+                             default=['reviews-reviews', 'base_desc-base_desc', 'reviews-base_desc', 'base_desc-reviews'],
+                             help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
 
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
@@ -163,6 +169,7 @@ def process_args(args):
             'Setting args.evaluate_every to be args.epochs.',
         )
         args.evaluate_every = args.epochs
+    args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews'})
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
@@ -170,7 +177,8 @@ def process_args(args):
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
     args.save_path = os.path.join(
         'runs',
-        os.path.basename(os.path.dirname(os.path.dirname(args.data))),
+        # os.path.basename(os.path.dirname(os.path.dirname(args.data))),
+        os.path.basename(args.data),
         args.model,
         args.uid,
     )

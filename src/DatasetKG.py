@@ -1,9 +1,6 @@
-import numpy as np
 import os
 
 import pandas as pd
-import torch
-from tqdm.auto import tqdm
 
 from .BaseDataset import BaseDataset
 from .utils import embed_text
@@ -19,6 +16,10 @@ class DatasetKG(BaseDataset):
         super().__init__(config)
         self._load_kg(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
 
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.kg_features = config.kg_features
+
     def _load_kg(
         self,
         model_name: str,
@@ -29,6 +30,7 @@ class DatasetKG(BaseDataset):
         we represent items by descriptions and generated texts (have to start with "generated_")
         embed them and save embeddings as a dict
         '''
+        self.logger.debug('loading KG and getting embeddings')
         emb_file = os.path.join(
             self.path,
             'embeddings',
@@ -45,9 +47,10 @@ class DatasetKG(BaseDataset):
         kg = kg[kg.index.isin(self.item_mapping.org_id)]
 
         # create "base description" column from title and seller-provided description if it exists
-        kg['desc'] = 'Title: "' + kg['title'] + ('"\nDescription: "' + kg['description'] + '"').fillna('')
+        kg['base_desc'] = 'Title: "' + kg['title'] + ('"\nDescription: "' + kg['description'] + '"').fillna('')
         # remove columns that won't be embedded
-        kg_to_encode = kg[['desc'] + [i for i in kg.columns if i.startswith('gen_')]]
+        kg_to_encode = kg[['base_desc'] + [i for i in kg.columns if i.startswith('gen_')]]
+        kg_to_encode.columns = ['base_desc'] + [i.replace('gen_', '') for i in kg_to_encode.columns[1:]]
 
         assert not kg_to_encode.isna().any().any(), f'missing values in kg_to_encode: {kg_to_encode.isna().any()}'
 
@@ -61,5 +64,5 @@ class DatasetKG(BaseDataset):
         reshaped = embeddings.reshape(*kg_to_encode.shape, embeddings.shape[1])
 
         # this is a bit fucky
-        for ind, c in enumerate(kg_to_encode.columns):
-            self.item_representations[c] = reshaped[:, ind]
+        for c in self.kg_features:
+            self.item_representations[c] = reshaped[:, kg_to_encode.columns.tolist().index(c)]
