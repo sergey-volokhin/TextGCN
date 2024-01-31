@@ -45,13 +45,17 @@ class MetricsTracker(ABC):
             1. current result is better than best metrics
             2. or best metrics don't exist yet
         '''
-        if not self.best_metrics or self._is_better(result):
-            self.best_metrics.update(result)  # todo: breaks when no val set
+        last_patience_improved = [self._metric_is_better(result[self.main_metric], i).item() for i in self.metrics[self.main_metric][-self.patience:]]
+        print(f'compared to the last {len(last_patience_improved)} epochs, current result ({result[self.main_metric]:.2f}) is better: {last_patience_improved}')
+        if not self.best_metrics or self._is_better_than_cur_best(result):
+            self.best_metrics.update(result)  # todo: breaks when no val set?
             self.epochs_no_improve = 0
-        else:
+        elif not any(self._metric_is_better(result[self.main_metric], i) for i in self.metrics[self.main_metric][-self.patience:]):
             self.epochs_no_improve += 1
+        else:
+            self.epochs_no_improve = 0
 
-    def _is_better(self, result):
+    def _is_better_than_cur_best(self, result):
         ''' check if result is better than best metrics '''
         return self._metric_is_better(result[self.main_metric], self.best_metrics[self.main_metric])
 

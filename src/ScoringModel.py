@@ -80,7 +80,7 @@ class ScoringModel(BaseModel):
             **{f'train_{k}': v for k, v in calculate_metrics(self.predict(self.train_df), self.train_true_score).items()},
             **{f'valid_{k}': v for k, v in calculate_metrics(self.predict(self.val_df), self.val_true_score).items()},
         }
-        if self.metrics_log._is_better(results):
+        if self.metrics_log._is_better_than_cur_best(results):
             test_preds = self.predict(df=self.test_df)
             results.update({f'test_{k}': v for k, v in calculate_metrics(test_preds, self.test_true_score).items()})
         return results

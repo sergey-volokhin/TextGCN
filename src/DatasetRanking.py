@@ -1,3 +1,4 @@
+import pandas as pd
 from sklearn.model_selection import train_test_split as tts
 
 from .BaseDataset import BaseDataset
@@ -13,6 +14,12 @@ class DatasetRanking(BaseDataset):
     def _safety_checks(self):
         super()._safety_checks()
         assert self.n_items > max(self.k), f'all k must be less than number of items ({self.n_items}), got k={self.k}'
+
+    def _load_files(self, *args, **kwargs):
+        super()._load_files(*args, **kwargs)
+        if hasattr(self, 'val_df'):
+            self.test_df = pd.concat([self.val_df, self.test_df])
+            delattr(self, 'val_df')
 
     def _copy_params(self, config):
         super()._copy_params(config)

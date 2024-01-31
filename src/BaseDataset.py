@@ -65,11 +65,10 @@ class BaseDataset(Dataset):
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
         )
-
-        if os.path.exists(join(self.path, 'valid.tsv')):
+        if os.path.exists(join(folder, 'valid.tsv')):
             self.logger.debug('loading validation set')
             self.val_df = (
-                pd.read_table(join(self.path, 'valid.tsv'), dtype=str)
+                pd.read_table(join(folder, 'valid.tsv'), dtype=str)
                 .sort_values(by=['user_id', 'asin'])
                 .reset_index(drop=True)
             )
