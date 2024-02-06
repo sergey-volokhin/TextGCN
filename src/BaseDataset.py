@@ -52,6 +52,7 @@ class BaseDataset(Dataset):
         folder = self.path
         if reshuffle:
             folder = join(self.path, f'reshuffle_{self.seed}')
+            # folder = join(self.path, f'reshuffle_rgcl')
             if not os.path.exists(join(folder, 'train.tsv')):
                 return self._reshuffle_train_test()
 
@@ -90,7 +91,7 @@ class BaseDataset(Dataset):
                 df = pd.concat([df, val_df])
 
         vc = df['user_id'].value_counts()
-        return df[df['user_id'].isin(vc[vc > 2].index)]
+        return df[df['user_id'].isin(vc[vc > 1].index)]
 
     def _train_test_split(self, df):
         ''' split df into train-test or train-val-test depending on objective '''

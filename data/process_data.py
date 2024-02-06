@@ -62,7 +62,7 @@ def clean_text(text):
 
 @timeit
 def clean_text_series(series):
-    cleaned_series = series.apply(clean_text)
+    cleaned_series = series.apply(clean_text).str.lstrip(string.punctuation + string.whitespace)
     cleaned_series.replace(na_values_dict, inplace=True)  # Efficient NA replacement
     return cleaned_series[cleaned_series.str.len() > 1]
 
@@ -227,7 +227,6 @@ def main(seed=42):
     meta_df = process_metadata(meta_path)
     meta_df, reviews_df = sync(meta_df, reviews_df, n=2)
     reviews_df.to_csv(f'{write_folder}/reviews_text.tsv', sep='\t', index=False)
-    meta_df.to_csv(f'{write_folder}/meta_synced.tsv', sep='\t', index=False)
     print('users:', reviews_df.user_id.nunique())
     print('items:', reviews_df.asin.nunique())
 
