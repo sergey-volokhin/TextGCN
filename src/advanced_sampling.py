@@ -4,7 +4,16 @@ import torch
 
 from .LightGCN import LightGCNRank
 from .BaseDataset import BaseDataset
-from .utils import subtract_tensor_as_set
+
+
+def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
+    '''
+    quickly subtracts elements of the second tensor
+    from the first tensor as if they were sets.
+
+    copied from stackoverflow. no clue how this works
+    '''
+    return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
 
 
 class AdvSamplDataset(BaseDataset):

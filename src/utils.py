@@ -119,20 +119,25 @@ def embed_text(
     path: str,
     model_name: str,
     batch_size: int,
+    logger,
     device,
     dimensions: int = 256,
 ) -> torch.Tensor:
     ''' calculate text embeddings, save as dict into pkl '''
 
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.exists(path):
         mapping = pickle.load(open(path, 'rb'))
-        return torch.tensor([mapping[i] for i in sentences], device=device)
+        to_embed = [i for i in sentences if i not in mapping]
+        if not to_embed:
+            return torch.tensor([mapping[i] for i in sentences], device=device)
+    else:
+        to_embed = sentences
 
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
+    logger.info(f'embedding {len(to_embed)} sentences')
     if model_name.startswith('text-embedding-3'):
         client = openai.OpenAI()
-        batches = list(chunked(sentences, 8000))
+        batches = list(chunked(to_embed, 2000))
         lengths = [num_tokens_from_list(batch) for batch in batches]
         assert all(i < 5_000_000 for i in lengths), f'batches too large: {lengths}'
         embeddings = []
@@ -142,22 +147,17 @@ def embed_text(
         result = torch.tensor(embeddings)
     elif model_name.startswith('all-'):
         model = SentenceTransformer(model_name, device=device)
-        result = model.encode(sentences, batch_size=batch_size, convert_to_tensor=True)
+        result = model.encode(to_embed, batch_size=batch_size, convert_to_tensor=True)
     else:
         raise ValueError(f'Unknown encoder: {model_name}')
 
-    pickle.dump(dict(zip(sentences, result.tolist())), open(path, 'wb'))
-    return result.to(device)
+    new_result = dict(zip(to_embed, result.tolist()))
 
+    if os.path.exists(path):
+        new_result.update(mapping)
+    pickle.dump(new_result, open(path, 'wb'))
 
-def subtract_tensor_as_set(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
-    '''
-    quickly subtracts elements of the second tensor
-    from the first tensor as if they were sets.
-
-    copied from stackoverflow. no clue how this works
-    '''
-    return t1[(t2.repeat(t1.shape[0], 1).T != t1).T.prod(1) == 1].type(torch.int64)
+    return torch.tensor([new_result[i] for i in sentences], device=device)
 
 
 def train_test_split_stratified(df, column='user_id', train_size=0.8, seed=42):
@@ -175,9 +175,8 @@ def train_test_split_stratified(df, column='user_id', train_size=0.8, seed=42):
 
     for _, group in tqdm(df.groupby(column)):
         group = group.sample(frac=1, random_state=seed)
-        train_end = min(int(train_size * len(group)), len(group) - 2)
-        test_size = (len(group) - train_end) // 2
-
+        train_end = min(int(train_size * len(group)), len(group) - 1)
+        test_size = (len(group) - train_end) // 2  # add to test if only 1 element remains
         train_dfs.append(group.iloc[:train_end])
         val_dfs.append(group.iloc[train_end:train_end + test_size])
         test_dfs.append(group.iloc[train_end + test_size:])

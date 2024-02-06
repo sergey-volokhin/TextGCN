@@ -59,6 +59,7 @@ class DatasetKG(BaseDataset):
             path=emb_file,
             model_name=model_name,
             batch_size=emb_batch_size,
+            logger=self.logger,
             device=self.device,
         )
         reshaped = embeddings.reshape(*kg_to_encode.shape, embeddings.shape[1])

@@ -17,7 +17,7 @@ class DatasetScoring(BaseDataset):
         self._normalize_ratings()
 
     def _train_test_split(self, df, train_size=0.8):
-        self.train_df, self.test_df, self.val_df = ttss(df, train_size=train_size, seed=self.seed)
+        self.train_df, self.val_df, self.test_df = ttss(df, train_size=train_size, seed=self.seed)
 
     def _load_ratings(self):
         '''add ratings to train, val and test'''
