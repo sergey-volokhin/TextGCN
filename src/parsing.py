@@ -159,9 +159,7 @@ def parse_args(s=None):
 
 def process_args(args):
     args.k = sorted(args.k)
-    sys.setrecursionlimit(15000)  # this fixes tqdm bug
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-    args.device = torch.device('cuda' if torch.cuda.is_available() and args.gpu else "cpu")
+    sys.setrecursionlimit(15000)  # this fixes tqdm bug)
     if args.evaluate_every > args.epochs:
         args.logger.warn(
             f'Supplied args.evaluate_every ({args.evaluate_every}) '
@@ -194,4 +192,10 @@ def process_args(args):
             args.logger.warn(f'No model to load found in {args.load}. Continuing without loading.')
             args.load = None
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    if torch.cuda.is_available() and args.gpu:
+        args.device = torch.device('cuda')
+    else:
+        args.device = torch.device("cpu")
+        args.logger.warn('No GPU available, using CPU only.')
     return args

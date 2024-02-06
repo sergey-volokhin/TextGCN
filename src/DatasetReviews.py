@@ -87,10 +87,10 @@ class DatasetReviews(BaseDataset):
         reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
 
         test_indexed = self.test_df.set_index(['asin', 'user_id'])
-        reviews_indexed.drop(test_indexed.index, inplace=True)
+        reviews_indexed.drop(reviews_indexed.index.intersection(test_indexed.index), inplace=True)
         if hasattr(self, 'val_df'):
             val_indexed = self.val_df.set_index(['asin', 'user_id'])
-            reviews_indexed.drop(val_indexed.index, inplace=True)
+            reviews_indexed.drop(reviews_indexed.index.intersection(val_indexed.index), inplace=True)
 
         self.reviews = reviews_indexed.reset_index()
         self.reviews_vectors = reviews_indexed['vector']
