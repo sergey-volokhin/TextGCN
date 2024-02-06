@@ -54,7 +54,7 @@ def parse_args(s=None):
                         type=str,
                         help='path to the base model to load for training the textual layer on top (LTR models)')
     parser.add_argument('--patience',
-                        default=5,
+                        default=10,
                         type=int,
                         help='number of epochs without improvement before stopping')
     parser.add_argument('--no_train',
