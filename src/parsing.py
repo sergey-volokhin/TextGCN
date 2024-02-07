@@ -167,7 +167,12 @@ def process_args(args):
             'Setting args.evaluate_every to be args.epochs.',
         )
         args.evaluate_every = args.epochs
-    args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews'})
+
+    if args.model.startswith('LTR'):
+        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews'})
+    else:
+        for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size']:
+            delattr(args, i)
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
@@ -175,11 +180,11 @@ def process_args(args):
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
     args.save_path = os.path.join(
         'runs',
-        # os.path.basename(os.path.dirname(os.path.dirname(args.data))),
         os.path.basename(args.data),
         args.model,
         args.uid,
     )
+
     os.makedirs(args.save_path, exist_ok=True)
     args.logger = get_logger(args)
     assert args.load is None or args.load_base is None, 'cannot both load base and load trained model'

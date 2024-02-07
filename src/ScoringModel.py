@@ -34,6 +34,9 @@ class ScoringModel(BaseModel):
         self.test_true_score = torch.from_numpy(self.test_df['rating'].values).to(self.device)
         self.val_true_score = torch.from_numpy(self.val_df['rating'].values).to(self.device)
 
+        self.user_mapping = dataset.user_mapping
+        self.item_mapping = dataset.item_mapping
+
     def _add_vars(self, config):
         super()._add_vars(config)
         self.metrics_log = ScoringMetricsTracker(logger=self.logger, patience=self.patience)
@@ -98,6 +101,8 @@ class ScoringModel(BaseModel):
 
         if save:
             df['pred_score'] = predictions.cpu().numpy()
+            df['asin'] = df['asin'].map(dict(self.item_mapping[['remap_id', 'org_id']].values))
+            df['user_id'] = df['user_id'].map(dict(self.user_mapping[['remap_id', 'org_id']].values))
             df.to_csv(os.path.join(self.save_path, 'predicted_scores.tsv'), sep='\t', index=False)
 
         return predictions
