@@ -8,10 +8,10 @@ import torch
 import torch.optim as opt
 from torch import nn
 from torch.nn import functional as F
-from torch.utils.tensorboard import SummaryWriter
+
 from tqdm.auto import tqdm, trange
 
-from .utils import early_stop, calculate_metrics
+from .utils import calculate_metrics, early_stop
 
 
 class BaseModel(nn.Module):
@@ -73,7 +73,6 @@ class BaseModel(nn.Module):
         self.metrics = ['recall', 'precision', 'hit', 'ndcg', 'f1']
         self.metrics_logger = {i: np.zeros((0, len(self.k))) for i in self.metrics}
         self.training = False
-        self.writer = SummaryWriter(self.save_path) if params.tensorboard else False
 
     @property
     def _dropout_norm_matrix(self):
@@ -126,9 +125,6 @@ class BaseModel(nn.Module):
                 batch_loss.backward()
                 self.optimizer.step()
 
-            if self.writer:
-                self.writer.add_scalar('training loss', epoch_loss, epoch)
-
             if epoch % self.evaluate_every:
                 continue
 
@@ -141,8 +137,6 @@ class BaseModel(nn.Module):
                 break
         else:
             self.checkpoint(self.epochs)
-        if self.writer:
-            self.writer.close()
 
     def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
@@ -215,6 +209,7 @@ class BaseModel(nn.Module):
         self._loss_values['reg'] += res
         return res
 
+    @torch.no_grad()
     def evaluate(self, epoch=None):
         ''' calculate and report metrics for test users against predictions '''
         self.eval()
@@ -229,14 +224,6 @@ class BaseModel(nn.Module):
         })
 
         results = calculate_metrics(predictions, self.metrics, self.k)
-        for metric, values in results.items():
-            for k_idx, k_val in enumerate(self.k):
-                metric_value_at_k = values[k_idx]  # Get the latest value for this 'k'
-                if self.writer:
-                    if epoch is not None:
-                        self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k, epoch)
-                    else:
-                        self.writer.add_scalar(f'{metric}@{k_val}', metric_value_at_k)
 
         ''' show metrics in log '''
         self.logger.info(' ' * 11 + ''.join([f'@{i:<6}' for i in self.k]))
@@ -245,6 +232,7 @@ class BaseModel(nn.Module):
             self.logger.info(f'{i:11}' + ' '.join([f'{j:.4f}' for j in results[i]]))
         return results
 
+    @torch.no_grad()
     def predict(self, users, save: bool = False, with_scores: bool = False):
         '''
         returns a list of lists with predicted items for given list of user_ids
@@ -292,6 +280,8 @@ class BaseModel(nn.Module):
         if load_path is None:
             self.logger.info(f'Created model {self.uid}')
             return
+        if os.path.isdir(load_path):
+            load_path = os.path.join(load_path, 'best.pkl')
         self.logger.info(f'Loading model {load_path}')
         self.load_state_dict(torch.load(load_path, map_location=self.device))
         self.logger.info('Performance of the loaded model:')

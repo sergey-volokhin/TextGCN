@@ -53,10 +53,12 @@ class BaseDataset(Dataset):
             .reset_index(drop=True)
         )
 
-        items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
-        assert not items_only_in_test, f"items {items_only_in_test} from test set don't appear in train set"
         users_only_in_test = set(self.test_df['user_id'].unique()) - set(self.train_df['user_id'].unique())
         assert not users_only_in_test, f"users {users_only_in_test} from test set doesn't appear in train set"
+        items_only_in_test = set(self.test_df['asin'].unique()) - set(self.train_df['asin'].unique())
+        if items_only_in_test:
+            self.logger.warn(f"items {items_only_in_test} from test set don't appear in train set, removing them")
+            self.test_df = self.test_df[~self.test_df['asin'].isin(items_only_in_test)]
 
     def _reshuffle_train_test(self, train_size: float = 0.8):
         self.logger.info('reshuffling train-test')
@@ -114,10 +116,8 @@ class BaseDataset(Dataset):
         } for u in range(self.n_users)]
 
         # split test into batches once at init instead of at every predict
-        test_user_agg = self.test_df.groupby('user_id')['asin'].aggregate(list)
-
         # list of lists with test samples (per user), used for evaluation
-        self.true_test_lil = test_user_agg.values.tolist()
+        self.true_test_lil = self.test_df.groupby('user_id')['asin'].aggregate(list).values.tolist()
 
     def _precalculate_normalization(self):
         '''
@@ -135,17 +135,17 @@ class BaseDataset(Dataset):
         d_inv[np.isinf(d_inv)] = 0
         d_mat = sp.diags(d_inv)
         norm_adj = d_mat.dot(adj_mat).dot(d_mat).tocoo().astype(np.float64)
-        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce().to(self.device)
+        self.norm_matrix = self._convert_sp_mat_to_sp_tensor(norm_adj).coalesce()
 
     def _adjacency_matrix(self):
         ''' create bipartite graph with initial vectors '''
         graph = dgl.heterograph({
             ('item', 'bought_by', 'user'): (self.train_df['asin'].values, self.train_df['user_id'].values),
             ('user', 'bought', 'item'): (self.train_df['user_id'].values, self.train_df['asin'].values),
-        })
-        user_ids = torch.tensor(list(range(self.n_users)), dtype=torch.long)
-        item_ids = torch.tensor(range(self.n_items), dtype=torch.long)
-        graph.ndata['id'] = {'user': user_ids, 'item': item_ids}
+        }, device=self.device)
+        self.user_ids = torch.tensor(range(self.n_users), dtype=torch.long, device=self.device)
+        self.item_ids = torch.tensor(range(self.n_items), dtype=torch.long, device=self.device)
+        graph.ndata['id'] = {'user': self.user_ids, 'item': self.item_ids}
         return graph.adj_external(etype='bought', scipy_fmt='coo', ctx=self.device)
 
     def _convert_sp_mat_to_sp_tensor(self, coo):
@@ -154,7 +154,7 @@ class BaseDataset(Dataset):
         col = torch.Tensor(coo.col).long()
         index = torch.stack([row, col])
         data = torch.FloatTensor(coo.data)
-        return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
+        return torch.sparse_coo_tensor(index, data, torch.Size(coo.shape), device=self.device)
 
     def _print_info(self):
         self.logger.info(f"n_train:    {self.n_train:-7}")
@@ -163,6 +163,20 @@ class BaseDataset(Dataset):
         self.logger.info(f"n_items:    {self.n_items:-7}")
 
     ''' this is done for compatibility w torch Dataset class '''
+
+    def _cache_samples(self, idx: int):  # todo: add structured_negative_sampling from torch_geom
+        '''
+        precaching pos and neg samples for users to save time during iteration
+        sample exactly as many examples at the beginning of each epoch as we'll need per item
+        '''
+        positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
+        neg_samples = set()
+        while len(neg_samples) < self.bucket_len * self.neg_samples:
+            neg_sample = random.choice(self.all_items)
+            if neg_sample not in self.positive_lists[idx]['set']:
+                neg_samples.add(neg_sample)
+        negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
+        self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
 
     def __len__(self):
         return self.iterable_len
@@ -174,18 +188,6 @@ class BaseDataset(Dataset):
         incoming idx is the id of the element. to find the id of the bucket (i.e. user), divide by its length
         '''
         idx //= self.bucket_len
-
-        '''
-        precaching pos and neg samples for users to save time during iteration
-        sample exactly as many examples at the beginning of each epoch as we'll need per item
-        '''
         if not self.cached_samplings[idx]:
-            positives = random.choices(self.positive_lists[idx]['list'], k=self.bucket_len)
-            neg_samples = set()
-            while len(neg_samples) < self.bucket_len * self.neg_samples:
-                neg_sample = random.choice(self.all_items)
-                if neg_sample not in self.positive_lists[idx]['set']:
-                    neg_samples.add(neg_sample)
-            negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
-            self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
+            self._cache_samples(idx)
         return self.cached_samplings[idx].pop()

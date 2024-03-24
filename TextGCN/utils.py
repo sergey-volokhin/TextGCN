@@ -6,8 +6,6 @@ import pstats
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
-from tqdm.auto import tqdm
-from transformers import AutoTokenizer
 
 
 def hit(row):

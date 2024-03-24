@@ -52,11 +52,11 @@ class DatasetReviews(BaseDataset):
             .tolist()
         )
 
-        ''' dropping testset reviews '''
+        ''' only retain reviews from train '''
         # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
         reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
-        test_indexed = self.test_df.set_index(['asin', 'user_id'])
-        self.reviews = self.reviews[~reviews_indexed.index.isin(test_indexed.index)]
+        train_indexed = self.train_df.set_index(['asin', 'user_id'])
+        self.reviews = self.reviews[reviews_indexed.index.isin(train_indexed.index)]
         self.reviews_vectors = self.reviews.set_index(['asin', 'user_id'])['vector']
 
     def _get_items_as_avg_reviews(self):

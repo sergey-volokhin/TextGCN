@@ -21,16 +21,18 @@ class LTRDataset(DatasetKG, DatasetReviews):
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['vector']:
             user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.users_as_avg_reviews = torch.stack(self.user_mapping['remap_id'].map(
-            user_text_embs).values.tolist()).to(self.device)
+        mapped = self.user_mapping['remap_id'].map(user_text_embs).values.tolist()
+        mapped = [torch.zeros(len(self.reviews['vector'].iloc[0])) if isinstance(x, float) else x for x in mapped]
+        self.users_as_avg_reviews = torch.stack(mapped).to(self.device)
 
     def _get_users_as_avg_desc(self):
         ''' use mean of descriptions to represent users '''
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['asin']:
             user_text_embs[user] = self.items_as_desc[group.values].mean(axis=0).cpu()
-        self.users_as_avg_desc = torch.stack(self.user_mapping['remap_id'].map(
-            user_text_embs).values.tolist()).to(self.device)
+        mapped = self.user_mapping['remap_id'].map(user_text_embs).values.tolist()
+        mapped = [torch.zeros(len(self.reviews['vector'].iloc[0])) if isinstance(x, float) else x for x in mapped]
+        self.users_as_avg_desc = torch.stack(mapped).to(self.device)
 
 
 class LTRBase(BaseModel, ABC):
@@ -42,7 +44,7 @@ class LTRBase(BaseModel, ABC):
     def _copy_params(self, params):
         super()._copy_params(params)
         self.load_base = params.load_base
-        self.unfreeze = params.unfreeze
+        self.freeze = params.freeze
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -54,7 +56,7 @@ class LTRBase(BaseModel, ABC):
 
     def _init_embeddings(self, emb_size):
         super()._init_embeddings(emb_size)
-        if not self.unfreeze:
+        if self.freeze:
             self.embedding_user.requires_grad_(False)
             self.embedding_item.requires_grad_(False)
 

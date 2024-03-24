@@ -1,6 +1,8 @@
 import html
+import os
 import re
 import string
+import subprocess
 import sys
 import time
 from functools import wraps
@@ -10,13 +12,13 @@ import numpy as np
 import orjson as json
 import pandas as pd
 from sklearn.model_selection import train_test_split as tts
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from unidecode import unidecode
 
 printable = string.punctuation + string.ascii_letters + string.digits + ' '
 unprintable_pattern = re.compile(f'[^{re.escape(printable)}]')
 
-# default NA values from pd.read_csv
+# default NA values from pd.read_csv, they are detected when dataframe is read, but not when it is created
 na_values = ['', '#N/A', '#N/A N/A', '#NA', '-1.#IND', '-1.#QNAN',
              '-NaN', '-nan', '1.#IND', '1.#QNAN', '<NA>', 'N/A',
              'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null']
@@ -35,32 +37,33 @@ def timeit(func):
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         res = func(*args, **kwargs)
-        print(f'{func.__name__} took {time.perf_counter() - start:.2f} seconds')
+        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec')
         return res
     return wrapper
 
 
-def clean_text_series(series):
+def clean_text_string(s):
+    if not isinstance(s, str):
+        return ''
+
     def remove_html_tags(text):
         return re.sub(r'<[^<]+?>', '', text)
 
-    def remove_emojis(text):
-        return emoji_pattern.sub(r'', text)
+    s = unidecode(s)
+    s = html.unescape(s)
+    s = normalize('NFKD', s)
+    s = remove_html_tags(s)
+    s = emoji_pattern.sub(r'', s)
+    s = re.sub(unprintable_pattern, '', s)
+    s = re.sub('[\s_]+', ' ', s)  # multiple whitespaces and underscores to single space
+    s = s.lstrip(string.punctuation)
+    return s if len(s) > 5 else ''
 
-    series = (
-        series.fillna('')
-        .apply(unidecode)
-        .apply(html.unescape)
-        .apply(lambda x: normalize('NFKD', x))
-        .apply(remove_html_tags)
-        .apply(remove_emojis)
-        .str.replace(unprintable_pattern, '', regex=True)
-        .str.replace('[\s_]+', ' ', regex=True)
-        .str.lower()
-        .str.strip(string.punctuation)
-        .replace(na_values, np.nan)
-    )
-    return series[series.str.len() > 1]
+
+def lines_in_file(path):
+    if path.endswith('.gz') or not os.path.exists(path):
+        return 0
+    return int(subprocess.run(['wc', '-l', path], stdout=subprocess.PIPE).stdout.split()[0])
 
 
 @timeit
@@ -76,36 +79,36 @@ def process_metadata(path):
         ]
     )
     '''
-    metadata = open(path, 'r').read().split('\n')
     fields = ['title', 'description', 'asin']
     cleaned = []
-    for row in tqdm(metadata, desc='processing metadata', dynamic_ncols=True, leave=False):
-        if not row:
-            continue
-        row = json.loads(row)
-        if all(i in row for i in fields):
-            cleaned.append({k: row[k] for k in fields})
+    with open(path, 'r') as file:
+        for row in tqdm(file, desc='proc metadata', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
+            if not row:
+                continue
+            row = json.loads(row)
+            if all(i in row for i in fields):
+                cleaned.append({k: row[k] for k in fields})
     df = pd.DataFrame(cleaned).drop_duplicates('asin')
-    df['description'] = clean_text_series(df['description'].apply(' '.join))
+    df['description'] = df['description'].apply(' '.join).apply(clean_text_string)
     return df.replace(na_values, np.nan).dropna().reset_index(drop=True)
 
 
 @timeit
-def process_reviews(path):
+def process_reviews(path, available_asins):
     '''
     remove all unused fields from reviews,
     normalize textual fields
     '''
-    reviews = open(path, 'r').read().split('\n')
     fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime', 'overall']
     cleaned = []
-    for row in tqdm(reviews, desc='proc reviews', dynamic_ncols=True, leave=False):
-        if not row:
-            continue
-        row = json.loads(row)
-        if all(i in row for i in fields):
-            cleaned.append({k: row[k] for k in fields})
-    df = (
+    with open(path, 'r') as file:
+        for row in tqdm(file, desc='read reviews', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
+            if not row:
+                continue
+            row = json.loads(row)
+            if all(i in row for i in fields) and row['asin'] in available_asins:
+                cleaned.append({k: row[k] for k in fields})
+    df = core_n(
         pd.DataFrame(cleaned)
         .rename(columns={
             'reviewerID': 'user_id',
@@ -113,11 +116,12 @@ def process_reviews(path):
             'unixReviewTime': 'time',
             'overall': 'rating'})
         .drop_duplicates(subset=['user_id', 'asin'])
-        .replace(na_values, np.nan)
-        .dropna()
         .astype({'rating': int})
+        .replace(na_values, np.nan)
+        .dropna(),
+        n=5,
     )
-    df.review = clean_text_series(df.review)
+    df.review = df.review.apply(clean_text_string)
     return df.dropna().reset_index(drop=True)
 
 
@@ -173,6 +177,7 @@ def train_test_split(
     df: pd.DataFrame,
     column: str = 'user_id',
     train_size: float = 0.8,
+    seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     ''' split df into train and test, ensuring that all users are in both sets '''
 
@@ -181,43 +186,38 @@ def train_test_split(
     valid_groups = group_sizes[group_sizes >= 3].index
     filtered_df = df[df[column].isin(valid_groups)]
 
-    return tts(filtered_df, stratify=filtered_df[column], train_size=train_size)
+    return tts(filtered_df, stratify=filtered_df[column], train_size=train_size, random_state=seed)
 
 
 def main():
     '''takes raw datasets of reviews and metadata from amazon'''
 
-    if len(sys.argv) != 2:
-        print('usage: python process_data.py <domain>')
+    if len(sys.argv) < 2:
+        print('usage: python process_data.py <domain> [seed]')
         sys.exit(1)
 
     domain = sys.argv[1]
+    seed = int(sys.argv[2]) if len(sys.argv) == 3 else 42
 
-    reviews_path = f'{domain}/{domain}.json'
     meta_path = f'{domain}/meta_{domain}.json'
-    reviews_df = process_reviews(reviews_path)
+    reviews_path = f'{domain}/{domain}.json'
+
     meta_df = process_metadata(meta_path)
-    meta_df, reviews_df = sync(meta_df, reviews_df, n=5)
-    reviews_df.to_csv(f'{domain}/reviews_text.tsv', sep='\t', index=False)
+    reviews_df = process_reviews(reviews_path, available_asins=set(meta_df.asin.unique()))
+
+    meta_df, reviews_df = sync(meta_df, reviews_df, n=13)
     meta_df.to_csv(f'{domain}/meta_synced.tsv', sep='\t', index=False)
-    print('users:', reviews_df.user_id.nunique())
-    print('items:', reviews_df.asin.nunique())
+    reviews_df.to_csv(f'{domain}/reviews_text.tsv', sep='\t', index=False)
 
-    (
-        pd.melt(meta_df, id_vars=['asin'])
-        .rename(columns={'variable': 'relation', 'value': 'attribute'})
-        .to_csv(
-            f'{domain}/kg_readable.tsv',
-            sep='\t',
-            index=False,
-            quoting=2,
-            escapechar='"',
-        )
-    )
-
-    train, test = train_test_split(reviews_df)
+    train, test = train_test_split(reviews_df, seed=seed)
     train.to_csv(f'{domain}/train.tsv', sep='\t', index=False)
     test.to_csv(f'{domain}/test.tsv', sep='\t', index=False)
+
+    print(f'reviews: {reviews_df.shape[0]:>7}')
+    print(f'users:   {reviews_df.user_id.nunique():>7}')
+    print(f'items:   {reviews_df.asin.nunique():>7}')
+    print(f'train:   {train.shape[0]:>7}')
+    print(f'test:    {test.shape[0]:>7}')
 
 
 if __name__ == '__main__':

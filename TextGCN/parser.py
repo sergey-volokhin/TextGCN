@@ -85,9 +85,6 @@ def parse_args(s=None):
                         type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
-    parser.add_argument('--tensorboard',
-                        action='store_true',
-                        help='whether to log to tensorboard')
     parser.add_argument('--seed',
                         default=0,
                         type=int,
@@ -97,7 +94,7 @@ def parse_args(s=None):
                         help='whether to reshuffle the train-test split or use the existing one')
     parser.add_argument('--freeze',
                         action='store_true',
-                        help='whether to freeze GNN embeddings when learning linear model on top (default: freeze)')
+                        help='whether to freeze GNN embeddings when learning linear model on top')
     parser.add_argument('--slurm',
                         action='store_true',
                         help='whether using slurm to run (less output written in stdout)')
@@ -169,7 +166,7 @@ def parse_args(s=None):
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'
     if args.uid is None:
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
-    args.save_path = os.path.join('runs/ratings/', os.path.basename(os.path.dirname(args.data)), args.uid)
+    args.save_path = os.path.join('runs/', os.path.basename(os.path.dirname(args.data)), args.uid)
     os.makedirs(args.save_path, exist_ok=True)
 
     ''' cuda '''
@@ -202,7 +199,3 @@ def asserts(args):
         assert args.weight is not None, 'set the weight for model that uses semantic loss'
 
     assert args.load is None or args.load_base is None, 'cannot load both base and trained model'
-
-    # # hack to run the medium baseline for marcus smoothly
-    # if args.load_base is not None and 'baseline' in args.load_base and ('medium' in args.data or 'subsampled' in args.data):
-    #     args.old = True

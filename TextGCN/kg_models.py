@@ -2,7 +2,6 @@ import os
 
 import pandas as pd
 import torch
-from tqdm.auto import tqdm
 
 from .dataset import BaseDataset
 from .text_base_model import TextBaseModel
@@ -31,17 +30,15 @@ class DatasetKG(BaseDataset):
             self.items_as_desc = torch.load(emb_file, map_location=self.device)
             return
 
-        self.kg_df_text = pd.read_table(os.path.join(self.path, 'kg_readable.tsv'),
-                                        usecols=['asin', 'relation', 'attribute'],
-                                        dtype=str)
-        item_text_dict = {}
-        for asin, group in tqdm(self.kg_df_text.groupby('asin'),
-                                desc='kg text repr',
-                                dynamic_ncols=True,
-                                leave=False,
-                                disable=self.slurm):
-            vals = group[['relation', 'attribute']].values
-            item_text_dict[asin] = f' {sep} '.join([f'{relation}: {attribute}' for (relation, attribute) in vals])
+        kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv')).set_index('asin')
+
+        # concatenate all features from KG into one column "text"
+        columns = kg.columns
+        kg['text'] = ''
+        for column in columns[:-1]:
+            kg['text'] = kg['text'] + kg[column] + f' {sep} '
+        kg['text'] = kg['text'] + kg[columns[-1]]
+        item_text_dict = kg['text'].to_dict()
 
         self.item_mapping['text'] = self.item_mapping['org_id'].map(item_text_dict)
         self.items_as_desc = embed_text(
