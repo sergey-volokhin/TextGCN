@@ -74,6 +74,7 @@ class LTRBaseModel(BaseModel):
             self.metrics_log += results
             self.logger.info('Base model metrics:')
             self.metrics_log.log()
+            self.metrics_log -= results
         else:
             self.logger.warn('Not using a pretrained base model leads to poor performance.')
 

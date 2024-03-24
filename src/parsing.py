@@ -71,7 +71,7 @@ def parse_args(s=None):
                         action='store_true',
                         help='supress textual output in terminal (equivalent to error logging level)')
     parser.add_argument('--logging_level',
-                        default='debug',
+                        default='info',
                         type=str,
                         choices=['debug', 'info', 'warn', 'error'],
                         help='logging level')
@@ -87,7 +87,8 @@ def parse_args(s=None):
                         help='whether using slurm to run (less output written in stdout)')
 
     ''' hyperparameters '''
-    parser.add_argument('--lr',
+    parser.add_argument('--learning_rate', '--lr',
+                        dest='lr',
                         default=0.001,
                         type=float,
                         help='Learning rate.')
@@ -133,13 +134,13 @@ def parse_args(s=None):
                              action='store_true',
                              help='whether to freeze GNN embeddings when learning linear model on top')
     text_params.add_argument('--emb_batch_size',
-                             default=2048,
+                             default=512,
                              type=int,
                              help='batch size for calculating embeddings for textual data')
     text_params.add_argument('--encoder',
                              default='all-MiniLM-L6-v2',
                              type=str,
-                             help='which encoder from SentenceTransformers is used to embed text. for example: '
+                             help='which encoder is used to embed text. for example: '
                                   'google/bert_uncased_L-2_H-128_A-2 '
                                   'all-MiniLM-L6-v2 '
                                   'microsoft/deberta-v3-base '
@@ -180,7 +181,7 @@ def process_args(args):
         args.uid = time.strftime("%m-%d-%Hh%Mm%Ss")
     args.save_path = os.path.join(
         'runs',
-        os.path.basename(args.data),
+        os.path.basename(os.path.dirname(args.data)),
         args.model,
         args.uid,
     )

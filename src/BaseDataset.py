@@ -52,7 +52,6 @@ class BaseDataset(Dataset):
         folder = self.path
         if reshuffle:
             folder = join(self.path, f'reshuffle_{self.seed}')
-            # folder = join(self.path, f'reshuffle_rgcl')
             if not os.path.exists(join(folder, 'train.tsv')):
                 return self._reshuffle_train_test()
 
@@ -80,7 +79,7 @@ class BaseDataset(Dataset):
         files train, test, and valid if they exist, reviews_text.tsv otherwise
         filter to have at least 3 items per user
         '''
-        if not os.path.exists(join(self.path, 'train.tsv')):
+        if os.path.exists(join(self.path, 'reviews_text.tsv')):
             df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating']]
         else:
             train_df = pd.read_table(join(self.path, 'train.tsv'), dtype=str)

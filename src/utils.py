@@ -5,12 +5,9 @@ import time
 from functools import wraps
 
 import numpy as np
-import openai
 import pandas as pd
-import tiktoken
 import torch
 from more_itertools import chunked
-from sentence_transformers import SentenceTransformer
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 
@@ -130,12 +127,14 @@ def embed_text(
         mapping = pickle.load(open(path, 'rb'))
         to_embed = [i for i in sentences if i not in mapping]
         if not to_embed:
+            logger.info('all sentences already embedded')
             return torch.tensor([mapping[i] for i in sentences], device=device)
     else:
         to_embed = sentences
 
     logger.info(f'embedding {len(to_embed)} sentences')
     if model_name.startswith('text-embedding-3'):
+        import openai, tiktoken
         client = openai.OpenAI()
         batches = list(chunked(to_embed, 2000))
         lengths = [num_tokens_from_list(batch) for batch in batches]
@@ -146,6 +145,7 @@ def embed_text(
             time.sleep(1)
         result = torch.tensor(embeddings)
     elif model_name.startswith('all-'):
+        from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(model_name, device=device)
         result = model.encode(to_embed, batch_size=batch_size, convert_to_tensor=True)
     else:
@@ -173,7 +173,7 @@ def train_test_split_stratified(df, column='user_id', train_size=0.8, seed=42):
     test_dfs = []
     val_dfs = []
 
-    for _, group in tqdm(df.groupby(column)):
+    for _, group in tqdm(df.groupby(column), desc='reshuffle scoring data', dynamic_ncols=True):
         group = group.sample(frac=1, random_state=seed)
         train_end = min(int(train_size * len(group)), len(group) - 1)
         test_size = (len(group) - train_end) // 2  # add to test if only 1 element remains

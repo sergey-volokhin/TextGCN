@@ -53,7 +53,10 @@ def main():
         model.fit(loader)
 
     if config.predict:
-        model.predict(users=range(dataset.n_users), save=True, with_scores=True)
+        if 'Rank' in config.model:
+            model.predict(users=range(dataset.n_users), save=True, with_scores=True)
+        elif 'Score' in config.model:
+            model.predict(model.test_df, save=True)
 
 
 if __name__ == '__main__':

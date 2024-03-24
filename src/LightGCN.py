@@ -52,7 +52,7 @@ class LightGCN(BaseModel):
         return torch.sum(users_emb * items_emb, dim=1)
 
     def score_batchwise(self, users_emb, items_emb, *args, **kwargs):
-        return torch.matmul(users_emb, items_emb.t())
+        return torch.matmul(users_emb, items_emb.T)
 
     def layer_combination_single(self, vectors):
         '''

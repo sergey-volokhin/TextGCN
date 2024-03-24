@@ -37,14 +37,10 @@ class DatasetKG(BaseDataset):
             f'item_kg_repr_{model_name.split("/")[-1]}.pkl',
         )
 
-        kg = pd.read_table(
-            os.path.join(self.path, 'kg_readable_w_gen_desc_v1.tsv'),
-            usecols=['asin', 'relation', 'attribute'],
-            dtype=str,
-        ).pivot(index='asin', columns='relation', values='attribute')
+        kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv'))
 
         # remove items that don't appear in the training
-        kg = kg[kg.index.isin(self.item_mapping.org_id)]
+        kg = kg[kg.asin.isin(self.item_mapping.org_id)]
 
         # create "base description" column from title and seller-provided description if it exists
         kg['base_desc'] = 'Title: "' + kg['title'] + ('"\nDescription: "' + kg['description'] + '"').fillna('')

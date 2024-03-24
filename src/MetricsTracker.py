@@ -19,6 +19,12 @@ class MetricsTracker(ABC):
         self._update_best_metrics(results)
         return self
 
+    def __isub__(self, results):
+        ''' removes last results from self.metrics '''
+        for metric in results:
+            self.metrics[metric].pop()
+        return self
+
     @property
     def last_result(self):
         return {metric: values[-1] for metric, values in self.metrics.items() if values}
