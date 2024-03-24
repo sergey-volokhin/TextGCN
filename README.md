@@ -31,7 +31,6 @@ After the model is trained, the folder `runs` is created, and results for each e
 * `latest_checkpoint.pkl` - the latest checkpoint of the model
 * `best.pkl` - the best checkpoint of the model
 * `log.log` - the log of the training process
-* `progression.txt` - human-readable metrics for each epoch
 
 ### Example
 For example, to train a TextGCN model described in the paper on the `Electronics` category, you need to first train a default LightGCN model by running
@@ -40,17 +39,17 @@ python main.py --model lgcn --data data/Electronics --uid lightgcn_electronics
 ```
 and then train the TextGCN model on top of it by running
 ```
-python main.py --model ltr_linear --data data/Electronics --load_base runs/lightgcn_electronics/best.pkl --uid ltr_linear_electronics
+python main.py --model ltr_linear --data data/Electronics --load_base runs/lightgcn_electronics --uid ltr_linear_electronics
 ```
 
 ## Model types
 
 * `lgcn` - default LightGCN model from the original [paper](https://arxiv.org/abs/2002.02126). Defined in the [`BaseModel`](TextGCN/base_model.py#L16) class.
-* `adv_sampling` - LightGCN with dynamic negative sampling, selecting several negative samples with highest scores, instead of a random one sample. Better performance but much slower. Defined in the [AdvSamplModel](TextGCN/advanced_sampling.py#L24) class.
+* `adv_sampling` - LightGCN with dynamic negative sampling as described in the paper, selecting several negative samples with highest scores, instead of a random one sample. Better performance but much slower, can be run for a smaller number of epochs, and evaluated every 2 epochs instead of standard 25. Defined in the [AdvSamplModel](TextGCN/advanced_sampling.py#L24) class.
 * `ltr_linear` - TextGCN model which uses LightGCN score and 4 textual features, combining them in a linear layer on top. Defined in the [LTRLinear](TextGCN/ltr_models.py#L165LTRLinear) class.
 Corresponds to the architecture from the paper: ![picture](diagram.png)
 * `ltr_pop` - same as `ltr_linear`, but also using popularity of the item and the user as features. Defined in the [LTRLinearWPop](TextGCN/ltr_models.py#L206) class.
 
-There are model models in other files, like `text`, or gradient boosted versions I have experimented with, but they are not included in the paper.
+There are other models in other files, like `text`, or gradient boosted versions I have experimented with, but they show worse performance and are not included in the paper.
 
 Feel free to ask any questions by opening the issues.
