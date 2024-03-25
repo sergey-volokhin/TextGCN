@@ -11,21 +11,18 @@ from unicodedata import normalize
 import numpy as np
 import orjson as json
 import pandas as pd
-from bs4 import BeautifulSoup
 from sklearn.model_selection import train_test_split as tts
 from tqdm.auto import tqdm
 from unidecode import unidecode
 
-unprintable_pattern = re.compile(f'[^{re.escape(string.printable)}]')
+printable = string.punctuation + string.ascii_letters + string.digits + ' '
+unprintable_pattern = re.compile(f'[^{re.escape(printable)}]')
 
-# default NA values from pd.read_csv
+# default NA values from pd.read_csv, they are detected when dataframe is read, but not when it is created
 na_values = ['', '#N/A', '#N/A N/A', '#NA', '-1.#IND', '-1.#QNAN',
              '-NaN', '-nan', '1.#IND', '1.#QNAN', '<NA>', 'N/A',
              'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null', 'none', 'None']
-na_values_dict = {value: np.nan for value in na_values}  # Use a dict for replace
-
-meta_required_fields = ['asin', 'title']
-meta_acceptable_fields = ['title', 'description', 'asin', 'category', 'main_cat']
+meta_required_fields = ['asin', 'title', 'description']
 
 emoji_pattern = re.compile(
     u"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
@@ -46,25 +43,28 @@ def timeit(func):
     return wrapper
 
 
+def clean_text_string(s):
+    if not isinstance(s, str):
+        return ''
+
+    def remove_html_tags(text):
+        return re.sub(r'<[^<]+?>', '', text)
+
+    s = unidecode(s)
+    s = html.unescape(s)
+    s = normalize('NFKD', s)
+    s = remove_html_tags(s)
+    s = emoji_pattern.sub(r'', s)
+    s = re.sub(unprintable_pattern, '', s)
+    s = re.sub('[\s_]+', ' ', s)  # multiple whitespaces and underscores to single space
+    s = s.lstrip(string.punctuation)
+    return s if len(s) > 5 else ''
+
+
 def lines_in_file(path):
+    if path.endswith('.gz') or not os.path.exists(path):
+        return 0
     return int(subprocess.run(['wc', '-l', path], stdout=subprocess.PIPE).stdout.split()[0])
-
-
-def clean_text(text):
-    # Combine operations to reduce the number of apply calls
-    text = unidecode(html.unescape(normalize('NFKD', text)))
-    text = BeautifulSoup(text, "html.parser").get_text()  # Removes all HTML tags
-    text = emoji_pattern.sub('', text)
-    text = unprintable_pattern.sub('', text)
-    text = re.sub('[\s_]+', ' ', text)
-    return text
-
-
-@timeit
-def clean_text_series(series):
-    cleaned_series = series.apply(clean_text).str.lstrip(string.punctuation + string.whitespace)
-    cleaned_series.replace(na_values_dict, inplace=True)  # Efficient NA replacement
-    return cleaned_series[cleaned_series.str.len() > 1]
 
 
 @timeit
@@ -82,20 +82,20 @@ def process_metadata(path):
     '''
     cleaned = []
     with open(path, 'r') as file:
-        for row in tqdm(file, desc='processing metadata', dynamic_ncols=True, total=lines_in_file(path)):
+        for row in tqdm(file, desc='proc metadata', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
             if not row:
                 continue
             row = json.loads(row)
             if all(i in row for i in meta_required_fields):
-                cleaned.append({k: row[k] for k in meta_acceptable_fields})
+                cleaned.append({k: row[k] for k in meta_required_fields})
     df = pd.DataFrame(cleaned).drop_duplicates('asin')
-    df['description'] = clean_text_series(df['description'].apply(' '.join))
-    df['title'] = clean_text_series(df['title'])
+    df['description'] = df['description'].apply(' '.join).apply(clean_text_string)
+    df['title'] = df['title'].apply(clean_text_string)
     return df.replace(na_values, np.nan).dropna().reset_index(drop=True)
 
 
 @timeit
-def process_reviews(path):
+def process_reviews(path, available_asins):
     '''
     remove all unused fields from reviews,
     normalize textual fields
@@ -103,11 +103,11 @@ def process_reviews(path):
     fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime', 'overall']
     cleaned = []
     with open(path, 'r') as file:
-        for row in tqdm(file, desc='proc reviews', dynamic_ncols=True, total=lines_in_file(path)):
+        for row in tqdm(file, desc='read reviews', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
             if not row:
                 continue
             row = json.loads(row)
-            if all(i in row for i in fields):
+            if all(i in row for i in fields) and row['asin'] in available_asins:
                 cleaned.append({k: row[k] for k in fields})
     df = core_n(
         pd.DataFrame(cleaned)
@@ -117,15 +117,13 @@ def process_reviews(path):
             'unixReviewTime': 'time',
             'overall': 'rating'})
         .drop_duplicates(subset=['user_id', 'asin'])
+        .astype({'rating': int})
         .replace(na_values, np.nan)
-        .dropna()
-        .astype({'rating': int}),
-        columns=('user_id',),
+        .dropna(),
         n=2,
     )
-    df = df[df.rating.isin(range(1, 6))]
-    df['review'] = clean_text_series(df.review)
-    return df.replace(na_values, np.nan).dropna().reset_index(drop=True)
+    df.review = df.review.apply(clean_text_string)
+    return df.dropna().reset_index(drop=True)
 
 
 def intersect(
@@ -156,21 +154,6 @@ def core_n(
             reviews = reviews[reviews[c].isin(vc[vc >= n].index)]
         if reviews.shape == shape:
             return reviews
-
-
-@timeit
-def not_boring(df, columns=('user_id', 'asin')):
-    ''' remove all user and items whose reviews have the same rating (e.g. all 5s) '''
-    if len(columns) == 1:
-        ratings = df.groupby(columns[0])['rating'].nunique()
-        return df[df[columns[0]].isin(ratings[ratings > 1].index)]
-    while True:
-        shape = df.shape
-        for column in columns:
-            ratings = df.groupby(column)['rating'].nunique()
-            df = df[df[column].isin(ratings[ratings > 1].index)]
-        if df.shape == shape:
-            return df
 
 
 @timeit
@@ -207,49 +190,36 @@ def train_test_split(
     return tts(filtered_df, stratify=filtered_df[column], train_size=train_size, random_state=seed)
 
 
-def main(seed=42):
+def main():
     '''takes raw datasets of reviews and metadata from amazon'''
 
-    if len(sys.argv) == 1:
-        print('usage: python process_data.py <domain>')
+    if len(sys.argv) < 2:
+        print('usage: python process_data.py <domain> [seed]')
         sys.exit(1)
 
     domain = sys.argv[1]
-    seed = sys.argv[2] if len(sys.argv) > 2 else 42
+    seed = int(sys.argv[2]) if len(sys.argv) == 3 else 42
 
-    read_folder = '../../amazon_data'
-    write_folder = f'rgcl_sampled/many_{domain}_new/textgcn'
-    os.makedirs(write_folder, exist_ok=True)
+    meta_path = f'{domain}/meta_{domain}.json'
+    reviews_path = f'{domain}/{domain}.json'
 
-    reviews_path = f'{read_folder}/{domain}/{domain}.json'
-    meta_path = f'{read_folder}/{domain}/meta_{domain}.json'
-    reviews_df = process_reviews(reviews_path)
     meta_df = process_metadata(meta_path)
-    meta_df, reviews_df = sync(meta_df, reviews_df, n=2)
-    reviews_df.to_csv(f'{write_folder}/reviews_text.tsv', sep='\t', index=False)
-    print('users:', reviews_df.user_id.nunique())
-    print('items:', reviews_df.asin.nunique())
+    reviews_df = process_reviews(reviews_path, available_asins=set(meta_df.asin.unique()))
 
-    (
-        pd.melt(meta_df, id_vars=['asin'])
-        .rename(columns={'variable': 'relation', 'value': 'attribute'})
-        .to_csv(
-            f'{write_folder}/kg_readable.tsv',
-            sep='\t',
-            index=False,
-            quoting=2,
-            escapechar='"',
-        )
-    )
-    # reviews_df = pd.read_table(f'{domain}/reviews_text.tsv', sep='\t')
-    # train, test = train_test_split(df=reviews_df.drop(columns=['review']), seed=seed)
-    # train.to_csv(f'{domain}/train.tsv', sep='\t', index=False)
-    # test.to_csv(f'{domain}/test.tsv', sep='\t', index=False)
+    meta_df, reviews_df = sync(meta_df, reviews_df, n=5)
+    meta_df.to_csv(f'{domain}/meta_synced.tsv', sep='\t', index=False)
+    reviews_df.to_csv(f'{domain}/reviews_text.tsv', sep='\t', index=False)
+
+    train, test = train_test_split(reviews_df, seed=seed)
+    train.to_csv(f'{domain}/train.tsv', sep='\t', index=False)
+    test.to_csv(f'{domain}/test.tsv', sep='\t', index=False)
+
+    print(f'reviews: {reviews_df.shape[0]:>7}')
+    print(f'users:   {reviews_df.user_id.nunique():>7}')
+    print(f'items:   {reviews_df.asin.nunique():>7}')
+    print(f'train:   {train.shape[0]:>7}')
+    print(f'test:    {test.shape[0]:>7}')
 
 
 if __name__ == '__main__':
     main()
-
-    # for domain in ['Digital_Music', 'Movies_and_TV', 'Toys_and_Games', 'Electronics', 'Books']:
-    # domain = 'Movies_and_TV'
-    # main(domain)

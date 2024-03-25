@@ -23,12 +23,9 @@ class LTRDataset(DatasetKG, DatasetReviews):
                 kg_feat_user_text_embs[feature][user] = self.item_representations[feature][group.values].mean(axis=0).cpu()
 
         for feature in self.kg_features:
-            self.user_representations[feature] = torch.stack(
-                self.user_mapping['remap_id']
-                .map(kg_feat_user_text_embs[feature])
-                .values
-                .tolist()
-            ).to(self.device)
+            mapped = self.user_mapping['remap_id'].map(kg_feat_user_text_embs[feature]).values.tolist()
+            mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
+            self.user_representations[feature] = torch.stack(mapped).to(self.device)
 
 
 class LTRDatasetRank(LTRDataset, DatasetRanking):

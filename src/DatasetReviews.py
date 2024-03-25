@@ -83,6 +83,8 @@ class DatasetReviews(BaseDataset):
             .tolist()
         )
 
+        self.text_emb_size = len(self.reviews['vector'].iloc[0])
+
         ''' dropping testset reviews '''
         # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
         reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
@@ -117,21 +119,16 @@ class DatasetReviews(BaseDataset):
         item_text_embs = {}
         for item, group in self.top_med_reviews.groupby('asin')['vector']:
             item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.item_representations['reviews'] = torch.stack(
-            self.item_mapping['remap_id']
-            .map(item_text_embs)
-            .values
-            .tolist()
-        ).to(self.device)
+        mapped = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
+        mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
+        self.item_representations['reviews'] = torch.stack(mapped).to(self.device)
 
     def _get_users_as_avg_reviews(self):
         ''' use average of reviews to represent users '''
         user_text_embs = {}
         for user, group in self.top_med_reviews.groupby('user_id')['vector']:
             user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
-        self.user_representations['reviews'] = torch.stack(
-            self.user_mapping['remap_id']
-            .map(user_text_embs)
-            .values
-            .tolist()
-        ).to(self.device)
+
+        mapped = self.user_mapping['remap_id'].map(user_text_embs).values.tolist()
+        mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
+        self.user_representations['reviews'] = torch.stack(mapped).to(self.device)
