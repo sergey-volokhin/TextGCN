@@ -1,3 +1,4 @@
+import gzip
 import html
 import os
 import re
@@ -15,14 +16,14 @@ from sklearn.model_selection import train_test_split as tts
 from tqdm.auto import tqdm
 from unidecode import unidecode
 
-printable = string.punctuation + string.ascii_letters + string.digits + ' '
-unprintable_pattern = re.compile(f'[^{re.escape(printable)}]')
+unprintable_pattern = re.compile(f'[^{re.escape(string.printable)}]')
 
 # default NA values from pd.read_csv, they are detected when dataframe is read, but not when it is created
-na_values = ['', '#N/A', '#N/A N/A', '#NA', '-1.#IND', '-1.#QNAN',
-             '-NaN', '-nan', '1.#IND', '1.#QNAN', '<NA>', 'N/A',
+na_values = ['', '#N/A', '#N/A N/A', '#NA', '-1.#IND', '-1.#QNAN',  #
+             '-NaN', '-nan', '1.#IND', '1.#QNAN', '<NA>', 'N/A',  #
              'NA', 'NULL', 'NaN', 'n/a', 'nan', 'null', 'none', 'None']
-meta_required_fields = ['asin', 'title', 'description']
+na_values_dict = {value: np.nan for value in na_values}  # Use a dict for replace
+meta_required_fields = ['asin', 'title']
 
 emoji_pattern = re.compile(
     u"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
@@ -57,7 +58,7 @@ def clean_text_string(s):
     s = emoji_pattern.sub(r'', s)
     s = re.sub(unprintable_pattern, '', s)
     s = re.sub('[\s_]+', ' ', s)  # multiple whitespaces and underscores to single space
-    s = s.lstrip(string.punctuation)
+    s = s.lstrip(string.punctuation + string.whitespace)
     return s if len(s) > 5 else ''
 
 
@@ -81,8 +82,8 @@ def process_metadata(path):
     )
     '''
     cleaned = []
-    with open(path, 'r') as file:
-        for row in tqdm(file, desc='proc metadata', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
+    with open(path, 'r') if path.endswith('.json') else gzip.open(path, 'rb') as file:
+        for row in tqdm(file, desc='proc metadata', dynamic_ncols=True, total=lines_in_file(path)):
             if not row:
                 continue
             row = json.loads(row)
@@ -100,30 +101,32 @@ def process_reviews(path, available_asins):
     remove all unused fields from reviews,
     normalize textual fields
     '''
-    fields = ['reviewText', 'reviewerID', 'asin', 'unixReviewTime', 'overall']
+    columns = {
+        'asin': 'asin',
+        'reviewerID': 'user_id',
+        'reviewText': 'review',
+        'unixReviewTime': 'time',
+        'overall': 'rating',
+    }
     cleaned = []
-    with open(path, 'r') as file:
-        for row in tqdm(file, desc='read reviews', dynamic_ncols=True, leave=False, total=lines_in_file(path)):
+    with open(path, 'r') if path.endswith('.json') else gzip.open(path, 'rb') as file:
+        for row in tqdm(file, desc='read reviews', dynamic_ncols=True, total=lines_in_file(path)):
             if not row:
                 continue
             row = json.loads(row)
-            if all(i in row for i in fields) and row['asin'] in available_asins:
-                cleaned.append({k: row[k] for k in fields})
+            if all(i in row for i in columns) and row['asin'] in available_asins:
+                cleaned.append({k: row[k] for k in columns})
     df = core_n(
         pd.DataFrame(cleaned)
-        .rename(columns={
-            'reviewerID': 'user_id',
-            'reviewText': 'review',
-            'unixReviewTime': 'time',
-            'overall': 'rating'})
+        .rename(columns=columns)
         .drop_duplicates(subset=['user_id', 'asin'])
         .astype({'rating': int})
         .replace(na_values, np.nan)
         .dropna(),
-        n=2,
     )
     df.review = df.review.apply(clean_text_string)
-    return df.dropna().reset_index(drop=True)
+    df = df[df.rating.isin(range(1, 6))]
+    return df.replace(na_values_dict).dropna().reset_index(drop=True)
 
 
 def intersect(
@@ -140,7 +143,7 @@ def intersect(
 
 def core_n(
     reviews: pd.DataFrame,
-    n: int = 5,
+    n: int = 2,
     columns: tuple[str, str] = ('asin', 'user_id'),
 ) -> pd.DataFrame:
     ''' repeatedly
@@ -198,7 +201,7 @@ def main():
         sys.exit(1)
 
     domain = sys.argv[1]
-    seed = int(sys.argv[2]) if len(sys.argv) == 3 else 42
+    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 42
 
     meta_path = f'{domain}/meta_{domain}.json'
     reviews_path = f'{domain}/{domain}.json'
