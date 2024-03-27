@@ -72,7 +72,7 @@ class BaseModel(nn.Module, ABC):
                 break
 
         if self.last_eval_epoch != self.epochs and self.to_save:
-            self.evaluate_and_log(self.epochs)
+            self.evaluate_and_log(epoch)
         self.metrics_log.print_best_results()
 
     def evaluate_and_log(self, epoch):
@@ -85,7 +85,7 @@ class BaseModel(nn.Module, ABC):
         self.metrics_log += self.evaluate()
 
         if self.metrics_log.last_epoch_best():
-            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k,v in self._loss_values.items()])}")
+            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k, v in self._loss_values.items()])}")
             self.metrics_log.log()
 
         if self.to_save:
@@ -96,7 +96,7 @@ class BaseModel(nn.Module, ABC):
         latest_checkpoint_path = os.path.join(self.save_path, 'latest_checkpoint.pkl')
         torch.save(self.state_dict(), latest_checkpoint_path)
         if self.metrics_log.last_epoch_best():
-            self.logger.info(f'Updating best model at epoch {self.last_eval_epoch}')
+            self.logger.info('Updating best model')
             shutil.copyfile(latest_checkpoint_path, os.path.join(self.save_path, 'best.pkl'))
 
     def load(self, path):
