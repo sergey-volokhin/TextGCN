@@ -56,7 +56,7 @@ def parse_args(s=None):
     parser.add_argument('--patience',
                         default=10,
                         type=int,
-                        help='number of epochs without improvement before stopping')
+                        help='number of evaluations for early stopping and epochs for scheduler')
     parser.add_argument('--no_train',
                         action='store_true',
                         help='whether to train')

@@ -115,13 +115,13 @@ class LTRBaseModel(BaseModel):
         features = self.get_features_pairwise(u_vecs, i_vecs)
         return self.layers(features)
 
-    def evaluate(self, *args, **kwargs):
+    def evaluate_and_log(self, epoch):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
+        super().evaluate_and_log(epoch)
         if len(self.layers) == 1:
             self.logger.info('Feature weights from the top layer:')
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
                 self.logger.info(f'{f:<20} {w:.4}')
-        return super().evaluate(*args, **kwargs)
 
     def get_item_reviews_user(self, i, u):  # not used
         ''' represent items as the reviews of corresponding user '''
