@@ -38,7 +38,7 @@ def parse_args(s=None):
                         type=int,
                         help='GNN embedding size')
     parser.add_argument('--batch_size',
-                        default=2048,
+                        default=8192,
                         type=int,
                         help='batch size for training and prediction')
     parser.add_argument('--uid',
@@ -55,7 +55,7 @@ def parse_args(s=None):
                         type=str,
                         help='path to the base model to load for training the textual layer on top (LTR models)')
     parser.add_argument('--patience',
-                        default=10,
+                        default=5,
                         type=int,
                         help='number of evaluations for early stopping and epochs for scheduler')
     parser.add_argument('--no_train',

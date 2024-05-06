@@ -25,8 +25,13 @@ class MetricsTracker(ABC):
             self.metrics[metric].pop()
         return self
 
+    def __getitem__(self, idx):
+        ''' return results from idx epoch '''
+        return {metric: values[idx] for metric, values in self.metrics.items() if values}
+
     @property
     def last_result(self):
+        ''' return results from the last epoch '''
         return {metric: values[-1] for metric, values in self.metrics.items() if values}
 
     def should_stop(self):
