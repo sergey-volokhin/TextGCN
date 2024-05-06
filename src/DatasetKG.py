@@ -37,23 +37,25 @@ class DatasetKG(BaseDataset):
             f'item_kg_repr_{model_name.split("/")[-1]}.pkl',
         )
 
-        if os.path.exists(os.path.join(self.path, 'kg_readable_w_gen_desc_v3_w_reviews.tsv')):
-            kg = pd.read_table(os.path.join(self.path, 'kg_readable_w_gen_desc_v3_w_reviews.tsv'), index_col=0)
-            kg.columns = [i.replace('_w_reviews', '') for i in kg.columns]
-        elif os.path.exists(os.path.join(self.path, 'kg_readable_w_gen_desc_v2.tsv')):
-            kg = pd.read_table(os.path.join(self.path, 'kg_readable_w_gen_desc_v2.tsv'))
-        elif os.path.exists(os.path.join(self.path, 'kg_readable_w_gen_desc_v1.tsv')):
-            kg = pd.read_table(os.path.join(self.path, 'kg_readable_w_gen_desc_v1.tsv'))
-        elif os.path.exists(os.path.join(self.path, 'meta_synced.tsv')):
-            kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv'))
+        for version in ['v4_proper_Llama-2-7b-chat-hf', 'v3_w_reviews', 'v2', 'v1']:
+            kg_path = os.path.join(self.path, f'kg_readable_{version}.tsv')
+            if os.path.exists(kg_path):
+                self.logger.info(f'loaded {version} version of KG')
+                kg = pd.read_table(kg_path, index_col=0)
+                break
         else:
-            raise FileNotFoundError('No KG file found')
+            if os.path.exists(os.path.join(self.path, 'meta_synced.tsv')):
+                self.logger.info('loaded meta_synced.tsv version of KG')
+                kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv', index_col=0))
+            else:
+                raise FileNotFoundError('No KG file found')
 
         if 'relation' in kg.columns:
             kg = kg.pivot(index='asin', columns='relation', values='attribute').reset_index()
+        kg.columns = [i.replace('_w_reviews', '') for i in kg.columns]
 
         # remove items that don't appear in the training
-        kg = kg[kg.asin.isin(self.item_mapping.org_id)]  # kg.index if relation in columns?
+        kg = kg[kg.index.isin(self.item_mapping.org_id)]
 
         # create "base description" column from title and seller-provided description if it exists
         kg['base_desc'] = 'Title: "' + kg['title'] + ('"\nDescription: "' + kg['description'] + '"').fillna('')
