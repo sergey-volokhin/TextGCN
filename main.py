@@ -5,7 +5,7 @@ from src.advanced_sampling import AdvSamplDataset, AdvSamplModel
 from src.DatasetRanking import DatasetRanking
 from src.DatasetScoring import DatasetScoring
 from src.LightGCN import LightGCNRank, LightGCNScore
-from src.LTRBaseModel import LTRDatasetRank, LTRDatasetScore
+from src.LTRBaseModel import LTRDatasetRank, LTRDatasetScore, LTRDatasetProfileRank
 from src.LTRLinear import (
     LTRLinearRank,
     LTRLinearRankWPop,
@@ -24,6 +24,7 @@ def get_class(name):
         'LTRLinearScore': [LTRDatasetScore, LTRLinearScore],
         'LTRLinearScoreWPop': [LTRDatasetScore, LTRLinearScoreWPop],
         'adv_sampling': [AdvSamplDataset, AdvSamplModel],
+        'LTRProfileRank': [LTRDatasetProfileRank, LTRLinearRank],
     }[name]
 
 

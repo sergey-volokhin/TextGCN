@@ -6,6 +6,7 @@ from .DatasetKG import DatasetKG
 from .DatasetRanking import DatasetRanking
 from .DatasetReviews import DatasetReviews
 from .DatasetScoring import DatasetScoring
+from .DatasetProfile import DatasetProfile
 
 
 class LTRDataset(DatasetKG, DatasetReviews):
@@ -34,6 +35,10 @@ class LTRDatasetRank(LTRDataset, DatasetRanking):
 
 class LTRDatasetScore(LTRDataset, DatasetScoring):
     ''' combines KG and Reviews datasets with scoring dataset '''
+
+
+class LTRDatasetProfileRank(LTRDatasetRank, DatasetProfile):
+    ''' combines KG, Reviews, profile, and ranking datasets '''
 
 
 class LTRBaseModel(BaseModel):
