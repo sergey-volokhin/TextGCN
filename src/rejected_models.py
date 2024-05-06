@@ -1,10 +1,26 @@
+import sys
 from abc import ABC, abstractmethod
 
+sys.path.append('..')
 import torch
 from torch.nn import functional as F
-from torch_geometric.nn import GATConv, GATv2Conv, GCNConv, LGConv, SAGEConv
+from torch.utils.data import DataLoader
+from torch_geometric.nn import (
+    GATConv,
+    GATv2Conv,
+    GCNConv,
+    LGConv,
+    SAGEConv,
+    AntiSymmetricConv, DirGNNConv,
+)
+from transformers import set_seed
 
-from .BaseModel import BaseModel
+from .DatasetRanking import DatasetRanking
+from .DatasetScoring import DatasetScoring
+from .LightGCN import LightGCN
+from .parsing import parse_args
+from .RankingModel import RankingModel
+from .ScoringModel import ScoringModel
 
 '''
 Models that I have tried but rejected because of poor performance
@@ -12,7 +28,7 @@ They are not maintained and might break in the future
 '''
 
 
-class TorchGeometric(BaseModel):
+class TorchGeometric(LightGCN):
     ''' models based on the layers from torch_geometric library '''
     # requires the following parameters in args:
     #   aggr/aggregator: (mean, max, add)
@@ -20,38 +36,41 @@ class TorchGeometric(BaseModel):
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
         self._build_layers(config.emb_size, config.model, config.aggr)
+        print(self.layers)
 
     def _build_layers(self, emb_size, model_name, aggr):
         LayerClass = {
             'gat': GATConv,
             'gatv2': GATv2Conv,
             'gcn': GCNConv,
-            'graphsage': SAGEConv,
+            'sage': SAGEConv,
             'lightgcn': LGConv,
+            'antisymmetric': AntiSymmetricConv,
+            'dirgcn': DirGNNConv,
         }[model_name]
         if model_name == 'lightgcn':
             self.layers = [LayerClass().to(self.device) for _ in range(self.n_layers)]
+        elif model_name == 'antisymmetric':
+            self.layers = [LayerClass(in_channels=emb_size).to(self.device) for _ in range(self.n_layers)]
+        # elif model_name == 'dirgcn':
+        #     self.layers = [LayerClass(conv=LGConv()).to(self.device) for _ in range(self.n_layers)]
         else:
-            self.layers = [LayerClass(emb_size, emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
+            self.layers = [LayerClass(in_channels=emb_size, out_channels=emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
 
     def forward(self):
+        ''' same as in LightGCN, but call each layer instead of aggregating '''
         norm_matrix = self._dropout_norm_matrix if self.training else self.norm_matrix
         edge_index = torch.cat([norm_matrix.indices(), norm_matrix.indices().flip(dims=(0, 1))], axis=1)
         current_layer_emb_matrix = self.embedding_matrix
         node_embed_cache = [current_layer_emb_matrix]
-
         for layer in self.layers:
             current_layer_emb_matrix = layer(current_layer_emb_matrix, edge_index)
             node_embed_cache.append(current_layer_emb_matrix)
-
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
-    def layer_combination(self, vectors):  # todo: why is this here? isn't basemodel the same
-        return torch.mean(torch.stack(vectors), axis=0)
 
-
-class LTRCosine(BaseModel):
+class LTRCosine(LightGCN):
     '''
     train the LightGCN model from scratch
     concatenate LightGCN vectors with text during training
@@ -83,7 +102,7 @@ class LTRCosine(BaseModel):
         return torch.matmul(user_part, item_part.t())
 
 
-class LTRSimple(BaseModel):
+class LTRSimple(LightGCN):
     '''
     uses pretrained LightGCN model:
     concatenates LightGCN vectors with text during inference
@@ -118,7 +137,7 @@ class LTRSimple(BaseModel):
         self.evaluate()
 
 
-class TextBaseModel(BaseModel, ABC):
+class TextLightGCN(LightGCN, ABC):
     ''' models that use textual semantic, text-based loss in addition to BPR '''
     # requires the following parameters in args:
     #   weight: formula for semantic loss
@@ -203,7 +222,7 @@ class TextBaseModel(BaseModel, ABC):
         ''' how do we represent negative items from sampled triplets '''
 
 
-class TextModelKG(TextBaseModel):
+class TextModelKG(TextLightGCN):
 
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
@@ -223,7 +242,7 @@ class TextModelKG(TextBaseModel):
         return self.items_as_desc[items]
 
 
-class TextModelReviews(TextBaseModel):
+class TextModelReviews(TextLightGCN):
 
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
@@ -285,3 +304,33 @@ class TestModel(TextModel):
 
     def representation_rev_rev(self):
         return self.users_as_avg_reviews, self.items_as_avg_reviews
+
+
+class TorchGeometricRank(TorchGeometric, RankingModel):
+    ...
+
+
+class TorchGeometricScore(TorchGeometric, ScoringModel):
+    ...
+
+
+def main():
+    params = parse_args()
+    set_seed(params.seed)
+
+    # params.aggr = 'add'
+    params.aggr = 'max'
+    # params.aggr = 'mean'
+
+    # dataset = DatasetRanking(params)
+    # model = TorchGeometricRank(params, dataset)
+
+    dataset = DatasetScoring(params)
+    model = TorchGeometricScore(params, dataset)
+
+    loader = DataLoader(dataset, batch_size=params.batch_size, shuffle=True)
+    model.fit(loader)
+
+
+if __name__ == '__main__':
+    main()
