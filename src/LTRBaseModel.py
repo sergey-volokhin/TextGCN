@@ -51,7 +51,10 @@ class LTRBaseModel(BaseModel):
     def _copy_params(self, config):
         super()._copy_params(config)
         self.features = config.ltr_text_features  # all textual features used (usr_repr-item_repr)
-        self.kg_features = config.kg_features
+        self.text_features = {
+            'user': [i.split('-')[0] for i in config.ltr_text_features],
+            'item': [i.split('-')[1] for i in config.ltr_text_features],
+        }
 
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
@@ -63,7 +66,7 @@ class LTRBaseModel(BaseModel):
         ''' load the base model '''
         self.foundation = self.foundation_class(config, dataset)
         if config.load_base:
-            self.logger.info(f'Loading base LightGCN model from {config.load_base}.')
+            self.logger.info(f'Loading base LightGCN model from {config.load_base}')
             if not config.freeze:
                 self.logger.warn('Base model not frozen for LTR model, this will degrade performance')
             self.foundation.load(config.load_base)
@@ -71,7 +74,7 @@ class LTRBaseModel(BaseModel):
             self.metrics_log += results
             self.logger.info('Base model metrics:')
             self.metrics_log.log()
-            self.metrics_log -= results
+            self.metrics_log.reset()
         else:
             self.logger.warn('Not using a pretrained base model leads to poor performance.')
 
@@ -121,7 +124,7 @@ class LTRBaseModel(BaseModel):
         if len(self.layers) == 1:
             self.logger.info('Feature weights from the top layer:')
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
-                self.logger.info(f'{f:<20} {w:.4}')
+                self.logger.info(f'{f:<24} {w:>.4}')
 
     def get_item_reviews_user(self, i, u):  # not used
         ''' represent items as the reviews of corresponding user '''
@@ -133,7 +136,7 @@ class LTRBaseModel(BaseModel):
         return {
             'emb': items_emb,
             'reviews': self.item_representations['reviews'][items],  # items as mean of their reviews
-            **{i: self.item_representations[i][items] for i in self.kg_features},  # all other kg features
+            **{i: self.item_representations[i][items] for i in self.text_features['item']},  # all other kg features
         }
 
     def get_user_vectors(self, users_emb, users):
@@ -141,7 +144,7 @@ class LTRBaseModel(BaseModel):
         return {
             'emb': users_emb,
             'reviews': self.user_representations['reviews'][users],  # users as mean of their reviews
-            **{i: self.user_representations[i][users] for i in self.kg_features},  # all other kg features
+            **{i: self.user_representations[i][users] for i in self.text_features['user']},  # all other kg features
         }
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?
