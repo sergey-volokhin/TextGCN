@@ -105,9 +105,9 @@ def generate_profile(pipe, data, args):
         prompt_len = num_tokens(prompt, pipe.tokenizer)
 
     if 'Llama-3' in args.model_name:
-        profile_path = f'profiles_{args.temp}_llama3.tsv'
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama3.tsv'
     elif 'Llama-2' in args.model_name:
-        profile_path = f'profiles_{args.temp}_llama2.tsv'
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama2.tsv'
     else:
         raise ValueError(f'model not llama: {args.model_name}')
 

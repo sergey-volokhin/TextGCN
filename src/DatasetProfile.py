@@ -31,7 +31,7 @@ class DatasetProfile(BaseDataset):
             f'user_profile_repr_{model_name.split("/")[-1]}_seed{self.seed}.pkl',
         )
 
-        profiles_df = pd.read_table(os.path.join(self.path, f'reshuffle_{self.seed}', 'profiles.tsv'), index_col=0)
+        profiles_df = pd.read_table(os.path.join(self.path, f'reshuffle_{self.seed}', 'profiles_0.4_llama2.tsv'), index_col=0)
         profiles_df = profiles_df[profiles_df.index.isin(self.user_mapping.org_id)]
         assert not profiles_df.isna().any().any(), f'missing values in profiles: {profiles_df.isna().any()}'
 
