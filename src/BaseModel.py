@@ -40,7 +40,7 @@ class BaseModel(nn.Module, ABC):
     def _copy_dataset_params(self, dataset):
         ...
 
-    def _add_vars(self, config):
+    def _add_vars(self, *args, **kwargs):
         ''' add remaining variables '''
         self.last_eval_epoch = -1  # last epoch at which evaluation was performed
 
@@ -48,7 +48,7 @@ class BaseModel(nn.Module, ABC):
         ''' training function '''
 
         self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
-        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.quiet, dynamic_ncols=True):
+        for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.slurm, dynamic_ncols=True):
             self.train()
             self._loss_values = defaultdict(float)
             epoch_loss = 0
@@ -73,7 +73,7 @@ class BaseModel(nn.Module, ABC):
 
         if self.last_eval_epoch != self.epochs and self.to_save:
             self.evaluate_and_log(epoch)
-        self.metrics_log.print_best_results()
+        self.metrics_log.print_best_results(level='error')
 
     def evaluate_and_log(self, epoch):
         '''

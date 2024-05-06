@@ -40,6 +40,7 @@ class DatasetReviews(BaseDataset):
             pd.concat([self.reviews.groupby('asin')['user_id'].size(),
                        self.reviews.groupby('user_id')['asin'].size()])
         ))
+        self.logger.info(f'using {num_reviews} reviews for each item and user representation')
 
         # use only most recent reviews for representation
         top_reviews_by_user = (

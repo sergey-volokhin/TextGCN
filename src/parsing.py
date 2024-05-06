@@ -17,6 +17,7 @@ def parse_args(s=None):
                             'LightGCNScore', 'LightGCNRank',
                             'LTRLinearRank', 'LTRLinearWPop',
                             'LTRLinearScore', 'LTRLinearScoreWPop',
+                            'LTRProfileRank',
                             # 'adv_sampling',  # LightGCN with dynamic negative sampling
                         ],
                         help='which model to use')
@@ -130,7 +131,7 @@ def parse_args(s=None):
                              nargs='*',
                              default=[],
                              help='additional hidden layers w sizes on top of GNN embeddings')
-    text_params.add_argument('--freeze',
+    text_params.add_argument('--freeze', '--frozen',
                              action='store_true',
                              help='whether to freeze GNN embeddings when learning linear model on top')
     text_params.add_argument('--emb_batch_size',
@@ -150,17 +151,16 @@ def parse_args(s=None):
     text_params.add_argument('--ltr_text_features',
                              type=str,
                              nargs='*',
-                             choices=[f'{u}-{i}' for u in ['reviews'] + kg_features_choices for i in ['reviews'] + kg_features_choices],
+                             choices=[f'{u}-{i}' for u in ['reviews', 'profile'] + kg_features_choices for i in ['reviews'] + kg_features_choices],
                              default=['reviews-reviews', 'base_desc-base_desc', 'reviews-base_desc', 'base_desc-reviews'],
                              help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
-
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
 
 
 def process_args(args):
     args.k = sorted(args.k)
-    sys.setrecursionlimit(15000)  # this fixes tqdm bug)
+    sys.setrecursionlimit(15000)  # this fixes tqdm bug
     if args.evaluate_every > args.epochs:
         args.logger.warn(
             f'Supplied args.evaluate_every ({args.evaluate_every}) '
@@ -170,7 +170,7 @@ def process_args(args):
         args.evaluate_every = args.epochs
 
     if args.model.startswith('LTR'):
-        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews'})
+        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews', 'profile'})
     else:
         for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size']:
             delattr(args, i)
@@ -185,7 +185,6 @@ def process_args(args):
         args.model,
         args.uid,
     )
-
     os.makedirs(args.save_path, exist_ok=True)
     args.logger = get_logger(args)
     assert args.load is None or args.load_base is None, 'cannot both load base and load trained model'

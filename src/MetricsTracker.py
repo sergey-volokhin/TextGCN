@@ -32,9 +32,9 @@ class MetricsTracker(ABC):
     def should_stop(self):
         return self.epochs_no_improve >= self.patience
 
-    def print_best_results(self):
-        self.logger.warn("Best results:")
-        self.log(self.best_metrics, level='warn')
+    def print_best_results(self, level='warn'):
+        self.logger.log(msg="Best results:", level=logging._nameToLevel[level.upper()])
+        self.log(self.best_metrics, level=level)
 
     def log(self, results=None, level='info'):
         ''' write metrics in the logger '''
@@ -95,6 +95,12 @@ class RankingMetricsTracker(MetricsTracker):
             rows.append(f'{metric:11}' + ' '.join([f'{results[f"{metric}@{k}"]:.4f}' for k in self.ks]))
         return "\n".join(rows)
 
+    def reset(self):
+        ''' reset metrics '''
+        self.metrics = {f"{metric}@{k}": [] for metric in self.metric_names for k in self.ks}
+        self.best_metrics = {m: -np.inf for m in self.metrics}
+        self.epochs_no_improve = 0
+
 
 class ScoringMetricsTracker(MetricsTracker):
 
@@ -113,3 +119,9 @@ class ScoringMetricsTracker(MetricsTracker):
         if results is None:
             results = {k: v for k, v in self.last_result.items() if 'test' not in k}
         return "\n".join([f"{metric:9} {values:.4f}" for metric, values in results.items()])
+
+    def reset(self):
+        ''' reset metrics '''
+        self.metrics = {'train_mse': [], 'train_mae': [], "valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
+        self.best_metrics = {m: np.inf for m in self.metrics}
+        self.epochs_no_improve = 0
