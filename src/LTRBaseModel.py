@@ -126,7 +126,7 @@ class LTRBaseModel(BaseModel):
     def evaluate_and_log(self, epoch):
         ''' print weights (i.e. feature importances) if the model consists of single layer '''
         super().evaluate_and_log(epoch)
-        if len(self.layers) == 1:
+        if len(self.layers) == 1 and self.metrics_log.last_epoch_best():
             self.logger.info('Feature weights from the top layer:')
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
                 self.logger.info(f'{f:<24} {w:>.4}')
