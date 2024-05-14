@@ -35,7 +35,7 @@ class DatasetProfile(BaseDataset):
         profiles_df = profiles_df[profiles_df.index.isin(self.user_mapping.org_id)]
         assert not profiles_df.isna().any().any(), f'missing values in profiles: {profiles_df.isna().any()}'
 
-        self.user_representations['profile'] = embed_text(
+        self.user_representations['profiles'] = embed_text(
             sentences=profiles_df.profile.values.flatten().tolist(),
             path=emb_file,
             model_name=model_name,

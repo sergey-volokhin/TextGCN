@@ -127,24 +127,15 @@ def embed_text(
         mapping = pickle.load(open(path, 'rb'))
         to_embed = [i for i in sentences if i not in mapping]
         if not to_embed:
-            logger.info('all sentences already embedded')
+            logger.info('all sentences are embedded')
             return torch.tensor([mapping[i] for i in sentences], device=device)
     else:
         to_embed = sentences
 
     logger.info(f'embedding {len(to_embed)} sentences')
     if model_name.startswith('text-embedding-3'):
-        import openai, tiktoken
-        client = openai.OpenAI()
-        batches = list(chunked(to_embed, 2000))
-        lengths = [num_tokens_from_list(batch) for batch in batches]
-        assert all(i < 5_000_000 for i in lengths), f'batches too large: {lengths}'
-        embeddings = []
-        for batch in tqdm(batches, 'Embedding openai batches'):
-            embeddings += [i.embedding for i in client.embeddings.create(input=batch, model=model_name, dimensions=dimensions).data]
-            time.sleep(1)
-        result = torch.tensor(embeddings)
-    elif model_name.startswith('all-'):
+        result = embed_openai(to_embed, model_name, dimensions)
+    elif model_name.startswith('all-') or model_name in ['Salesforce/SFR-Embedding-Mistral']:
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(model_name, device=device)
         result = model.encode(to_embed, batch_size=batch_size, convert_to_tensor=True)
@@ -158,6 +149,19 @@ def embed_text(
     pickle.dump(new_result, open(path, 'wb'))
 
     return torch.tensor([new_result[i] for i in sentences], device=device)
+
+
+def embed_openai(sentences, model_name, dimensions):
+    import openai, tiktoken
+    client = openai.OpenAI()
+    batches = list(chunked(sentences, 2000))
+    lengths = [num_tokens_from_list(batch) for batch in batches]
+    assert all(i < 5_000_000 for i in lengths), f'batches too large: {lengths}'
+    embeddings = []
+    for batch in tqdm(batches, 'Embedding openai batches'):
+        embeddings += [i.embedding for i in client.embeddings.create(input=batch, model=model_name, dimensions=dimensions).data]
+        time.sleep(1)
+    return torch.tensor(embeddings)
 
 
 def train_test_split_stratified(df, column='user_id', train_size=0.8, seed=42):

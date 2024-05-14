@@ -40,6 +40,19 @@ class LTRDatasetScore(LTRDataset, DatasetScoring):
 class LTRDatasetProfileRank(LTRDatasetRank, DatasetProfile):
     ''' combines KG, Reviews, profile, and ranking datasets '''
 
+    def __init__(self, config):
+        super().__init__(config)
+        self._get_items_as_avg_user_profile()
+
+    def _get_items_as_avg_user_profile(self):
+        ''' use mean of user profiles that reviewed the item '''
+        item_profiles = {}
+        for item, group in self.top_med_reviews.groupby('asin')['user_id']:
+            item_profiles[item] = self.user_representations['profiles'][group.values].mean(axis=0).cpu()
+
+        mapped = self.item_mapping['remap_id'].map(item_profiles).values.tolist()
+        self.item_representations['profiles'] = torch.stack(mapped).to(self.device)
+
 
 class LTRBaseModel(BaseModel):
     '''

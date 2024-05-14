@@ -7,9 +7,12 @@ import torch
 
 from .utils import get_logger
 
+kg_features_choices = ['base_desc', 'usecases', 'expert', 'description']
+non_kg_features_choices = ['reviews', 'profiles']
+all_features = kg_features_choices + non_kg_features_choices
+
 
 def parse_args(s=None):
-    kg_features_choices = ['base_desc', 'usecases', 'expert', 'description']
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         required=True,
@@ -151,7 +154,7 @@ def parse_args(s=None):
     text_params.add_argument('--ltr_text_features',
                              type=str,
                              nargs='*',
-                             choices=[f'{u}-{i}' for u in ['reviews', 'profile'] + kg_features_choices for i in ['reviews'] + kg_features_choices],
+                             choices=[f'{u}-{i}' for u in all_features for i in all_features],
                              default=['reviews-reviews', 'base_desc-base_desc', 'reviews-base_desc', 'base_desc-reviews'],
                              help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
@@ -161,16 +164,10 @@ def parse_args(s=None):
 def process_args(args):
     args.k = sorted(args.k)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
-    if args.evaluate_every > args.epochs:
-        args.logger.warn(
-            f'Supplied args.evaluate_every ({args.evaluate_every}) '
-            f'is greater than args.epochs ({args.epochs}). '
-            'Setting args.evaluate_every to be args.epochs.',
-        )
-        args.evaluate_every = args.epochs
-
     if args.model.startswith('LTR'):
-        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features} - {'reviews', 'profile'})
+        args.user_text_features = list({i.split('-')[0] for i in args.ltr_text_features})
+        args.item_text_features = list({i.split('-')[1] for i in args.ltr_text_features})
+        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features if i in kg_features_choices})
     else:
         for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size']:
             delattr(args, i)
@@ -196,6 +193,14 @@ def process_args(args):
         else:
             args.logger.warn(f'No model to load found in {args.load}. Continuing without loading.')
             args.load = None
+
+    if args.evaluate_every > args.epochs:
+        args.logger.warn(
+            f'Supplied args.evaluate_every ({args.evaluate_every}) '
+            f'is greater than args.epochs ({args.epochs}). '
+            'Setting args.evaluate_every to be args.epochs.',
+        )
+        args.evaluate_every = args.epochs
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     if torch.cuda.is_available() and args.gpu:
