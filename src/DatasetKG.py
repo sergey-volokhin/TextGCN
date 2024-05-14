@@ -49,7 +49,6 @@ class DatasetKG(BaseDataset):
                 kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv', index_col=0))
             else:
                 raise FileNotFoundError('No KG file found')
-
         if 'relation' in kg.columns:
             kg = kg.pivot(index='asin', columns='relation', values='attribute').reset_index()
         kg.columns = [i.replace('_w_reviews', '') for i in kg.columns]

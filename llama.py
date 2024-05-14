@@ -1,6 +1,5 @@
 import argparse
 import html
-import os
 import random
 import re
 import string
@@ -15,7 +14,6 @@ from bs4 import BeautifulSoup
 from torch.profiler import ProfilerActivity, profile, record_function
 from tqdm.auto import tqdm
 from transformers import (
-    AutoModelForCausalLM,
     BitsAndBytesConfig,
     pipeline,
 )
@@ -88,47 +86,35 @@ emoji_pattern = re.compile(
 
 ''' prompts '''
 prompts = {
-    'description': "Using provided information and any internal knowledge about this product, generate a concise product description that strictly focuses on the key features and benefits. Do not include the provided title in your output. Avoid directly addressing me in your response or acknowledging the task; just present the description in a standalone format.\n\n",
-    'usecases': "Using provided information and any internal knowledge about this product, formulate a description explaining the practical applications and usability of this product in real-world scenarios, using the title and seller's description as a reference. Do not include the provided title in your output. Avoid directly addressing me in your response or acknowledging the task; just present the description in a standalone format.\n\n",
-    'expert': "Based on the above details, generate an opinion as if you are an expert in the relevant field for this product. Consider the features, quality, market position, and any other pertinent aspects. Your response should reflect a professional assessment, highlighting potential strengths, weaknesses, and the overall value proposition of the product from an expert's perspective.\n\n",
-}
-
-new_prompts = {
-    'description': "Generate a detailed product description that concisely highlights the key features and benefits, focusing on the product's specifications, functionality, and user experiences that are most relevant for internal recommendation algorithms, based on the provided item title, seller's description, and customer reviews. Aim to identify and emphasize unique selling points (USPs) and differentiators that can assist in accurately categorizing and matching the product within the recommender system. Ensure the description is clear, informative, and directly relevant to an internal audience, encapsulating the essence of the product without marketing fluff or SEO considerations. Limit the description to 200 words, presenting it in a standalone format without directly addressing the task or including the provided title in the output.\n\n",
-    'usecases': "Given the title, seller's description, and user reviews of this product, craft a comprehensive overview that highlights its key features and practical applications in real-world scenarios. Illustrate its use with creative examples and hypothetical situations where the product can provide significant value or solve common problems. Emphasize any unique benefits and address potential user concerns identified from the reviews. Be concise, limit the description to 200 words, presenting it in a standalone format. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation.\n\n",
-    'expert': '''Based on the item title, seller's description, and customer reviews provided, succinctly generate an expert opinion on this product, focusing on the most critical aspects within a 500-token limit. Your analysis should seamlessly integrate the following aspects:\n\n- The product's comparative advantage over its competitors, highlighting distinctive features or areas where it may fall short.\n- The primary target audience for this product and reasons for its suitability.\n- How the product aligns with current industry trends or innovations.\n- Insights into usability and user experience based on feedback.\n- Environmental and ethical considerations related to the product, if relevant.\n- Suggestions for improvement or potential enhancements for future versions.\n- A brief evaluation of the product's price in relation to its overall value and market position.\n\nPlease provide a balanced, expert-level assessment that is informative yet concise, aiding in a nuanced product understanding for recommendation purposes.\n\n''',
-}
-
-proper_prompts_no_reviews = {
     "description": [
         {
             "role": "system",
-            "content": "You are a product recommendation assistant. Your primary task is to generate product description based on the seller given description, item's title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users."
+            "content": "You are a product recommendation assistant. Your primary task is to generate product description based on the seller given description, item's title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users.",
         },
         {
             "role": "user",
-            "content": """You are asked to summarize provided item description and its title.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please, provide a concise and accurate description of the item, highlighting the key features and benefits, focusing on the product's specifications, functionality, and user experiences. Aim to identify and emphasize unique selling points (USPs) and differentiators that can assist in accurately categorizing and matching the product within the recommender system. Ensure the description is clear, informative, and directly relevant to an internal audience, encapsulating the essence of the product. Limit the description to 200 words. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation."""
-        }
+            "content": """You are asked to summarize provided item description and its title.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please, provide a concise and accurate description of the item, highlighting the key features and benefits, focusing on the product's specifications, functionality, and user experiences. Aim to identify and emphasize unique selling points (USPs) and differentiators that can assist in accurately categorizing and matching the product within the recommender system. Ensure the description is clear, informative, and directly relevant to an internal audience, encapsulating the essence of the product. Limit the description to 200 words. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation.""",
+        },
     ],
     "usecases": [
         {
             "role": "system",
-            "content": "You are a product recommendation assistant. Your primary task is to generate potential usecases for the product based on its description, title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users."
+            "content": "You are a product recommendation assistant. Your primary task is to generate potential usecases for the product based on its description, title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users.",
         },
         {
             "role": "user",
-            "content": """You are asked to come up with potential use cases for the provided item based on its title and description.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please craft a comprehensive overview that highlights item's key features and practical applications in real-world scenarios. Illustrate its use with creative examples and hypothetical situations where the product can provide significant value or solve common problems. Emphasize any unique benefits and address potential user concerns identified from the reviews. Be concise, limit the description to 200 words, presenting it in a standalone format. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation."""
-        }
+            "content": """You are asked to come up with potential use cases for the provided item based on its title and description.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please craft a comprehensive overview that highlights item's key features and practical applications in real-world scenarios. Illustrate its use with creative examples and hypothetical situations where the product can provide significant value or solve common problems. Emphasize any unique benefits and address potential user concerns identified from the reviews. Be concise, limit the description to 200 words, presenting it in a standalone format. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation.""",
+        },
     ],
     "expert": [
         {
             "role": "system",
-            "content": "You are a product recommendation assistant. Your primary task is to generate expert opinions for the product based on its description, title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users."
+            "content": "You are a product recommendation assistant. Your primary task is to generate expert opinions for the product based on its description, title, and any internal knowledge you have about that item. It should be done in a way that would help the ranking system recommend more relevant items to users.",
         },
         {
             "role": "user",
-            "content": """You are asked to provide an expert opinion on the product based on the given description and title.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please generate an expert opinion on this product. Consider the features, quality, market position, and any other pertinent aspects. Your response should reflect a professional assessment, highlighting potential strengths, weaknesses, and the overall value proposition of the product from an expert's perspectivem. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation."""
-        }
+            "content": """You are asked to provide an expert opinion on the product based on the given description and title.\n# Item Information\n<Title>: "{}"; <Description>: {}\n\n# Task Requirement\nNow, please generate an expert opinion on this product. Consider the features, quality, market position, and any other pertinent aspects. Your response should reflect a professional assessment, highlighting potential strengths, weaknesses, and the overall value proposition of the product from an expert's perspectivem. Refrain from including the product title directly and avoid any direct communication or task acknowledgment in your presentation.""",
+        },
     ],
 }
 
@@ -201,6 +187,7 @@ def get_data(args, tokenizer):
     )
     return meta.head(80)
 
+
 @timeit
 def get_pipe(args, quantization=None):
 
@@ -243,14 +230,11 @@ def get_pipe(args, quantization=None):
 
 
 def get_prompt_v1(row, prompt_type, tokenizer):
-    return tokenizer.apply_chat_template(proper_prompts_no_reviews[prompt_type], tokenize=False, add_generation_prompt=True).format(row['title'], row['description'])
-
-
-# def get_prompt_v1(row, prompt_type):
-#     prompt = f'''Title: "{row['title']}"\n'''
-#     if row['description'] is not np.nan:
-#         prompt += f'''Seller Description: "{row['description']}"\n'''
-#     return prompt + prompts[prompt_type]
+    return tokenizer.apply_chat_template(
+        prompts[prompt_type],
+        tokenize=False,
+        add_generation_prompt=True,
+    ).format(row['title'], row['description'])
 
 
 # def get_prompt_w_reviews(row, prompt_type):
@@ -272,7 +256,10 @@ def call_pipe(pipe, queries, batch_size):
     else:
         raise ValueError(f'Unknown model: {pipe.model.config._name_or_path}')
 
-    return [i[0]['generated_text'].lstrip('.!?, \n\r\t-').strip(' ,\n\t-') for i in pipe(queries, batch_size=batch_size, eos_token_id=terminators)]
+    return [
+        i[0]['generated_text'].lstrip('.!?, \n\r\t-').strip(' ,\n\t-')
+        for i in pipe(queries, batch_size=batch_size, eos_token_id=terminators)
+    ]
 
 
 @timeit

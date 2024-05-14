@@ -77,6 +77,10 @@ class MetricsTracker(ABC):
     def _report(self, results):
         ''' return a string representing the metrics from results '''
 
+    @abstractmethod
+    def reset(self):
+        ''' reset metrics '''
+
 
 class RankingMetricsTracker(MetricsTracker):
 
@@ -101,7 +105,6 @@ class RankingMetricsTracker(MetricsTracker):
         return "\n".join(rows)
 
     def reset(self):
-        ''' reset metrics '''
         self.metrics = {f"{metric}@{k}": [] for metric in self.metric_names for k in self.ks}
         self.best_metrics = {m: -np.inf for m in self.metrics}
         self.epochs_no_improve = 0
@@ -126,7 +129,6 @@ class ScoringMetricsTracker(MetricsTracker):
         return "\n".join([f"{metric:9} {values:.4f}" for metric, values in results.items()])
 
     def reset(self):
-        ''' reset metrics '''
         self.metrics = {'train_mse': [], 'train_mae': [], "valid_mse": [], "valid_mae": [], "test_mse": [], "test_mae": []}
         self.best_metrics = {m: np.inf for m in self.metrics}
         self.epochs_no_improve = 0
