@@ -34,6 +34,7 @@ class RankingModel(BaseModel):
         self.test_users = np.sort(dataset.test_df.user_id.unique())  # ids of people from test set
         self.user_mapping_dict = dict(dataset.user_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
         self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
+        self.user_mapping = dataset.user_mapping
 
     def _add_vars(self, config):
         super()._add_vars(config)
@@ -71,12 +72,19 @@ class RankingModel(BaseModel):
         return calculate_metrics(predictions, self.k)
 
     @torch.no_grad()
-    def predict(self, users, save: bool = False, with_scores: bool = False):
+    def predict(self, users, save: bool = False, with_scores: bool = False, top_n=None):
         '''
         returns a list of lists with predicted items for given list of user_ids
             optionally with probabilities
         '''
-        # todo predict using unmapped ids
+
+        self.eval()
+        if top_n is None:
+            top_n = max(self.k)
+
+        ''' map unmapped user_ids '''
+        if isinstance(users[0], str):
+            users = self.user_mapping.set_index('org_id').loc[users].values.flatten()
 
         y_probs, y_pred = [], []
         batches = chunked(users, self.batch_size)
@@ -94,7 +102,7 @@ class RankingModel(BaseModel):
             rating[exploded.index, exploded.tolist()] = np.NINF
 
             ''' select top-k items with highest ratings '''
-            probs, rank_indices = torch.topk(rating, k=max(self.k))
+            probs, rank_indices = torch.topk(rating, k=top_n)
             y_pred.append(rank_indices)
             y_probs.append(probs.round(decimals=4))  # TODO: rounding doesn't work for some reason
 
