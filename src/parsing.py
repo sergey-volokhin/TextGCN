@@ -20,7 +20,6 @@ def parse_args(s=None):
                             'LightGCNScore', 'LightGCNRank',
                             'LTRLinearRank', 'LTRLinearWPop',
                             'LTRLinearScore', 'LTRLinearScoreWPop',
-                            'LTRProfileRank',
                             # 'adv_sampling',  # LightGCN with dynamic negative sampling
                         ],
                         help='which model to use')
@@ -165,9 +164,7 @@ def process_args(args):
     args.k = sorted(args.k)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
     if args.model.startswith('LTR'):
-        args.user_text_features = list({i.split('-')[0] for i in args.ltr_text_features})
-        args.item_text_features = list({i.split('-')[1] for i in args.ltr_text_features})
-        args.kg_features = list({i.split('-')[1] for i in args.ltr_text_features if i in kg_features_choices})
+        args.kg_features_choices = kg_features_choices
     else:
         for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size']:
             delattr(args, i)

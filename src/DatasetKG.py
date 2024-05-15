@@ -1,6 +1,7 @@
 import os
 
 import pandas as pd
+import torch
 
 from .BaseDataset import BaseDataset
 from .utils import embed_text
@@ -12,19 +13,7 @@ class DatasetKG(BaseDataset):
     calculates textual representations of items and users using item's descriptions
     '''
 
-    def __init__(self, config):
-        super().__init__(config)
-        self._load_kg(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
-
-    def _copy_params(self, config):
-        super()._copy_params(config)
-        self.kg_features = config.kg_features
-
-    def _load_kg(
-        self,
-        model_name: str,
-        emb_batch_size: int = 64,
-    ):
+    def _load_kg(self, config):
         '''
         load knowledge graph and calculate textual representations of items
         we represent items by descriptions and generated texts (have to start with "generated_")
@@ -34,7 +23,7 @@ class DatasetKG(BaseDataset):
         emb_file = os.path.join(
             self.path,
             'embeddings',
-            f'item_kg_repr_{model_name.split("/")[-1]}.pkl',
+            f'item_kg_repr_{config.encoder.split("/")[-1]}.pkl',
         )
 
         for version in ['v4_proper_Llama-2-7b-chat-hf', 'v3_w_reviews', 'v2', 'v1']:
@@ -67,13 +56,29 @@ class DatasetKG(BaseDataset):
         embeddings = embed_text(
             sentences=kg_to_encode.values.flatten().tolist(),
             path=emb_file,
-            model_name=model_name,
-            batch_size=emb_batch_size,
+            model_name=config.encoder,
+            batch_size=config.emb_batch_size,
             logger=self.logger,
             device=self.device,
         )
         reshaped = embeddings.reshape(*kg_to_encode.shape, embeddings.shape[1])
 
         # this is a bit fucky
-        for c in self.kg_features:
+        for c in self.features['item']['kg']:
             self.item_representations[c] = reshaped[:, kg_to_encode.columns.tolist().index(c)]
+
+        if self.features['user']['kg']:
+            self._get_users_as_avg_kg_feat()
+
+    def _get_users_as_avg_kg_feat(self):
+        ''' represent users with the mean of kg features of items they reviewed '''
+
+        kg_feat_user_text_embs = {i: {} for i in self.features['user']['kg']}
+        for user, group in self.top_med_interactions.groupby('user_id')['asin']:
+            for feature in self.features['user']['kg']:
+                kg_feat_user_text_embs[feature][user] = self.item_representations[feature][group.values].mean(axis=0).cpu()
+
+        for feature in self.features['user']['kg']:
+            mapped = self.user_mapping['remap_id'].map(kg_feat_user_text_embs[feature]).values.tolist()
+            # mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
+            self.user_representations[feature] = torch.stack(mapped).to(self.device)

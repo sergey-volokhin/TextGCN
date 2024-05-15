@@ -3,30 +3,75 @@ from torch import nn
 
 from .BaseModel import BaseModel
 from .DatasetKG import DatasetKG
+from .DatasetProfile import DatasetProfile
 from .DatasetRanking import DatasetRanking
 from .DatasetReviews import DatasetReviews
 from .DatasetScoring import DatasetScoring
-from .DatasetProfile import DatasetProfile
 
 
-class LTRDataset(DatasetKG, DatasetReviews):
-    ''' combines KG and Reviews datasets '''
+class LTRDataset(DatasetKG, DatasetReviews, DatasetProfile):
+    ''' combines all textual feature datasets into one '''
 
     def __init__(self, config):
+
         super().__init__(config)
-        self._get_users_as_avg_desc()
+        self._parse_features(config)
+        self._calculate_median_interactions()
 
-    def _get_users_as_avg_desc(self):
-        ''' use mean of kg features of items reviewed to represent users '''
-        kg_feat_user_text_embs = {i: {} for i in self.kg_features}
-        for user, group in self.top_med_reviews.groupby('user_id')['asin']:
-            for feature in self.kg_features:
-                kg_feat_user_text_embs[feature][user] = self.item_representations[feature][group.values].mean(axis=0).cpu()
+        ''' initialize datasets '''
 
-        for feature in self.kg_features:
-            mapped = self.user_mapping['remap_id'].map(kg_feat_user_text_embs[feature]).values.tolist()
-            mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
-            self.user_representations[feature] = torch.stack(mapped).to(self.device)
+        if self.features['user']['kg'] or self.features['item']['kg']:
+            self._load_kg(config)
+
+        if 'reviews' in self.features['user']['nonkg'] or 'reviews' in self.features['item']['nonkg']:
+            self._load_reviews(config)
+
+        if 'profiles' in self.features['user']['nonkg'] or 'profiles' in self.features['item']['nonkg']:
+            self._load_profiles(config)
+
+    def _parse_features(self, config):
+        ''' parse textual representations into readable format '''
+        self.features = {'user': {'kg': [], 'nonkg': []}, 'item': {'kg': [], 'nonkg': []}}
+        for i in config.ltr_text_features:
+            u_feat, i_feat = i.split('-')
+            self.features['user']['kg' if u_feat in config.kg_features_choices else 'nonkg'].append(u_feat)
+            self.features['item']['kg' if i_feat in config.kg_features_choices else 'nonkg'].append(i_feat)
+
+    def _calculate_median_interactions(self):
+        ''' restrict the number of interactions used to represent users and items '''
+
+        # loading reviews because train doesn't have 'time' column
+        self._load_review_file()
+        self._cut_reviews_to_median()
+        self.top_med_interactions = self.top_med_reviews
+        # TODO redo processing to include timestamp into train file
+
+        # number of reviews to use for representing items and users
+        # num_interactions = int(np.median(
+        #     pd.concat([self.train_df.groupby('asin')['user_id'].size(),
+        #                self.train_df.groupby('user_id')['asin'].size()])
+        # ))
+        # self.logger.info(f'using {num_interactions} interactions for each item and user representation')
+
+        # # use only most recent reviews for representation
+        # top_interactions_by_user = (
+        #     self.train_df.sort_values(by=['user_id', 'time'], ascending=[True, False])
+        #     .groupby('user_id')
+        #     .head(num_interactions)
+        # )
+        # top_interactions_by_item = (
+        #     self.train_df.sort_values(by=['asin', 'time'], ascending=[True, False])
+        #     .groupby('asin')
+        #     .head(num_interactions)
+        # )
+
+        # # saving top_med_reviews to model so we could extend LTR
+        # self.top_med_interactions = (
+        #     pd.concat([top_interactions_by_user, top_interactions_by_item])
+        #     .drop_duplicates(subset=['asin', 'user_id'])
+        #     .sort_values(['asin', 'user_id'])
+        #     .reset_index(drop=True)
+        # )
 
 
 class LTRDatasetRank(LTRDataset, DatasetRanking):
@@ -35,23 +80,6 @@ class LTRDatasetRank(LTRDataset, DatasetRanking):
 
 class LTRDatasetScore(LTRDataset, DatasetScoring):
     ''' combines KG and Reviews datasets with scoring dataset '''
-
-
-class LTRDatasetProfileRank(LTRDatasetRank, DatasetProfile):
-    ''' combines KG, Reviews, profile, and ranking datasets '''
-
-    def __init__(self, config):
-        super().__init__(config)
-        self._get_items_as_avg_user_profile()
-
-    def _get_items_as_avg_user_profile(self):
-        ''' use mean of user profiles that reviewed the item '''
-        item_profiles = {}
-        for item, group in self.top_med_reviews.groupby('asin')['user_id']:
-            item_profiles[item] = self.user_representations['profiles'][group.values].mean(axis=0).cpu()
-
-        mapped = self.item_mapping['remap_id'].map(item_profiles).values.tolist()
-        self.item_representations['profiles'] = torch.stack(mapped).to(self.device)
 
 
 class LTRBaseModel(BaseModel):
@@ -66,16 +94,9 @@ class LTRBaseModel(BaseModel):
         self._setup_layers(config)
         self._load_base(config, dataset)
 
-    def _copy_params(self, config):
-        super()._copy_params(config)
-        self.features = config.ltr_text_features  # all textual features used (usr_repr-item_repr)
-        self.text_features = {
-            'user': [i.split('-')[0] for i in config.ltr_text_features],
-            'item': [i.split('-')[1] for i in config.ltr_text_features],
-        }
-
     def _copy_dataset_params(self, dataset):
         super()._copy_dataset_params(dataset)
+        self.features = dataset.features
         self.user_representations = dataset.user_representations
         self.item_representations = dataset.item_representations
         self.all_items = dataset.all_items
@@ -105,9 +126,9 @@ class LTRBaseModel(BaseModel):
         user_rep and item_rep keys have to be in user_vectors and item_vectors dictionaries, defined in
         `self.get_user_vectors` and `self.get_item_vectors` functions
         '''
-        self.features = {i: {'user_rep': i.split('-')[0], 'item_rep': i.split('-')[1]} for i in self.features}
-        self.features['base_model_score'] = {'user_rep': 'emb', 'item_rep': 'emb'}
-        self.feature_names, self.feature_build = list(zip(*self.features.items()))
+        reprs = {i: {'user_rep': i.split('-')[0], 'item_rep': i.split('-')[1]} for i in config.ltr_text_features}
+        reprs['base_model_score'] = {'user_rep': 'emb', 'item_rep': 'emb'}
+        self.feature_names, self.feature_build = list(zip(*reprs.items()))
 
     def _setup_layers(self, config):
         '''
@@ -144,25 +165,20 @@ class LTRBaseModel(BaseModel):
             for f, w in zip(self.feature_names, self.layers[0].weight.tolist()[0]):
                 self.logger.info(f'{f:<24} {w:>.4}')
 
-    def get_item_reviews_user(self, i, u):  # not used
-        ''' represent items as the reviews of corresponding user '''
-        df = self.reviews_vectors.loc[torch.stack([i, u], axis=1).tolist()]
-        return torch.tensor(df.values.tolist()).to(self.device)
-
     def get_item_vectors(self, items_emb, items):
         ''' get vectors used to calculate textual representations dense features for items '''
         return {
             'emb': items_emb,
-            'reviews': self.item_representations['reviews'][items],  # items as mean of their reviews
-            **{i: self.item_representations[i][items] for i in self.text_features['item']},  # all other kg features
+            **{i: self.item_representations[i][items] for i in self.features['item']['nonkg']},
+            **{i: self.item_representations[i][items] for i in self.features['item']['kg']},
         }
 
     def get_user_vectors(self, users_emb, users):
         ''' get vectors used to calculate textual representations dense features for users '''
         return {
             'emb': users_emb,
-            'reviews': self.user_representations['reviews'][users],  # users as mean of their reviews
-            **{i: self.user_representations[i][users] for i in self.text_features['user']},  # all other kg features
+            **{i: self.user_representations[i][users] for i in self.features['user']['nonkg']},
+            **{i: self.user_representations[i][users] for i in self.features['user']['kg']},
         }
 
     # todo get_scores_batchwise and get_scores_pairwise return scores that differ by 1e-5. why?

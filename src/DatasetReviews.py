@@ -15,16 +15,15 @@ class DatasetReviews(BaseDataset):
     also calculates popularity of items and users
     '''
 
-    def __init__(self, config):
-        super().__init__(config)
-        self._load_reviews()
-        self._calc_review_embs(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
+    def _load_reviews(self, config):
+        self._load_review_file()
         self._cut_reviews_to_median()
+        self._calc_review_embs(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
         self._get_items_as_avg_reviews()
         self._get_users_as_avg_reviews()
-        self._calc_popularity()
+        # self._calc_popularity()
 
-    def _load_reviews(self):
+    def _load_review_file(self):
         self.reviews = pd.read_table(os.path.join(self.path, 'reviews_text.tsv'), dtype=str)
         if 'time' not in self.reviews.columns:
             self.reviews['time'] = 0
@@ -33,6 +32,15 @@ class DatasetReviews(BaseDataset):
         self.reviews.asin = self.reviews.asin.map(dict(self.item_mapping[['org_id', 'remap_id']].values))
         self.reviews = self.reviews.dropna()
         self.reviews[['asin', 'user_id']] = self.reviews[['asin', 'user_id']].astype(int)
+
+        ''' dropping testset reviews '''
+        reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
+        test_indexed = self.test_df.set_index(['asin', 'user_id'])
+        reviews_indexed.drop(reviews_indexed.index.intersection(test_indexed.index), inplace=True)
+        if hasattr(self, 'val_df'):
+            val_indexed = self.val_df.set_index(['asin', 'user_id'])
+            reviews_indexed.drop(reviews_indexed.index.intersection(val_indexed.index), inplace=True)
+        self.reviews = reviews_indexed.reset_index()
 
     def _cut_reviews_to_median(self):
         # number of reviews to use for representing items and users
@@ -70,9 +78,9 @@ class DatasetReviews(BaseDataset):
             'embeddings',
             f'item_full_reviews_loss_repr_{model_name.split("/")[-1]}.pkl',
         )
-        self.reviews['vector'] = (
+        self.top_med_reviews['vector'] = (
             embed_text(
-                sentences=self.reviews['review'].tolist(),
+                sentences=self.top_med_reviews['review'].tolist(),
                 path=emb_file,
                 model_name=model_name,
                 batch_size=emb_batch_size,
@@ -84,20 +92,8 @@ class DatasetReviews(BaseDataset):
             .tolist()
         )
 
-        self.text_emb_size = len(self.reviews['vector'].iloc[0])
+        self.text_emb_size = len(self.top_med_reviews['vector'].iloc[0])
 
-        ''' dropping testset reviews '''
-        # doing it here, not at loading, to not recalculate textual embs if resplitting train-test
-        reviews_indexed = self.reviews.set_index(['asin', 'user_id'])
-
-        test_indexed = self.test_df.set_index(['asin', 'user_id'])
-        reviews_indexed.drop(reviews_indexed.index.intersection(test_indexed.index), inplace=True)
-        if hasattr(self, 'val_df'):
-            val_indexed = self.val_df.set_index(['asin', 'user_id'])
-            reviews_indexed.drop(reviews_indexed.index.intersection(val_indexed.index), inplace=True)
-
-        self.reviews = reviews_indexed.reset_index()
-        self.reviews_vectors = reviews_indexed['vector']
 
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
