@@ -35,7 +35,7 @@ class DatasetKG(BaseDataset):
         else:
             if os.path.exists(os.path.join(self.path, 'meta_synced.tsv')):
                 self.logger.info('loaded meta_synced.tsv version of KG')
-                kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv', index_col=0))
+                kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv'), index_col=0)
             else:
                 raise FileNotFoundError('No KG file found')
         if 'relation' in kg.columns:
