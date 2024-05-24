@@ -156,6 +156,11 @@ def parse_args(s=None):
                              choices=[f'{u}-{i}' for u in all_features for i in all_features],
                              default=['reviews-reviews', 'base_desc-base_desc', 'reviews-base_desc', 'base_desc-reviews'],
                              help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
+
+    parser.add_argument('--profile_generator',
+                        choices=['llama2', 'llama3'],
+                        default='llama2',
+                        help='which model was used to generate user profiles')
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
 
@@ -166,7 +171,7 @@ def process_args(args):
     if args.model.startswith('LTR'):
         args.kg_features_choices = kg_features_choices
     else:
-        for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size']:
+        for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size', 'profile_generator']:
             delattr(args, i)
 
     ''' paths '''

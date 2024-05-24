@@ -80,7 +80,7 @@ class BaseDataset(Dataset):
         filter to have at least 3 items per user
         '''
         if os.path.exists(join(self.path, 'reviews_text.tsv')):
-            df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating']]
+            df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating', 'time']]
         else:
             train_df = pd.read_table(join(self.path, 'train.tsv'), dtype=str)
             test_df = pd.read_table(join(self.path, 'test.tsv'), dtype=str)

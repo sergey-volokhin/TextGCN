@@ -65,37 +65,37 @@ def parse_args():
 
 
 @timeit
+def clean_data(args):
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+
+    reviews = pd.read_table(f'{args.data}/reviews_text.tsv').dropna()
+    reviews['review'] = clean_text_series(reviews.review).apply(cut_to, args=(tokenizer, args.max_review_length))
+    reviews.to_csv(f'{args.data}/reviews_text_clean.tsv', sep='\t', index=False)
+
+    meta = pd.read_table(f'{args.data}/meta_synced.tsv').dropna()
+    meta['title'] = clean_text_series(meta.title)
+    meta['description'] = clean_text_series(meta.description).apply(cut_to, args=(tokenizer, args.max_review_length))
+    meta.to_csv(f'{args.data}/meta_synced_clean.tsv', sep='\t', index=False)
+
+    return reviews, meta
+
+
 def load_data(args):
     if os.path.exists(f'{args.data}/reviews_text_clean.tsv') and os.path.exists(f'{args.data}/meta_synced_clean.tsv'):
         reviews = pd.read_table(f'{args.data}/reviews_text_clean.tsv').dropna()
         meta = pd.read_table(f'{args.data}/meta_synced_clean.tsv').dropna()
-
     else:
-        reviews = pd.read_table(f'{args.data}/reviews_text.tsv').dropna()
-        meta = pd.read_table(f'{args.data}/meta_synced.tsv').dropna()
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-        reviews['review'] = clean_text_series(reviews.review).apply(cut_to, args=(tokenizer, args.max_review_length))
-        meta['title'] = clean_text_series(meta.title)
-        meta['description'] = clean_text_series(meta.description).apply(cut_to, args=(tokenizer, args.max_review_length))
-        reviews.to_csv(f'{args.data}/reviews_text_clean.tsv', sep='\t', index=False)
-        meta.to_csv(f'{args.data}/meta_synced_clean.tsv', sep='\t', index=False)
+        reviews, meta = clean_data(args)
 
     train = pd.read_table(f'{args.data}/reshuffle_{args.seed}/train.tsv')
     test = pd.read_table(f'{args.data}/reshuffle_{args.seed}/test.tsv')
 
     users = set(train.user_id.unique()) | set(test.user_id.unique())
-
     reviews = reviews[reviews.user_id.isin(users)]
 
-    train = train[train.user_id.isin(users)].groupby('user_id').head(args.max_review_number)  # only take max_review_number reviews
-    test = test[test.user_id.isin(users)]
+    train = train[train.user_id.isin(users)].groupby('user_id').head(args.max_review_number)
 
-    train = train.merge(meta, on='asin')
-    test = test.merge(meta, on='asin')
-    train = train.merge(reviews, on=['user_id', 'asin', 'rating'])
-    test = test.merge(reviews, on=['user_id', 'asin', 'rating'])
-
-    return train, test, meta.set_index('asin')
+    return train.merge(meta, on='asin').merge(reviews, on=['user_id', 'asin', 'rating'])
 
 
 def process_group(group, prompt_len, args, prompt, tokenizer):
@@ -111,42 +111,52 @@ def process_group(group, prompt_len, args, prompt, tokenizer):
     return [{k: v.format(filler) if k == 'content' else v for k, v in p.items()} for p in prompt]
 
 
-@timeit
-def generate_profile(pipe, data, args):
-    with open(args.prompt_path, 'r') as file:
-        prompt = json.load(file)['user_profile']
-        prompt_len = sum(
-            len(pipe.tokenizer(value)['input_ids'])
-            for turn in prompt
-            for key, value in turn.items()
-            if key == 'content'
-        )
-
-    if 'llama-3' in args.model_name.lower():
-        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama3_test.tsv'
-    elif 'llama-2' in args.model_name.lower():
-        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama2_test.tsv'
-    else:
-        raise ValueError(f'model not llama: {args.model_name}')
-
-    if os.path.exists(os.path.join(args.data, 'embeddings/profiles_cache.tsv')):
-        cache = (
-            pd.read_table(os.path.join(args.data, 'embeddings/profiles_cache.tsv'))
+def load_cache(path):
+    if os.path.exists(os.path.join(path, 'embeddings/profiles_cache.tsv')):
+        return (
+            pd.read_table(os.path.join(path, 'embeddings/profiles_cache.tsv'))
             .set_index('prompt_profile')['profile']
             .to_dict()
         )
-    else:
-        cache = {}
+    return {}
 
+
+def load_prompt(path, tokenizer):
+    with open(path, 'r') as file:
+        prompt = json.load(file)['user_profile']
+    prompt_length = sum(
+        num_tokens(value, tokenizer)
+        for turn in prompt
+        for key, value in turn.items()
+        if key == 'content'
+    )
+    return prompt, prompt_length
+
+
+@timeit
+def generate_profile(pipe, tokenizer, data, args):
+
+    prompt, prompt_length = load_prompt(args.prompt_path, tokenizer)
+    cache = load_cache(args.data)
+
+    if 'llama-3' in args.model_name.lower():
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama3.tsv'
+    elif 'llama-2' in args.model_name.lower():
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama2.tsv'
+    else:
+        raise ValueError(f'model not llama: {args.model_name}')
+
+    # construct and fill prompts
     if os.path.exists(profile_path) and not args.regenerate:
         descriptions = pd.read_table(profile_path)
     else:
         descriptions = []
         for user, group in tqdm(data.groupby('user_id'), dynamic_ncols=True):
-            descriptions.append((user, process_group(group, prompt_len, args, prompt, tokenizer)))
+            descriptions.append((user, process_group(group, prompt_length, args, prompt, tokenizer)))
         descriptions = pd.DataFrame(descriptions, columns=['user_id', 'prompt_profile']).set_index('user_id')
         descriptions.to_csv(profile_path, sep='\t')
 
+    # select only the prompts that need to be generated
     descriptions['profile'] = descriptions['prompt_profile'].map(lambda x: cache.get(x, np.nan))
     to_generate = descriptions[descriptions['profile'].isna()].prompt_profile.tolist()
     print('len(to_generate)', len(to_generate), 'instead of', len(descriptions))
@@ -155,15 +165,17 @@ def generate_profile(pipe, data, args):
         queries=to_generate,
         batch_size=args.batch_size,
     )
-    descriptions['profile'] = descriptions['profile'].astype(object)  # Cast 'profile' column to object dtype
+    descriptions['profile'] = descriptions['profile'].astype(object)  # dunno why this is needed
     descriptions.loc[descriptions['profile'].isna(), 'profile'] = generated
+    descriptions.to_csv(profile_path, sep='\t', index=False)
 
     cache.update(descriptions.set_index('prompt_profile')['profile'].to_dict())
     pd.DataFrame(cache.items(), columns=['prompt_profile', 'profile']).to_csv(
-        os.path.join(args.data, 'embeddings/profiles_cache.tsv'), sep='\t', index=False
+        os.path.join(args.data, 'embeddings/profiles_cache.tsv'),
+        sep='\t',
+        index=False,
     )
 
-    descriptions.to_csv(profile_path, sep='\t', index=False)
     return descriptions
 
 
@@ -171,13 +183,8 @@ def main():
     args = parse_args()
     random.seed(args.seed)
     pipe = get_pipe(args, quantization='bfloat16')
-    train, test, meta = load_data(args)
-
-    profiles = generate_profile(pipe, train, args)
-
-    # rate_items(pipe, profiles, test, args)
-    # rank_items(pipe, profiles, meta, args)
-    # infer_scores(pipe, test, profiles, args)
+    data = load_data(args)
+    profiles = generate_profile(pipe, pipe.tokenizer, data, args)
 
 
 if __name__ == '__main__':
