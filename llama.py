@@ -11,19 +11,15 @@ import numpy as np
 import pandas as pd
 import torch
 from bs4 import BeautifulSoup
-from torch.profiler import ProfilerActivity, profile, record_function
 from tqdm.auto import tqdm
-from transformers import (
-    BitsAndBytesConfig,
-    pipeline,
-)
+from transformers import BitsAndBytesConfig, pipeline
 from unidecode import unidecode
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default='meta-llama/Llama-2-7b-chat-hf')
-    parser.add_argument('--domain', '-d', type=str, default='enriched_Toys')
+    parser.add_argument('--data', '-d', type=str, default='data/sampled_Toys_and_Games')
     parser.add_argument('--temp', type=float, default=0.1)
     parser.add_argument(
         '--min_new_tokens',
@@ -54,14 +50,13 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
-    if 'Llama-2' in args.model_name:
+    if 'llama-2' in args.model_name.lower():
         args.max_length = 4096
-    elif 'Llama-3' in args.model_name:
+    elif 'llama-3' in args.model_name.lower():
         args.max_length = 8192
     else:
         raise ValueError(f'model not llama: {args.model_name}')
 
-    args.folder = f'data/{args.domain}/'
     return args
 
 
@@ -124,7 +119,7 @@ def timeit(func):
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         res = func(*args, **kwargs)
-        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec')
+        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec', flush=True)
         return res
     return wrapper
 
@@ -176,9 +171,9 @@ def get_data(args, tokenizer):
     meta: pd.DataFrame(index: asin, columns: ['title', 'description'])
     '''
 
-    reviews = pd.read_table(f'{args.folder}/reviews_text.tsv').sort_values('time')
-    # meta = pd.read_table(f'{args.folder}/kg_readable.tsv').pivot(index='asin', columns='relation', values='attribute')[['description', 'title']]
-    meta = pd.read_table(f'{args.folder}/meta_synced.tsv').set_index('asin')[['description', 'title']]
+    reviews = pd.read_table(f'{args.data}/reviews_text.tsv').sort_values('time')
+    # meta = pd.read_table(f'{args.data}/kg_readable.tsv').pivot(index='asin', columns='relation', values='attribute')[['description', 'title']]
+    meta = pd.read_table(f'{args.data}/meta_synced.tsv').set_index('asin')[['description', 'title']]
     meta = meta[meta.index.isin(set(reviews.asin.unique()))]
     meta['title'] = clean_text_series(meta.title)
     meta['description'] = clean_text_series(meta.description)
@@ -268,36 +263,6 @@ def call_pipe(pipe, queries, batch_size):
     ]
 
 
-@timeit
-@sort_process_unsort
-def call_pipe_with_profiling(pipe, queries: list[str], batch_size: int):
-    # Initialize an empty list to store the results
-    results = []
-
-    # Define the profiler context manager, specifying the activities to profile
-    # and the directory where the trace will be saved.
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,  # This flags enables memory profiling
-        with_stack=True,
-    ) as prof:
-
-        # Record the function of interest. Here 'inference' is a custom label for clarity.
-        with record_function("inference"):
-            results = [
-                i[0]['generated_text'].lstrip('.!?, \n\r\t-').strip(' ,\n\t-')
-                for i in pipe(queries, batch_size=batch_size)
-            ]
-
-    # After exiting the context, the profiler has the performance data.
-    # Here, we're printing out the results. You could also save them to a file.
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-    prof.export_chrome_trace("trace.json")  # Export the trace to a file for visualization
-
-    return results
-
-
 def save(meta, path):
     meta.reset_index().to_csv(path, sep='\t', index=False)
 
@@ -347,9 +312,9 @@ def get_data_new(args, tokenizer):
 
     data = []
     for seed in range(5):
-        data.append(pd.read_table(f'{args.folder}/reshuffle_{seed}/train.tsv'))
-        data.append(pd.read_table(f'{args.folder}/reshuffle_{seed}/test.tsv'))
-        data.append(pd.read_table(f'{args.folder}/reshuffle_{seed}/valid.tsv'))
+        data.append(pd.read_table(f'{args.data}/reshuffle_{seed}/train.tsv'))
+        data.append(pd.read_table(f'{args.data}/reshuffle_{seed}/test.tsv'))
+        data.append(pd.read_table(f'{args.data}/reshuffle_{seed}/valid.tsv'))
 
     data = pd.concat(data).drop_duplicates(subset=['asin', 'user_id'])
     # vc = data.asin.value_counts()
@@ -358,13 +323,13 @@ def get_data_new(args, tokenizer):
     # items = random.sample(list(data.asin.unique()), 100)[:10]
 
     kg = pd.read_table(
-        f'{args.folder}/kg_readable_w_gen_desc_v2.tsv',
+        f'{args.data}/kg_readable_w_gen_desc_v2.tsv',
         index_col=0,
         usecols=['asin', 'title', 'description'],
     )
     kg = kg[kg.index.isin(items)]
 
-    reviews = pd.read_table(f'{args.folder}/reviews_text.tsv')
+    reviews = pd.read_table(f'{args.data}/reviews_text.tsv')
     reviews = reviews[reviews.asin.isin(items)].dropna()
     reviews.review = reviews.review.apply(
         lambda x: tokenizer.convert_tokens_to_string(tokenizer.tokenize(x)[: args.max_review_length])
@@ -376,7 +341,7 @@ def get_data_new(args, tokenizer):
 def add_reviews(df, p_type, pipe, args):
     # generate prompts
 
-    reviews = pd.read_table(f'{args.folder}/reviews_text.tsv')
+    reviews = pd.read_table(f'{args.data}/reviews_text.tsv')
     reviews['tokens'] = reviews.review.apply(num_tokens, args=(pipe.tokenizer,))
     reviews = reviews[reviews.tokens < args.max_review_length]
     reviews = reviews.sort_values('time').groupby('asin').head(5).drop('tokens', axis=1)
@@ -436,12 +401,12 @@ def main():
     if args.reviews:
         for prompt_type in prompts:
             meta = add_reviews(meta, prompt_type, pipe, args)
-            save(meta, f'{args.folder}/kg_readable_v4_proper_w_reviews_{args.model_name.split("/")[-1]}.tsv')
+            save(meta, f'{args.data}/kg_readable_v4_proper_w_reviews_{args.model_name.split("/")[-1]}.tsv')
 
 
 # def drop_existing(args, kg, reviews):
-#     existing_kg = pd.read_table(f'{args.folder}/kg_readable_w_gen_desc_v3_w_reviews.tsv', index_col=0)
-#     existing_reviews = pd.read_table(f'{args.folder}/reviews_text.tsv')
+#     existing_kg = pd.read_table(f'{args.data}/kg_readable_w_gen_desc_v3_w_reviews.tsv', index_col=0)
+#     existing_reviews = pd.read_table(f'{args.data}/reviews_text.tsv')
 #     kg = kg[~kg.index.isin(existing_kg.index)]
 #     reviews = reviews[~reviews.asin.isin(existing_reviews.asin)]
 #     return kg, reviews
@@ -457,7 +422,7 @@ def main():
 
 #     for prompt_type in prompts:
 #         kg = add_reviews(kg, reviews, prompt_type, pipe, args)
-#         save(kg, f'{args.folder}/kg_readable_w_gen_desc_v3_w_reviews_missing.tsv')
+#         save(kg, f'{args.data}/kg_readable_w_gen_desc_v3_w_reviews_missing.tsv')
 
 
 if __name__ == '__main__':
