@@ -1,11 +1,13 @@
+import numpy as np
 import argparse
 import json
 import os
 import random
 
-import numpy as np
 import pandas as pd
 from transformers import AutoTokenizer
+from tqdm.auto import tqdm
+
 
 from llama import call_pipe, clean_text_series, get_pipe, num_tokens, timeit
 
@@ -50,6 +52,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--prompt_path', type=str, default='prompts/prompts_proper.json')
+    parser.add_argument('--regenerate', action='store_true', help='regenerate prompts')
     args = parser.parse_args()
     if 'Llama-2' in args.model_name:
         args.max_length = 4096
@@ -80,7 +83,6 @@ def load_data(args):
     train = pd.read_table(f'{args.data}/reshuffle_{args.seed}/train.tsv')
     test = pd.read_table(f'{args.data}/reshuffle_{args.seed}/test.tsv')
 
-    # users = set(random.sample(list(test.user_id.unique()), 5))
     users = set(train.user_id.unique()) | set(test.user_id.unique())
 
     reviews = reviews[reviews.user_id.isin(users)]
@@ -124,7 +126,7 @@ def generate_profile(pipe, data, args):
         prompt = pipe.tokenizer.apply_chat_template(
             json.load(file)['user_profile'],
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
         )
         prompt_len = num_tokens(prompt, pipe.tokenizer)
 
@@ -135,20 +137,38 @@ def generate_profile(pipe, data, args):
     else:
         raise ValueError(f'model not llama: {args.model_name}')
 
-    # if os.path.exists(profile_path):
-    if False:
+    if os.path.exists(os.path.join(args.data, 'embeddings/profiles_cache.tsv')):
+        cache = (
+            pd.read_table(os.path.join(args.data, 'embeddings/profiles_cache.tsv'))
+            .set_index('prompt_profile')['profile']
+            .to_dict()
+        )
+    else:
+        cache = {}
+
+    if os.path.exists(profile_path) and not args.regenerate:
         descriptions = pd.read_table(profile_path)
     else:
         descriptions = []
-        for user, group in data.groupby('user_id'):
-            descriptions.append((user, process_group(group, prompt_len, args, prompt, pipe.tokenizer)))
+        for user, group in tqdm(data.groupby('user_id'), dynamic_ncols=True):
+            descriptions.append((user, process_group(group, prompt_len, args, prompt, tokenizer)))
         descriptions = pd.DataFrame(descriptions, columns=['user_id', 'prompt_profile']).set_index('user_id')
         descriptions.to_csv(profile_path, sep='\t')
 
-    descriptions['profile'] = call_pipe(
+    descriptions['profile'] = descriptions['prompt_profile'].map(lambda x: cache.get(x, np.nan))
+    to_generate = descriptions[descriptions['profile'].isna()].prompt_profile.tolist()
+    print('len(to_generate)', len(to_generate), 'instead of', len(descriptions))
+    generated = call_pipe(
         pipe=pipe,
-        queries=descriptions['prompt_profile'].tolist(),
+        queries=to_generate,
         batch_size=args.batch_size,
+    )
+    descriptions['profile'] = descriptions['profile'].astype(object)  # Cast 'profile' column to object dtype
+    descriptions.loc[descriptions['profile'].isna(), 'profile'] = generated
+
+    cache.update(descriptions.set_index('prompt_profile')['profile'].to_dict())
+    pd.DataFrame(cache.items(), columns=['prompt_profile', 'profile']).to_csv(
+        os.path.join(args.data, 'embeddings/profiles_cache.tsv'), sep='\t', index=False
     )
 
     descriptions = descriptions.drop('prompt_profile', axis=1)
