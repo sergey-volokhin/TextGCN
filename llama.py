@@ -185,7 +185,7 @@ def get_data(args, tokenizer):
     meta.description = meta.description.apply(
         lambda x: tokenizer.convert_tokens_to_string(tokenizer.tokenize(x)[: args.max_description_length])
     )
-    return meta.head(80)
+    return meta
 
 
 @timeit
@@ -237,6 +237,12 @@ def get_prompt_v1(row, prompt_type, tokenizer):
     ).format(row['title'], row['description'])
 
 
+def get_prompt_v2(row, prompt_type):
+    ''' not applying chat template directly '''
+    # return {k: v.format(row['title'], row['description']) for utin prompts[prompt_type].items()}
+    return [{k: v.format(row['title'], row['description']) for k, v in utterance.items()} for utterance in prompts[prompt_type]]
+
+
 # def get_prompt_w_reviews(row, prompt_type):
 #     prompt = f'''Title: "{row['title']}"\n'''
 #     if row['description'] is not np.nan:
@@ -249,9 +255,9 @@ def get_prompt_v1(row, prompt_type, tokenizer):
 @sort_process_unsort
 def call_pipe(pipe, queries, batch_size):
 
-    if 'Llama-3' in pipe.model.config._name_or_path:
+    if 'llama-3' in pipe.model.config._name_or_path.lower():
         terminators = [pipe.tokenizer.eos_token_id, pipe.tokenizer.convert_tokens_to_ids("<|eot_id|>")]
-    elif 'Llama-2' in pipe.model.config._name_or_path:
+    elif 'llama-2' in pipe.model.config._name_or_path.lower():
         terminators = [pipe.tokenizer.eos_token_id]
     else:
         raise ValueError(f'Unknown model: {pipe.model.config._name_or_path}')
