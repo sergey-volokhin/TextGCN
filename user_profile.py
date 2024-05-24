@@ -3,7 +3,6 @@ import json
 import os
 import random
 
-import numpy as np
 import pandas as pd
 from transformers import AutoTokenizer
 
@@ -15,7 +14,7 @@ template = '<Item Title>: "{}"; <Item Description>: "{}"; <User Review> "{}"; <U
 
 
 def cut_to(sentence, tokenizer, max_length):
-    return tokenizer.convert_tokens_to_string(tokenizer.tokenize(sentence)[: max_length])
+    return tokenizer.convert_tokens_to_string(tokenizer.tokenize(sentence)[:max_length])
 
 
 def parse_args():
@@ -45,15 +44,15 @@ def parse_args():
         '--max_review_number',
         type=int,
         default=30,
-        help='maximum number of reviews per user'
+        help='maximum number of reviews per user',
     )
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--prompt_path', type=str, default='prompts/prompts_proper.json')
     args = parser.parse_args()
-    if 'Llama-2' in args.model_name:
+    if 'llama-2' in args.model_name.lower():
         args.max_length = 4096
-    elif 'Llama-3' in args.model_name:
+    elif 'llama-3' in args.model_name.lower():
         # args.max_length = 4096
         args.max_length = 8192
     else:
@@ -96,15 +95,6 @@ def load_data(args):
     return train, test, meta.set_index('asin')
 
 
-def downsample(reviews, meta, n=10):
-    vc = reviews.user_id.value_counts()
-    reviews = reviews[(reviews.user_id.isin(vc[vc > 4].index)) & (reviews.user_id.isin(vc[vc < 10].index))]
-    users = random.sample(list(reviews.user_id.unique()), n)
-    reviews = reviews[reviews.user_id.isin(users)]
-    meta = meta[meta.asin.isin(set(reviews.asin.unique()))]
-    return reviews, meta
-
-
 def process_group(group, prompt_len, args, prompt, tokenizer):
     filler = ''
     current_len = prompt_len
@@ -115,23 +105,24 @@ def process_group(group, prompt_len, args, prompt, tokenizer):
         current_len += num_tokens(to_add, tokenizer)
         if current_len > args.max_length - args.max_new_tokens:
             break
-    return prompt.format(filler)
+    return [{k: v.format(filler) if k == 'content' else v for k, v in p.items()} for p in prompt]
 
 
 @timeit
 def generate_profile(pipe, data, args):
     with open(args.prompt_path, 'r') as file:
-        prompt = pipe.tokenizer.apply_chat_template(
-            json.load(file)['user_profile'],
-            tokenize=False,
-            add_generation_prompt=True
+        prompt = json.load(file)['user_profile']
+        prompt_len = sum(
+            len(pipe.tokenizer(value)['input_ids'])
+            for turn in prompt
+            for key, value in turn.items()
+            if key == 'content'
         )
-        prompt_len = num_tokens(prompt, pipe.tokenizer)
 
-    if 'Llama-3' in args.model_name:
-        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama3.tsv'
-    elif 'Llama-2' in args.model_name:
-        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama2.tsv'
+    if 'llama-3' in args.model_name.lower():
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama3_test.tsv'
+    elif 'llama-2' in args.model_name.lower():
+        profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_llama2_test.tsv'
     else:
         raise ValueError(f'model not llama: {args.model_name}')
 
@@ -151,55 +142,8 @@ def generate_profile(pipe, data, args):
         batch_size=args.batch_size,
     )
 
-    descriptions = descriptions.drop('prompt_profile', axis=1)
-    descriptions.to_csv(profile_path, sep='\t')
+    descriptions.to_csv(profile_path, sep='\t', index=False)
     return descriptions
-
-
-@timeit
-def rate_items(pipe, profiles, data, args):
-    with open(args.prompt_path, 'r') as file:
-        prompt = pipe.tokenizer.apply_chat_template(json.load(file)['rating'], tokenize=False, add_generation_prompt=True)
-
-    if 'Llama-3' in args.model_name:
-        rating_path = f'rating_responses_{args.temp}_llama3.tsv'
-    elif 'Llama-2' in args.model_name:
-        rating_path = f'rating_responses_{args.temp}_llama2.tsv'
-    else:
-        raise ValueError(f'model not llama: {args.model_name}')
-
-    data['profile'] = data['user_id'].map(profiles['profile'])
-    data['prompt_inference'] = prompt
-    data['prompt_inference'] = data.apply(lambda x: x['prompt_inference'].format(x['profile'], x['title'], x['description']), axis=1)
-    data.to_csv(rating_path, sep='\t', index=False)
-    data['response'] = call_pipe(pipe=pipe, queries=data['prompt_inference'].tolist(), batch_size=args.batch_size)
-    data['pred_score'] = data['response'].apply(lambda x: x.split("Final score:")[1] if 'Final score:' in x else np.nan)
-    data.drop('prompt_inference', axis=1).to_csv(rating_path, sep='\t', index=False)
-
-
-def rank_items(pipe, profiles, meta, args):
-    with open(args.prompt_path, 'r') as file:
-        prompt = pipe.tokenizer.apply_chat_template(json.load(file)['ranking'], tokenize=False, add_generation_prompt=True)
-
-    ranking_path = 'reranking_responses.tsv'
-
-    model = load_lightgcn(args)
-    prediction = model.predict(users=profiles.index, top_n=50)
-    profiles['y_pred'] = [[model.item_mapping_dict[i] for i in row] for row in prediction]
-
-    def compose_rerank_prompt(row):
-        items = []
-        for ind, item in enumerate(row['y_pred'], start=1):
-            items.append(f'{ind}. Title: \"{meta.loc[item, "title"]}\". Description: \"{meta.loc[item, "description"]}\"')
-        return prompt.format(profiles.loc[row.name, 'profile'], '\n'.join(items))
-
-    profiles['rerank_prompt'] = profiles.apply(compose_rerank_prompt, axis=1)
-    profiles.to_csv(ranking_path, sep='\t', index=False)
-    print('rerank prompts lens:', profiles['rerank_prompt'].apply(num_tokens, args=(pipe.tokenizer,)).tolist(), flush=True)
-
-    profiles['rerank_response'] = call_pipe(pipe=pipe, queries=profiles['rerank_prompt'].tolist(), batch_size=args.batch_size)
-    profiles = profiles.drop('rerank_prompt', axis=1)
-    profiles.to_csv(ranking_path, sep='\t', index=False)
 
 
 def main():
