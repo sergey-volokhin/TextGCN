@@ -50,7 +50,7 @@ class BaseDataset(Dataset):
         self.logger.debug('loading data')
 
         folder = self.path
-        if reshuffle:
+        if reshuffle or not os.path.exists(join(folder, 'train.tsv')):
             folder = join(self.path, f'reshuffle_{self.seed}')
             if not os.path.exists(join(folder, 'train.tsv')):
                 return self._reshuffle_train_test()
