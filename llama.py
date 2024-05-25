@@ -153,7 +153,7 @@ def get_data(args, tokenizer):
 
 
 @timeit
-def get_pipe(args, quantization=None):
+def get_pipe(args, quantization='bfloat16'):
 
     if torch.cuda.is_available():
         model_kwargs = {'attn_implementation': "flash_attention_2"}
