@@ -1,3 +1,13 @@
+'''
+Requires:
+- reviews_text.tsv                  -- user_id \t asin \t review \t rating \t time
+- meta_synced.tsv                   -- asin \t title \t description
+- reshuffle_x/train_ranking.tsv     -- user_id \t asin \t rating [\t time]
+- reshuffle_x/test_ranking.tsv      -- user_id \t asin \t rating [\t time]
+Produces:
+-kg_readable_v5_{temp}_{model}.tsv  -- asin \t title \t description \t prompt_{type} \t gen_{type} (∀ type ∈ prompts)
+'''
+
 import argparse
 import html
 import json

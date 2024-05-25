@@ -1,3 +1,16 @@
+'''
+Requires:
+- reviews_text.tsv                              -- user_id \t asin \t review \t rating \t time
+- meta_synced.tsv                               -- asin \t title \t description
+- reshuffle_x/train_ranking.tsv                 -- user_id \t asin \t rating [\t time]
+- reshuffle_x/test_ranking.tsv                  -- user_id \t asin \t rating [\t time]
+Produces:
+- reshuffle_{seed}/prompts_{model}.tsv          -- user_id \t prompt_profile
+- reshuffle_{seed}/profiles_{temp}_{model}.tsv  -- user_id \t profile
+- profiles_cache_{temp}_{model}.tsv             -- prompt_profile \t profile
+'''
+
+
 import argparse
 import json
 import os
@@ -9,7 +22,6 @@ from transformers import AutoTokenizer
 
 from llama import (
     call_pipe,
-    call_pipe_dummy,
     clean_text_series,
     cut_to,
     get_pipe,
@@ -157,11 +169,6 @@ def construct_prompts(df, args, prompt_template, tokenizer):
 
 @timeit
 def generate_profile(data, args, pipe):
-    '''
-    profiles file format:            v each model has own column
-        user_id \t prompt_profile \t profile_{model_name}
-                   ^ list of dicts so the same for all models
-    '''
 
     profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_{args.model_name}.tsv'
 
@@ -181,9 +188,9 @@ def generate_profile(data, args, pipe):
         queries=to_generate,
         batch_size=args.batch_size,
     )
-    prompts_df['profile'] = prompts_df['profile'].astype(object)  # dunno why this is needed
+    prompts_df['profile'] = prompts_df['profile'].astype(object)  # dunno why this is needed, breaks without it
     prompts_df.loc[prompts_df['profile'].isna(), 'profile'] = generated
-    prompts_df.to_csv(profile_path, sep='\t', index=False)
+    prompts_df.drop('prompt_profile', axis=1).to_csv(profile_path, sep='\t', index=False)
 
     # update cache
     cache.update(prompts_df.set_index('prompt_profile')['profile'].to_dict())
