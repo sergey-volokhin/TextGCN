@@ -161,6 +161,10 @@ def parse_args(s=None):
                         choices=['llama2', 'llama3'],
                         default='llama2',
                         help='which model was used to generate user profiles')
+    parser.add_argument('--num_reviews',
+                        default='median',
+                        help='number of reviews to use for each user')
+
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
 

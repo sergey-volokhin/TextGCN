@@ -15,12 +15,16 @@ class DatasetReviews(BaseDataset):
     also calculates popularity of items and users
     '''
 
+    def _copy_params(self, config):
+        super()._copy_params(config)
+        self.num_reviews = config.num_reviews
+
     def _load_reviews(self, config):
         self._load_review_file()
-        self._cut_reviews_to_median()
+        num_reviews = self._cut_reviews_to_median()
         self._calc_review_embs(model_name=config.encoder, emb_batch_size=config.emb_batch_size)
-        self._get_items_as_avg_reviews()
-        self._get_users_as_avg_reviews()
+        self._get_items_as_avg_reviews(num_reviews)
+        self._get_users_as_avg_reviews(num_reviews)
         # self._calc_popularity()
 
     def _load_review_file(self):
@@ -44,10 +48,26 @@ class DatasetReviews(BaseDataset):
 
     def _cut_reviews_to_median(self):
         # number of reviews to use for representing items and users
-        num_reviews = int(np.median(
-            pd.concat([self.reviews.groupby('asin')['user_id'].size(),
-                       self.reviews.groupby('user_id')['asin'].size()])
-        ))
+
+        if self.num_reviews == 'all':
+            self.top_med_reviews = (self.reviews
+                .drop_duplicates(subset=['asin', 'user_id'])
+                .sort_values(['time'])
+                .reset_index(drop=True)
+            )
+            return
+
+        if self.num_reviews == 'median':
+            num_reviews = int(np.median(
+                pd.concat([self.reviews.groupby('asin')['user_id'].size(),
+                          self.reviews.groupby('user_id')['asin'].size()])
+            ))
+        else:
+            try:
+                num_reviews = int(self.num_reviews)
+            except ValueError:
+                raise ValueError(f'num_reviews should be "median", "all" or int, not {self.num_reviews}')
+
         self.logger.info(f'using {num_reviews} reviews for each item and user representation')
 
         # use only most recent reviews for representation
@@ -66,7 +86,7 @@ class DatasetReviews(BaseDataset):
         self.top_med_reviews = (
             pd.concat([top_reviews_by_user, top_reviews_by_item])
             .drop_duplicates(subset=['asin', 'user_id'])
-            .sort_values(['asin', 'user_id'])
+            .sort_values(['time'])
             .reset_index(drop=True)
         )
 
@@ -94,7 +114,6 @@ class DatasetReviews(BaseDataset):
 
         self.text_emb_size = len(self.top_med_reviews['vector'].iloc[0])
 
-
     def _calc_popularity(self):
         ''' calculates normalized popularity of users and items, based on the number of reviews they have '''
 
@@ -111,21 +130,18 @@ class DatasetReviews(BaseDataset):
             .unsqueeze(1)
         )
 
-    def _get_items_as_avg_reviews(self):
+    def _get_items_as_avg_reviews(self, num_reviews):
         ''' use average of reviews to represent items '''
         item_text_embs = {}
-        for item, group in self.top_med_reviews.groupby('asin')['vector']:
-            item_text_embs[item] = torch.tensor(group.values.tolist()).mean(axis=0)
+        for item, group in self.top_med_reviews.sort_values(by=['asin', 'time'], ascending=[True, False]).groupby('asin')['vector']:
+            item_text_embs[item] = torch.tensor(group.head(num_reviews).values.tolist()).mean(axis=0)
         mapped = self.item_mapping['remap_id'].map(item_text_embs).values.tolist()
-        mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
         self.item_representations['reviews'] = torch.stack(mapped).to(self.device)
 
-    def _get_users_as_avg_reviews(self):
+    def _get_users_as_avg_reviews(self, num_reviews):
         ''' use average of reviews to represent users '''
         user_text_embs = {}
-        for user, group in self.top_med_reviews.groupby('user_id')['vector']:
-            user_text_embs[user] = torch.tensor(group.values.tolist()).mean(axis=0)
-
+        for user, group in self.top_med_reviews.sort_values(by=['user_id', 'time'], ascending=[True, False]).groupby('user_id')['vector']:
+            user_text_embs[user] = torch.tensor(group.head(num_reviews).values.tolist()).mean(axis=0)
         mapped = self.user_mapping['remap_id'].map(user_text_embs).values.tolist()
-        mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
         self.user_representations['reviews'] = torch.stack(mapped).to(self.device)
