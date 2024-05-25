@@ -16,6 +16,10 @@ class DatasetScoring(BaseDataset):
         self._load_ratings()
         self._normalize_ratings()
 
+    def _load_files(self, *args, **kwargs):
+        self.objective = 'scoring'
+        super()._load_files(*args, **kwargs)
+
     def _train_test_split(self, df, train_size=0.8):
         self.train_df, self.val_df, self.test_df = ttss(df, train_size=train_size, seed=self.seed)
 

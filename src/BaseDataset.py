@@ -52,23 +52,23 @@ class BaseDataset(Dataset):
         folder = self.path
         if reshuffle:
             folder = join(self.path, f'reshuffle_{self.seed}')
-            if not os.path.exists(join(folder, 'train.tsv')):
+            if not os.path.exists(join(folder, f'train_{self.objective}.tsv')):
                 return self._reshuffle_train_test()
 
         self.train_df = (
-            pd.read_table(join(folder, 'train.tsv'), dtype=str)
+            pd.read_table(join(folder, f'train_{self.objective}.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
         )
         self.test_df = (
-            pd.read_table(join(folder, 'test.tsv'), dtype=str)
+            pd.read_table(join(folder, f'test_{self.objective}.tsv'), dtype=str)
             .sort_values(by=['user_id', 'asin'])
             .reset_index(drop=True)
         )
-        if os.path.exists(join(folder, 'valid.tsv')):
+        if os.path.exists(join(folder, f'valid_{self.objective}.tsv')):
             self.logger.debug('loading validation set')
             self.val_df = (
-                pd.read_table(join(folder, 'valid.tsv'), dtype=str)
+                pd.read_table(join(folder, f'valid_{self.objective}.tsv'), dtype=str)
                 .sort_values(by=['user_id', 'asin'])
                 .reset_index(drop=True)
             )
@@ -82,11 +82,11 @@ class BaseDataset(Dataset):
         if os.path.exists(join(self.path, 'reviews_text.tsv')):
             df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating']]
         else:
-            train_df = pd.read_table(join(self.path, 'train.tsv'), dtype=str)
-            test_df = pd.read_table(join(self.path, 'test.tsv'), dtype=str)
+            train_df = pd.read_table(join(self.path, f'train_{self.objective}.tsv'), dtype=str)
+            test_df = pd.read_table(join(self.path, f'test_{self.objective}.tsv'), dtype=str)
             df = pd.concat([train_df, test_df])
-            if os.path.exists(join(self.path, 'valid.tsv')):
-                val_df = pd.read_table(join(self.path, 'valid.tsv'), dtype=str)
+            if os.path.exists(join(self.path, f'valid_{self.objective}.tsv')):
+                val_df = pd.read_table(join(self.path, f'valid_{self.objective}.tsv'), dtype=str)
                 df = pd.concat([df, val_df])
 
         vc = df['user_id'].value_counts()
@@ -104,16 +104,16 @@ class BaseDataset(Dataset):
         self._train_test_split(df)
 
         self.train_df = self.train_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
-        self.train_df.to_csv(join(self.path, f'reshuffle_{self.seed}/train.tsv'), sep='\t', index=False)
+        self.train_df.to_csv(join(self.path, f'reshuffle_{self.seed}/train_{self.objective}.tsv'), sep='\t', index=False)
 
         self.test_df = self.test_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
         self.test_df = self.test_df[self.test_df['asin'].isin(self.train_df['asin'].unique())]
-        self.test_df.to_csv(join(self.path, f'reshuffle_{self.seed}/test.tsv'), sep='\t', index=False)
+        self.test_df.to_csv(join(self.path, f'reshuffle_{self.seed}/test_{self.objective}.tsv'), sep='\t', index=False)
 
         if hasattr(self, 'val_df'):
             self.val_df = self.val_df.sort_values(by=['user_id', 'asin']).reset_index(drop=True)
             self.val_df = self.val_df[self.val_df['asin'].isin(self.train_df['asin'].unique())]
-            self.val_df.to_csv(join(self.path, f'reshuffle_{self.seed}/valid.tsv'), sep='\t', index=False)
+            self.val_df.to_csv(join(self.path, f'reshuffle_{self.seed}/valid_{self.objective}.tsv'), sep='\t', index=False)
 
     def _convert_to_internal_ids(self):
         self.user_mapping = pd.DataFrame(enumerate(self.train_df.user_id.unique()), columns=['remap_id', 'org_id'])

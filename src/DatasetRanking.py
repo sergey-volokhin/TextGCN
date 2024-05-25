@@ -16,10 +16,8 @@ class DatasetRanking(BaseDataset):
         assert self.n_items > max(self.k), f'all k must be less than number of items ({self.n_items}), got k={self.k}'
 
     def _load_files(self, *args, **kwargs):
+        self.objective = 'ranking'
         super()._load_files(*args, **kwargs)
-        if hasattr(self, 'val_df'):
-            self.test_df = pd.concat([self.val_df, self.test_df])
-            delattr(self, 'val_df')
 
     def _copy_params(self, config):
         super()._copy_params(config)
