@@ -18,7 +18,7 @@ def timeit(func):
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         res = func(*args, **kwargs)
-        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec')
+        print(f'{func.__name__:<30} {time.perf_counter() - start:>6.2f} sec', flush=True)
         return res
     return wrapper
 
