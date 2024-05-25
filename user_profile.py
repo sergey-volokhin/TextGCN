@@ -165,11 +165,11 @@ def generate_profile(data, args, pipe):
 
     profile_path = f'{args.data}/reshuffle_{args.seed}/profiles_{args.temp}_{args.model_name}.tsv'
 
-    cache_path = f'{args.data}/profiles_cache_{args.temp}_{args.model_name}.tsv'
-    cache = load_cache(cache_path)
-
     prompt_template = load_prompt_template(args.prompts_template_path)
     prompts_df = construct_prompts(data, args, prompt_template, pipe.tokenizer)
+
+    cache_path = f'{args.data}/profiles_cache_{args.temp}_{args.model_name}.tsv'
+    cache = load_cache(cache_path)
 
     # select only the prompts that need to be generated
     prompts_df['profile'] = prompts_df['prompt_profile'].map(cache)
