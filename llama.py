@@ -259,20 +259,20 @@ def process_type(df, p_type, prompt, pipe, args):
     # drop too long prompts
     df['tokens'] = df[f'prompt_{p_type}'].apply(num_tokens_conversation, args=(pipe.tokenizer,))
     df = df[df['tokens'] < args.max_length - args.min_new_tokens]
-    print('after removing too long', len(df))
+    print('after removing too long', len(df), flush=True)
 
     # generate text
-    df[f'gen_{p_type}'] = call_pipe_dummy(pipe=pipe, queries=df[f'prompt_{p_type}'].tolist(), batch_size=args.batch_size)
+    df[f'gen_{p_type}'] = call_pipe(pipe=pipe, queries=df[f'prompt_{p_type}'].tolist(), batch_size=args.batch_size)
 
     # redo missing or too short
     df['tokens'] = df[f'gen_{p_type}'].apply(num_tokens, args=(pipe.tokenizer,))
     missing = df[(df[f'gen_{p_type}'].isna()) | (df['tokens'] < args.min_new_tokens)][f'prompt_{p_type}']
     if not missing.empty:
-        print(f'filling {len(missing)} missing values for {p_type}')
+        print(f'filling {len(missing)} missing values for {p_type}', flush=True)
         generated = [pipe(i)[0]['generated_text'] for i in tqdm(missing.values, desc='fill missing')]
         df.loc[missing.index, f'gen_{p_type}'] = generated
 
-    print(f'done generating {p_type} prompts for {len(df)} items')
+    print(f'done generating {p_type} prompts for {len(df)} items', flush=True)
     return df
 
 
@@ -300,7 +300,7 @@ def add_reviews(df, p_type, pipe, args):
     # drop too long prompts
     df['tokens'] = df[f'prompt_{p_type}_w_reviews'].apply(num_tokens, args=(pipe.tokenizer,))
     df = df[df['tokens'] < args.max_length - args.min_new_tokens]
-    print('after removing too long', len(df))
+    print('after removing too long', len(df), flush=True)
 
     # generate text
     df[f'gen_{p_type}_w_reviews'] = call_pipe(
@@ -314,14 +314,13 @@ def add_reviews(df, p_type, pipe, args):
     missing = df[(df[f'gen_{p_type}_w_reviews'].isna()) | (df['tokens'] < args.min_new_tokens)][
         f'prompt_{p_type}_w_reviews'
     ]
-    print(f'filling {len(missing)} missing values for {p_type}')
+    print(f'filling {len(missing)} missing values for {p_type}', flush=True)
     generated = [pipe(i)[0]['generated_text'] for i in tqdm(missing.values)]
     df.loc[missing.index, f'gen_{p_type}_w_reviews'] = generated
 
     df['tokens'] = df[f'prompt_{p_type}_w_reviews'].apply(num_tokens, args=(pipe.tokenizer,))
-    print(df.shape)
     df = df[df['tokens'] > args.min_new_tokens].drop(columns='tokens')
-    print(f'done generating {p_type} prompts, {len(df)} items left out of initial {num_items}')
+    print(f'done generating {p_type} prompts, {len(df)} items left out of initial {num_items}', flush=True)
     return df
 
 
@@ -333,7 +332,7 @@ def main():
 
     pipe = get_pipe(args, quantization='bfloat16')
     meta = get_data(args, pipe.tokenizer)
-    print(f'generate text for {len(meta)} items')
+    print(f'generate text for {len(meta)} items', flush=True)
 
     if args.no_reviews:
         for prompt_type, prompt in prompts.items():

@@ -120,7 +120,7 @@ def load_cache(path):
     '''
     if os.path.exists(path):
         return pd.read_table(path).set_index('prompt_profile')['profile'].to_dict()
-    print('profile cache not found, creating')
+    print('profile cache not found, creating', flush=True)
     return {}
 
 
@@ -151,7 +151,6 @@ def construct_prompts(df, args, prompt_template, tokenizer):
             )
         )
     prompts_df = pd.DataFrame(prompts_df, columns=['user_id', 'prompt_profile']).set_index('user_id')
-    print(f'saving filled prompts into {path}')
     prompts_df.to_csv(path, sep='\t')
     return prompts_df
 
@@ -175,7 +174,7 @@ def generate_profile(data, args, pipe):
     # select only the prompts that need to be generated
     prompts_df['profile'] = prompts_df['prompt_profile'].map(cache)
     to_generate = prompts_df[prompts_df['profile'].isna()].prompt_profile.apply(eval).tolist()
-    print(f'caching saved us {100 * (1 - len(to_generate) / len(prompts_df)):.1f}%, generating for {len(to_generate)}')
+    print(f'caching saved us {100 * (1 - len(to_generate) / len(prompts_df)):.1f}%, generating for {len(to_generate)}', flush=True)
     # generate the prompts and put back into dataframe
     generated = call_pipe(
         pipe=pipe,
@@ -185,12 +184,10 @@ def generate_profile(data, args, pipe):
     prompts_df['profile'] = prompts_df['profile'].astype(object)  # dunno why this is needed
     prompts_df.loc[prompts_df['profile'].isna(), 'profile'] = generated
     prompts_df.to_csv(profile_path, sep='\t', index=False)
-    print(f'save profiles into {profile_path}')
 
     # update cache
     cache.update(prompts_df.set_index('prompt_profile')['profile'].to_dict())
     pd.DataFrame(cache.items(), columns=['prompt_profile', 'profile']).to_csv(cache_path, sep='\t', index=False)
-    print(f'saving cached profiles into {cache_path}')
 
     return prompts_df
 
