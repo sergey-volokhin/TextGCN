@@ -152,7 +152,7 @@ def construct_prompts(df, args, prompt_template, tokenizer):
         )
     prompts_df = pd.DataFrame(prompts_df, columns=['user_id', 'prompt_profile']).set_index('user_id')
     print(f'saving filled prompts into {path}')
-    # prompts_df.to_csv(path, sep='\t')
+    prompts_df.to_csv(path, sep='\t')
     return prompts_df
 
 
