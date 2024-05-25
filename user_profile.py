@@ -88,8 +88,8 @@ def load_data(args):
     else:
         reviews, meta = clean_data(args)
 
-    train = pd.read_table(f'{args.data}/reshuffle_{args.seed}/train.tsv')
-    test = pd.read_table(f'{args.data}/reshuffle_{args.seed}/test.tsv')
+    train = pd.read_table(f'{args.data}/reshuffle_{args.seed}/train_ranking.tsv')
+    test = pd.read_table(f'{args.data}/reshuffle_{args.seed}/test_ranking.tsv')
 
     users = set(train.user_id.unique()) | set(test.user_id.unique())
     reviews = reviews[reviews.user_id.isin(users)]
