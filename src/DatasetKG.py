@@ -26,7 +26,7 @@ class DatasetKG(BaseDataset):
             f'item_kg_repr_{config.encoder.split("/")[-1]}.pkl',
         )
 
-        for version in ['v4_proper_Llama-2-7b-chat-hf', 'v3_w_reviews', 'v2', 'v1']:
+        for version in ['v5_llama_3', 'v4_proper_Llama-2-7b-chat-hf', 'v3_w_reviews', 'v2', 'v1']:
             kg_path = os.path.join(self.path, f'kg_readable_{version}.tsv')
             if os.path.exists(kg_path):
                 self.logger.info(f'loaded {version} version of KG')
@@ -34,7 +34,7 @@ class DatasetKG(BaseDataset):
                 break
         else:
             if os.path.exists(os.path.join(self.path, 'meta_synced.tsv')):
-                self.logger.info('loaded meta_synced.tsv version of KG')
+                self.logger.warn('loaded meta_synced.tsv version of KG')
                 kg = pd.read_table(os.path.join(self.path, 'meta_synced.tsv'), index_col=0)
             else:
                 raise FileNotFoundError('No KG file found')

@@ -50,7 +50,7 @@ class BaseDataset(Dataset):
         self.logger.debug('loading data')
 
         folder = self.path
-        if reshuffle:
+        if reshuffle or not os.path.exists(join(folder, 'train.tsv')):
             folder = join(self.path, f'reshuffle_{self.seed}')
             if not os.path.exists(join(folder, f'train_{self.objective}.tsv')):
                 return self._reshuffle_train_test()
@@ -80,7 +80,7 @@ class BaseDataset(Dataset):
         filter to have at least 3 items per user
         '''
         if os.path.exists(join(self.path, 'reviews_text.tsv')):
-            df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating']]
+            df = pd.read_table(join(self.path, 'reviews_text.tsv'), dtype=str).dropna()[['user_id', 'asin', 'rating', 'time']]
         else:
             train_df = pd.read_table(join(self.path, f'train_{self.objective}.tsv'), dtype=str)
             test_df = pd.read_table(join(self.path, f'test_{self.objective}.tsv'), dtype=str)
