@@ -158,8 +158,8 @@ def parse_args(s=None):
                              help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
 
     parser.add_argument('--profile_generator',
-                        choices=['llama2', 'llama3'],
-                        default='llama2',
+                        choices=['llama_2', 'llama_3'],
+                        default='llama_3',
                         help='which model was used to generate user profiles')
     parser.add_argument('--num_reviews',
                         default='median',

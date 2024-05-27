@@ -80,5 +80,4 @@ class DatasetKG(BaseDataset):
 
         for feature in self.features['user']['kg']:
             mapped = self.user_mapping['remap_id'].map(kg_feat_user_text_embs[feature]).values.tolist()
-            # mapped = [torch.zeros(self.text_emb_size) if isinstance(x, float) else x for x in mapped]
             self.user_representations[feature] = torch.stack(mapped).to(self.device)
