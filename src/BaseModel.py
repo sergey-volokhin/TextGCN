@@ -47,11 +47,10 @@ class BaseModel(nn.Module, ABC):
     def fit(self, batches):
         ''' training function '''
 
-        self.optimizer = opt.Adam(self.parameters(), lr=self.lr)
+        self.optimizer = opt.AdamW(self.parameters(), lr=self.lr, weight_decay=self.reg_lambda)
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.slurm, dynamic_ncols=True):
             self.train()
-            self._loss_values = defaultdict(float)
-            epoch_loss = 0
+            self._cur_epoch_loss = 0
             for data in tqdm(batches,
                              desc='train batches',
                              dynamic_ncols=True,
@@ -59,7 +58,7 @@ class BaseModel(nn.Module, ABC):
                              disable=self.slurm):
                 self.optimizer.zero_grad()
                 batch_loss = self.get_loss(data)
-                epoch_loss += batch_loss
+                self._cur_epoch_loss += batch_loss
                 batch_loss.backward()
                 self.optimizer.step()
 
@@ -85,7 +84,7 @@ class BaseModel(nn.Module, ABC):
         self.metrics_log += self.evaluate()
 
         if self.metrics_log.last_epoch_best():
-            self.logger.info(f"Epoch {epoch}: {' '.join([f'{k} = {v:.4f}' for k, v in self._loss_values.items()])}")
+            self.logger.info(f"Epoch {epoch} loss: {self._cur_epoch_loss:.4f}")
             self.metrics_log.log()
 
         if self.to_save:
