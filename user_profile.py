@@ -162,8 +162,8 @@ def construct_prompts(df, args, prompt_template, tokenizer):
                 ),
             )
         )
-    prompts_df = pd.DataFrame(prompts_df, columns=['user_id', 'prompt_profile']).set_index('user_id')
-    prompts_df.to_csv(path, sep='\t')
+    prompts_df = pd.DataFrame(prompts_df, columns=['user_id', 'prompt_profile'])
+    prompts_df.to_csv(path, sep='\t', index=False)
     return prompts_df
 
 
@@ -183,18 +183,22 @@ def generate_profile(data, args, pipe):
     to_generate = prompts_df[prompts_df['profile'].isna()].prompt_profile.apply(eval).tolist()
     print(f'caching saved us {100 * (1 - len(to_generate) / len(prompts_df)):.1f}%, generating for {len(to_generate)}', flush=True)
     # generate the prompts and put back into dataframe
-    generated = call_pipe(
-        pipe=pipe,
-        queries=to_generate,
-        batch_size=args.batch_size,
-    )
     prompts_df['profile'] = prompts_df['profile'].astype(object)  # dunno why this is needed, breaks without it
-    prompts_df.loc[prompts_df['profile'].isna(), 'profile'] = generated
+
+    if to_generate:
+        generated = call_pipe(
+            pipe=pipe,
+            queries=to_generate,
+            batch_size=args.batch_size,
+        )
+        prompts_df.loc[prompts_df['profile'].isna(), 'profile'] = generated
+
     prompts_df.drop('prompt_profile', axis=1).to_csv(profile_path, sep='\t', index=False)
 
     # update cache
-    cache.update(prompts_df.set_index('prompt_profile')['profile'].to_dict())
-    pd.DataFrame(cache.items(), columns=['prompt_profile', 'profile']).to_csv(cache_path, sep='\t', index=False)
+    if to_generate:
+        cache.update(prompts_df.set_index('prompt_profile')['profile'].to_dict())
+        pd.DataFrame(cache.items(), columns=['prompt_profile', 'profile']).to_csv(cache_path, sep='\t', index=False)
 
     return prompts_df
 
