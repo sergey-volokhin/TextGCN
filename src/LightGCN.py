@@ -97,11 +97,6 @@ class LightGCN(BaseModel):
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
 
-    def reg_loss(self, users, items):
-        ''' regularization L2 loss '''
-        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
-        return loss / (len(users) + len(items))
-
     def layer_aggregation(self, norm_matrix, emb_matrix):
         '''
         aggregate the neighbor's representations

@@ -44,11 +44,7 @@ class RankingModel(BaseModel):
     def get_loss(self, data):
         users, pos, *negs = data.to(self.device).t()
         users_emb, items_emb = self.forward()
-        bpr_loss = self.bpr_loss(users_emb, items_emb, users, pos, negs)
-        reg_loss = self.reg_lambda * self.reg_loss(users, torch.stack([pos] + negs))
-        self._loss_values['bpr'] += bpr_loss
-        self._loss_values['reg'] += reg_loss
-        return bpr_loss + reg_loss
+        return  self.bpr_loss(users_emb, items_emb, users, pos, negs)
 
     def bpr_loss(self, users_emb, items_emb, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
