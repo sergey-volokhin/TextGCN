@@ -148,7 +148,7 @@ class BaseDataset(Dataset):
         self.positive_lists = [{
             'list': self.train_user_dict[u],  # list for faster random.choice
             'set': set(self.train_user_dict[u]),  # set for faster "x in y" check
-            'tensor': torch.tensor(self.train_user_dict[u]).to(self.device),  # tensor for faster set difference
+            'tensor': torch.tensor(self.train_user_dict[u], device=self.device),  # tensor for faster set difference
         } for u in range(self.n_users)]
 
         self.user_representations = {}  # todo: where should this be?
@@ -211,7 +211,7 @@ class BaseDataset(Dataset):
             if neg_sample not in self.positive_lists[idx]['set']:
                 neg_samples.add(neg_sample)
         negatives = np.array(list(neg_samples)).reshape(-1, self.bucket_len)
-        self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives))))
+        self.cached_samplings[idx] = deque(torch.tensor(list(zip(repeat(idx), positives, *negatives)), device=self.device))
 
     def __len__(self):
         return self.iterable_len

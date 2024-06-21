@@ -136,8 +136,8 @@ class LTRBaseModel(BaseModel):
         layer_sizes: represents the size and number of hidden layers (default: no hidden layers)
         '''
         layer_sizes = [len(self.feature_names)] + config.ltr_layers + [1]
-        layers = [nn.Linear(i, j) for i, j in zip(layer_sizes, layer_sizes[1:])]
-        self.layers = nn.Sequential(*layers).to(self.device)
+        layers = [nn.Linear(i, j, device=self.device) for i, j in zip(layer_sizes, layer_sizes[1:])]
+        self.layers = nn.Sequential(*layers)
 
     def reg_loss(self, *args, **kwargs):
         return self.foundation.reg_loss(*args, **kwargs)

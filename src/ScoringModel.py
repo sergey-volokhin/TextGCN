@@ -5,8 +5,8 @@ import torch
 from torch import nn
 
 from .BaseModel import BaseModel
-from .utils import calculate_scoring_metrics as calculate_metrics
 from .MetricsTracker import ScoringMetricsTracker
+from .utils import calculate_scoring_metrics as calculate_metrics
 
 
 class ScoringModel(BaseModel):

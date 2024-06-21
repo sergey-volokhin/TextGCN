@@ -77,6 +77,8 @@ class DatasetKG(BaseDataset):
         for user, group in self.top_med_interactions.groupby('user_id')['asin']:
             for feature in self.features['user']['kg']:
                 kg_feat_user_text_embs[feature][user] = self.item_representations[feature][group.values].mean(axis=0).cpu()
+        if feature not in self.features['item']['kg']:
+            del self.item_representations[feature]
 
         for feature in self.features['user']['kg']:
             mapped = self.user_mapping['remap_id'].map(kg_feat_user_text_embs[feature]).values.tolist()
