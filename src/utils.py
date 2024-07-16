@@ -96,12 +96,29 @@ def get_logger(config):
         config.logging_level = 'error'
     config.logging_level = logging._nameToLevel[config.logging_level.upper()]
     logging.basicConfig(
-        level=(logging.ERROR if config.quiet else config.logging_level),
+        level=config.logging_level,
         format='%(asctime)-10s - %(levelname)s: %(message)s',
         datefmt='%d/%m/%y %H:%M',
         handlers=[logging.FileHandler(os.path.join(config.save_path, 'log.log'), mode='w'), logging.StreamHandler()],
     )
     return logging.getLogger()
+
+
+def emit_into_file(logger, msg):
+    # Log a message that goes to the file only
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.emit(
+                logging.LogRecord(
+                    name=logger.name,
+                    level=logging.INFO,
+                    pathname=__file__,
+                    lineno=42,
+                    msg=msg,
+                    args=(),
+                    exc_info=None,
+                )
+            )
 
 
 def sort_process_unsort(func):

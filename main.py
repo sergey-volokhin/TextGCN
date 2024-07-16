@@ -1,3 +1,5 @@
+import logging
+
 from torch.utils.data import DataLoader
 from transformers import set_seed
 
@@ -13,6 +15,7 @@ from src.LTRLinear import (
     LTRLinearScoreWPop,
 )
 from src.parsing import parse_args
+from src.utils import emit_into_file
 
 
 def get_class(name):
@@ -32,11 +35,18 @@ def main():
     config = parse_args()
     set_seed(config.seed)
     Dataset, Model = get_class(config.model)
-    config.logger.info(f'Class: {Model.__name__}')
-    config.logger.info('Parameters:')
+
+    infos = [f'Class: {Model.__name__}', 'Parameters:']
     for key, value in vars(config).items():
-        config.logger.info(f'  {key}: {value}')
-    config.logger.info('')
+        infos.append(f'  {key}: {value}')
+    infos.append('')
+
+    # Log the parameters. if quiet, log the arguments into the file only
+    for info in infos:
+        if config.logging_level == logging.ERROR:
+            emit_into_file(config.logger, info)
+        else:
+            config.logger.info(info)
 
     dataset = Dataset(config)
     model = Model(config, dataset)

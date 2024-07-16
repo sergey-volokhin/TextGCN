@@ -3,6 +3,7 @@ import os
 import sys
 import time
 
+import psutil
 import torch
 
 from .utils import get_logger
@@ -172,11 +173,16 @@ def parse_args(s=None):
 def process_args(args):
     args.k = sorted(args.k)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
+    if args.encoder == 'all-MiniLM-L6-v2':
+        args.emb_batch_size = 512
     if args.model.startswith('LTR'):
         args.kg_features_choices = kg_features_choices
     else:
         for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size', 'profile_generator']:
             delattr(args, i)
+
+    if 'slurm' in psutil.Process(os.getppid()).name():
+        args.slurm = True
 
     ''' paths '''
     args.data = os.path.join(args.data, '')  # make sure path ends with '/'

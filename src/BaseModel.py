@@ -1,7 +1,6 @@
 import os
 import shutil
 from abc import ABC, abstractmethod
-from collections import defaultdict
 
 import torch
 import torch.optim as opt
@@ -26,16 +25,18 @@ class BaseModel(nn.Module, ABC):
         self.to(self.device)
 
     def _copy_params(self, config):
-        self.lr = config.lr
-        self.to_save = config.save
+        if not config.no_train:
+            self.lr = config.lr
+            self.to_save = config.save
+            self.epochs = config.epochs
+            self.save_path = config.save_path
+            self.evaluate_every = config.evaluate_every
+        self.patience = config.patience  # how to delete this?
         self.quiet = config.quiet
-        self.epochs = config.epochs
         self.logger = config.logger
         self.device = config.device
-        self.patience = config.patience
-        self.save_path = config.save_path
-        self.evaluate_every = config.evaluate_every
         self.slurm = config.slurm or config.quiet
+        self.use_scheduler = config.scheduler
 
     def _copy_dataset_params(self, dataset):
         ...
@@ -48,6 +49,11 @@ class BaseModel(nn.Module, ABC):
         ''' training function '''
 
         self.optimizer = opt.AdamW(self.parameters(), lr=self.lr, weight_decay=self.reg_lambda)
+        if self.use_scheduler:
+            self.scheduler = opt.lr_scheduler.StepLR(self.optimizer, step_size=5)
+            # self.scheduler = opt.lr_scheduler.CosineAnnealingLR(self.optimizer, eta_min=1e-6, T_max=self.epochs)
+            self.prev_lr = self.lr
+
         for epoch in trange(1, self.epochs + 1, desc='epochs', disable=self.slurm, dynamic_ncols=True):
             self.train()
             self._cur_epoch_loss = 0
@@ -62,16 +68,29 @@ class BaseModel(nn.Module, ABC):
                 batch_loss.backward()
                 self.optimizer.step()
 
+            if self.use_scheduler:
+                self.scheduler.step()
+
             if epoch % self.evaluate_every:
                 continue
 
-            self.evaluate_and_log(epoch)
+            val_res = self.evaluate_and_log(epoch)
+
+            # scheduler stuff
+            if self.use_scheduler:
+                # self.scheduler.step(val_res[self.metrics_log.main_metric])  # for ReduceLROnPlateau scheduler
+                cur_lr = self.scheduler.get_last_lr()[0]
+                if cur_lr != self.prev_lr:
+                    self.logger.info(f'Changed LR to {cur_lr}')
+                    self.prev_lr = cur_lr
+
             if self.metrics_log.should_stop():
                 self.logger.warning(f'Early stopping triggerred at epoch {epoch}')
                 break
 
         if self.last_eval_epoch != self.epochs and self.to_save:
             self.evaluate_and_log(epoch)
+        self.logger.error(f'Epoch: {epoch}')
         self.metrics_log.print_best_results(level='error')
 
     def evaluate_and_log(self, epoch):
@@ -81,7 +100,8 @@ class BaseModel(nn.Module, ABC):
         and once at the end if epochs % eval_every != 0
         '''
         self.last_eval_epoch = epoch
-        self.metrics_log += self.evaluate()
+        val_result = self.evaluate()
+        self.metrics_log += val_result
 
         if self.metrics_log.last_epoch_best():
             self.logger.info(f"Epoch {epoch} loss: {self._cur_epoch_loss:.4f}")
@@ -89,6 +109,8 @@ class BaseModel(nn.Module, ABC):
 
         if self.to_save:
             self.save()
+
+        return val_result
 
     def save(self):
         ''' save current model and update the best one '''

@@ -55,10 +55,7 @@ class LightGCN(BaseModel):
         return torch.matmul(users_emb, items_emb.T)
 
     def layer_combination_single(self, vectors):
-        '''
-        only return the last layer representation
-        instead of combining all layers
-        '''
+        ''' only return the last layer representation instead of combining all layers '''
         return vectors[-1]
 
     @property
