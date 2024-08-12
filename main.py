@@ -15,6 +15,7 @@ from src.LTRLinear import (
     LTRLinearScoreWPop,
 )
 from src.parsing import parse_args
+from src.rejected_models import LTRTorchGeometricRank, TorchGeometricRank
 from src.utils import emit_into_file
 
 
@@ -30,11 +31,18 @@ def get_class(name):
     }[name]
 
 
+def get_torch_geometric_class(name):
+    return [LTRDatasetRank, LTRTorchGeometricRank] if 'LTR' in name else [DatasetRanking, TorchGeometricRank]
+
+
 def main():
 
     config = parse_args()
     set_seed(config.seed)
-    Dataset, Model = get_class(config.model)
+    try:
+        Dataset, Model = get_class(config.model)
+    except KeyError:
+        Dataset, Model = get_torch_geometric_class(config.model)
 
     infos = [f'Class: {Model.__name__}', 'Parameters:']
     for key, value in vars(config).items():

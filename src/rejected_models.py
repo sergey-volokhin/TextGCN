@@ -3,22 +3,21 @@ from abc import ABC, abstractmethod
 
 sys.path.append('..')
 import torch
+from torch import nn
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
 from torch_geometric.nn import (
+    AntiSymmetricConv,
     GATConv,
     GATv2Conv,
     GCNConv,
     LGConv,
     SAGEConv,
-    AntiSymmetricConv, DirGNNConv,
+    SuperGATConv,
+    TransformerConv,
 )
-from transformers import set_seed
 
-from .DatasetRanking import DatasetRanking
-from .DatasetScoring import DatasetScoring
 from .LightGCN import LightGCN
-from .parsing import parse_args
+from .LTRBaseModel import LTRBaseModel
 from .RankingModel import RankingModel
 from .ScoringModel import ScoringModel
 
@@ -36,7 +35,6 @@ class TorchGeometric(LightGCN):
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
         self._build_layers(config.emb_size, config.model, config.aggr)
-        print(self.layers)
 
     def _build_layers(self, emb_size, model_name, aggr):
         LayerClass = {
@@ -46,16 +44,24 @@ class TorchGeometric(LightGCN):
             'sage': SAGEConv,
             'lightgcn': LGConv,
             'antisymmetric': AntiSymmetricConv,
-            'dirgcn': DirGNNConv,
+            # 'dirgcn': DirGNNConv,
+            'supergat': SuperGATConv,
+            'transformer': TransformerConv,
         }[model_name]
+        # some layers have trainable params unlike LGConv, so can't just have one layer
+        self.act = False
         if model_name == 'lightgcn':
-            self.layers = [LayerClass().to(self.device) for _ in range(self.n_layers)]
+            self.layers = nn.ModuleList([LayerClass().to(self.device) for _ in range(self.n_layers)])
         elif model_name == 'antisymmetric':
-            self.layers = [LayerClass(in_channels=emb_size).to(self.device) for _ in range(self.n_layers)]
+            self.layers = nn.ModuleList([LayerClass(in_channels=emb_size).to(self.device) for _ in range(self.n_layers)])
         # elif model_name == 'dirgcn':
         #     self.layers = [LayerClass(conv=LGConv()).to(self.device) for _ in range(self.n_layers)]
         else:
-            self.layers = [LayerClass(in_channels=emb_size, out_channels=emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)]
+            self.layers = nn.ModuleList([LayerClass(in_channels=emb_size, out_channels=emb_size, aggr=aggr).to(self.device) for _ in range(self.n_layers)])
+            self.act = F.relu
+
+        if model_name == 'gatv2':
+            self.act = F.leaky_relu
 
     def forward(self):
         ''' same as in LightGCN, but call each layer instead of aggregating '''
@@ -63,8 +69,10 @@ class TorchGeometric(LightGCN):
         edge_index = torch.cat([norm_matrix.indices(), norm_matrix.indices().flip(dims=(0, 1))], axis=1)
         current_layer_emb_matrix = self.embedding_matrix
         node_embed_cache = [current_layer_emb_matrix]
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             current_layer_emb_matrix = layer(current_layer_emb_matrix, edge_index)
+            if i < self.n_layers - 1 and self.act:
+                current_layer_emb_matrix = self.act(current_layer_emb_matrix)
             node_embed_cache.append(current_layer_emb_matrix)
         aggregated_embeddings = self.layer_combination(node_embed_cache)
         return torch.split(aggregated_embeddings, [self.n_users, self.n_items])
@@ -314,23 +322,31 @@ class TorchGeometricScore(TorchGeometric, ScoringModel):
     ...
 
 
-def main():
-    params = parse_args()
-    set_seed(params.seed)
+class LTRTorchGeometricRank(LTRBaseModel, RankingModel):
 
-    # params.aggr = 'add'
-    params.aggr = 'max'
-    # params.aggr = 'mean'
-
-    # dataset = DatasetRanking(params)
-    # model = TorchGeometricRank(params, dataset)
-
-    dataset = DatasetScoring(params)
-    model = TorchGeometricScore(params, dataset)
-
-    loader = DataLoader(dataset, batch_size=params.batch_size, shuffle=True)
-    model.fit(loader)
+    def _add_vars(self, config):
+        super()._add_vars(config)
+        self.foundation_class = TorchGeometricRank
+        config.model = config.model.lstrip('LTR')
 
 
-if __name__ == '__main__':
-    main()
+# def main():
+#     params = parse_args()
+#     set_seed(params.seed)
+
+#     # params.aggr = 'add'
+#     params.aggr = 'max'
+#     # params.aggr = 'mean'
+
+#     # dataset = DatasetRanking(params)
+#     # model = TorchGeometricRank(params, dataset)
+
+#     dataset = DatasetScoring(params)
+#     model = TorchGeometricScore(params, dataset)
+
+#     loader = DataLoader(dataset, batch_size=params.batch_size, shuffle=True)
+#     model.fit(loader)
+
+
+# if __name__ == '__main__':
+#     main()

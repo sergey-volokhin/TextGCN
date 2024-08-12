@@ -38,7 +38,7 @@ template = '<Item Title>: "{}"; <Item Description>: "{}"; <User Review> "{}"; <U
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', type=str, default='llama_3', choices=['llama_2', 'llama_3'])
+    parser.add_argument('--model_name', type=str, default='llama_3', choices=longer_names)
     parser.add_argument('--data', '-d', type=str, default='data/sampled_Toys_and_Games')
     parser.add_argument('--temp', type=float, default=0.4)
     parser.add_argument(
@@ -73,7 +73,12 @@ def parse_args():
     args.max_length = {
         'llama_2': 4096,
         'llama_3': 8192,
+        'llama_3.1': 128000,
+        'mistral': 32000,
     }[args.model_name.lower()]
+    if args.model_name in ['llama_3.1', 'mistral']:
+        args.max_review_number = -1
+        args.max_review_length = -1
     return args
 
 
@@ -102,11 +107,13 @@ def load_data(args):
 
     train = pd.read_table(f'{args.data}/reshuffle_{args.seed}/train_ranking.tsv')
     test = pd.read_table(f'{args.data}/reshuffle_{args.seed}/test_ranking.tsv')
-
     users = set(train.user_id.unique()) | set(test.user_id.unique())
     reviews = reviews[reviews.user_id.isin(users)]
 
-    train = train[train.user_id.isin(users)].groupby('user_id').head(args.max_review_number)
+    train = train[train.user_id.isin(users)]
+
+    if args.max_review_number > 0:
+        train = train.groupby('user_id').head(args.max_review_number)
 
     return train.merge(meta, on='asin').merge(reviews, on=['user_id', 'asin', 'rating'])
 
@@ -206,8 +213,8 @@ def generate_profile(data, args, pipe):
 def main():
     args = parse_args()
     random.seed(args.seed)
-    pipe = get_pipe(args, quantization='bfloat16')
     data = load_data(args)
+    pipe = get_pipe(args, quantization='bfloat16')
     profiles = generate_profile(data, args, pipe)
 
 

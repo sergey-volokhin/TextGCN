@@ -159,18 +159,24 @@ def parse_args(s=None):
                              help='which textual features to use in the linear layer of LTR models in addition to LightGCN score')
 
     parser.add_argument('--profile_generator',
-                        choices=['llama_2', 'llama_3'],
+                        choices=['llama_2', 'llama_3', 'llama_3.1', 'mistral'],
                         default='llama_3',
                         help='which model was used to generate user profiles')
     parser.add_argument('--num_reviews',
                         default='median',
                         help='number of reviews to use for each user')
 
+    parser.add_argument('--aggr', choices=['sum', 'mean', 'min', 'max', 'mul'], default='mean')
+
     args = parser.parse_args(s.split()) if s is not None else parser.parse_args()
     return process_args(args)
 
 
 def process_args(args):
+
+    if 'slurm' in psutil.Process(os.getppid()).name():
+        args.slurm = True
+
     args.k = sorted(args.k)
     sys.setrecursionlimit(15000)  # this fixes tqdm bug
     if args.encoder == 'all-MiniLM-L6-v2':
@@ -178,7 +184,7 @@ def process_args(args):
     if args.model.startswith('LTR'):
         args.kg_features_choices = kg_features_choices
     else:
-        for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size', 'profile_generator']:
+        for i in ['ltr_text_features', 'ltr_layers', 'encoder', 'emb_batch_size', 'profile_generator', 'num_reviews']:
             delattr(args, i)
 
     if 'slurm' in psutil.Process(os.getppid()).name():

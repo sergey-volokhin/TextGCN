@@ -36,6 +36,22 @@ class RankingModel(BaseModel):
         self.item_mapping_dict = dict(dataset.item_mapping[['remap_id', 'org_id']].values)  # internal id -> real id
         self.user_mapping = dataset.user_mapping
 
+        vc = pd.concat([dataset.train_df, dataset.test_df]).user_id.value_counts()
+        self.tail_users = vc[vc < 5].index
+        self.head_users = vc[vc > 4].index
+        self.tailest_users = vc[vc == 2].index
+
+    def evaluate_headtail(self, predictions):
+        predictions_head = predictions[predictions.user_id.isin(self.head_users)].copy()
+        metrics_head = calculate_metrics(predictions_head, self.k)
+        self.logger.info("Head users:")
+        self.metrics_log.log(metrics_head)
+
+        predictions_tailest = predictions[predictions.user_id.isin(self.tailest_users)].copy()
+        metrics_tailest = calculate_metrics(predictions_tailest, self.k)
+        self.logger.info("Tailest users:")
+        self.metrics_log.log(metrics_tailest)
+
     def _add_vars(self, config):
         super()._add_vars(config)
         self.metrics_log = RankingMetricsTracker(logger=self.logger, patience=self.patience, k=self.k)
@@ -44,7 +60,12 @@ class RankingModel(BaseModel):
     def get_loss(self, data):
         users, pos, *negs = data.to(self.device).t()
         users_emb, items_emb = self.forward()
-        return  self.bpr_loss(users_emb, items_emb, users, pos, negs)
+        return self.bpr_loss(users_emb, items_emb, users, pos, negs) + self.reg_lambda * self.reg_loss(users, torch.stack([pos] + negs))
+
+    def reg_loss(self, users, items):
+        ''' regularization L2 loss '''
+        loss = self.embedding_user(users).norm(2).pow(2) + self.embedding_item(items).norm(2).pow(2)
+        return loss / (len(users) + len(items))
 
     def bpr_loss(self, users_emb, items_emb, users, pos, negs):
         ''' Bayesian Personalized Ranking pairwise loss '''
@@ -65,6 +86,7 @@ class RankingModel(BaseModel):
             'y_pred': predictions,
             'scores': scores,
         })
+        # self.evaluate_headtail(predictions)
         return calculate_metrics(predictions, self.k)
 
     @torch.no_grad()
@@ -87,9 +109,10 @@ class RankingModel(BaseModel):
         users_emb, items_emb = self.forward()
         for batch_users in tqdm(batches,
                                 desc='predict batches',
-                                leave=False,
+                                #leave=False,
                                 dynamic_ncols=True,
-                                disable=self.slurm):
+                                disable=self.slurm,
+                                total=len(users) // self.batch_size):
 
             rating = self.score_batchwise(users_emb[batch_users], items_emb, batch_users)
 

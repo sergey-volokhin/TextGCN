@@ -5,7 +5,7 @@ from .ScoringModel import ScoringModel
 
 
 class LTRLinearRank(LTRBaseModel, RankingModel):
-
+    # these should not inherit from LightGCN or any other specific rec sys model
     def _add_vars(self, config):
         super()._add_vars(config)
         self.foundation_class = LightGCNRank

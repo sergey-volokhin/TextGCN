@@ -28,7 +28,7 @@ from unidecode import unidecode
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', type=str, default='llama_3', choices=['llama_2', 'llama_3'])
+    parser.add_argument('--model_name', type=str, default='llama_3', choices=longer_names)
     parser.add_argument('--data', '-d', type=str, default='data/sampled_Toys_and_Games')
     parser.add_argument('--temp', type=float, default=0.4)
     parser.add_argument(
@@ -57,9 +57,16 @@ def parse_args():
     args.max_length = {
         'llama_2': 4096,
         'llama_3': 8192,
+        'llama_3.1': 128000,
+        'mistral': 32000,
     }[args.model_name.lower()]
 
     assert args.no_reviews or args.reviews, 'either --no_reviews or --reviews must be set'
+
+    if args.model_name in ['llama_3.1', 'mistral']:
+        args.max_review_length = -1
+        args.max_desc_len = -1
+
     return args
 
 
@@ -91,7 +98,12 @@ default_hf_kwargs = {
     'repetition_penalty': 1.2,
 }
 
-longer_names = {'llama_2': 'meta-llama/Llama-2-7b-chat-hf', 'llama_3': 'meta-llama/Meta-Llama-3-8B-Instruct'}
+longer_names = {
+    'llama_2': 'meta-llama/Llama-2-7b-chat-hf',
+    'llama_3': 'meta-llama/Meta-Llama-3-8B-Instruct',
+    'llama_3.1': 'meta-llama/Meta-Llama-3.1-8B-Instruct',
+    'mistral': 'mistralai/Mistral-7B-Instruct-v0.3',
+}
 
 
 def timeit(func):
@@ -135,6 +147,8 @@ def clean_text_series(series):
 
 
 def cut_to(sentence, tokenizer, max_length):
+    if max_length == -1:
+        return tokenizer.convert_tokens_to_string(tokenizer.tokenize(sentence))
     return tokenizer.convert_tokens_to_string(tokenizer.tokenize(sentence)[:max_length])
 
 
@@ -199,7 +213,11 @@ def get_pipe(args, quantization='bfloat16'):
         repetition_penalty=1.2,
         truncation=True,
     )
+
     pipe.tokenizer.pad_token_id = pipe.model.config.eos_token_id  # so we can do batching
+    if pipe.tokenizer.pad_token_id is None:  # this happens for llama 3.1 for some reason
+        pipe.tokenizer.pad_token_id = pipe.tokenizer.eos_token_id
+
     # pipe.tokenizer.pad_token = "[PAD]"
     pipe.tokenizer.padding_side = "left"
     return pipe
